@@ -1,0 +1,46 @@
+source:
+  url: "https://bart.ideam.gov.co/ospa/gifs/satelite/INFRARROJO/DUITAMA_C13.gif"
+  interval_seconds: 600
+  connect_timeout_seconds: 15
+  request_timeout_seconds: 120
+
+history:
+  hours: 6
+  storage_path: "/var/lib/rustideam/frames"
+  index_path: "/var/lib/rustideam/index.json"
+
+# Debe medirse sobre un frame real antes del despliegue.
+timestamp:
+  format: "%Y-%m-%d %H:%M"
+  crop:
+    x: null
+    y: null
+    width: null
+    height: null
+  preprocessing:
+    threshold: null
+    invert: false
+    scale: 1
+  recognition:
+    method: "template"
+    templates_path: "/etc/rustideam/templates"
+    minimum_confidence: null
+
+output:
+  format: "mp4"
+  codec: "h264"
+  path: "/var/www/weewx/satellite/duitama_c13_6h.mp4"
+  temp_suffix: ".tmp"
+
+  # Valores finales pendientes de benchmark sobre material real.
+  playback:
+    fps: null
+
+  encoding:
+    crf: null
+    preset: null
+    pixel_format: "yuv420p"
+
+logging:
+  level: "info"
+  json: false
