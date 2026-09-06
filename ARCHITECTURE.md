@@ -15,7 +15,7 @@ flowchart TD
     K["Archivo temporal completo"]
     L["Rename atómico"]
     M["Archivo publicado WeeWX"]
-    N["&lt;video autoplay loop muted playsinline&gt;"]
+    N["video autoplay loop muted play"]
 
     A --> B
     B --> C
