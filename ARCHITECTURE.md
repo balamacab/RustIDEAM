@@ -1,43 +1,40 @@
 # Arquitectura
 
-```text
-IDEAM DUITAMA_C13.gif (~2 h)
-            |
-            v
-      downloader HTTP
-            |
-            v
-       GIF decoder
-            |
-            +--> identidad/hash
-            |
-            +--> crop timestamp
-                     |
-                     v
-             template recognizer
-                     |
-                     v
-                timestamp
-            |
-            v
-      deduplicación persistente
-            |
-            v
-      buffer local móvil 6 h
-            |
-            v
-     encoder de salida eficiente
-            |
-            v
-      archivo temporal completo
-            |
-         rename atómico
-            |
-            v
-      archivo publicado WeeWX
-            |
-            v
-  <video autoplay loop muted playsinline>
+```mermaid
+flowchart TD
+    A["IDEAM DUITAMA_C13.gif<br/>(~2 h)"]
+    B["Downloader HTTP"]
+    C["GIF decoder"]
+    D["Identidad / hash"]
+    E["Crop timestamp"]
+    F["Template recognizer"]
+    G["Timestamp"]
+    H["Deduplicación persistente"]
+    I["Buffer local móvil<br/>6 h"]
+    J["Encoder de salida eficiente"]
+    K["Archivo temporal completo"]
+    L["Rename atómico"]
+    M["Archivo publicado WeeWX"]
+    N["&lt;video autoplay loop muted playsinline&gt;"]
+
+    A --> B
+    B --> C
+
+    C --> D
+    C --> E
+
+    E --> F
+    F --> G
+
+    D --> H
+    G --> H
+
+    H --> I
+    I --> J
+    J --> K
+    K --> L
+    L --> M
+    M --> N
 ```
 
 ## Componentes
