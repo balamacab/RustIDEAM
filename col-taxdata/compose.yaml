@@ -1,0 +1,9 @@
+services:
+  taxdata:
+    build:
+      context: .
+    image: col-taxdata:local
+    working_dir: /app
+    volumes:
+      - ./data:/app/data
+    restart: "no"
