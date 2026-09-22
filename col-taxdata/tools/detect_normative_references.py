@@ -12,14 +12,33 @@ import uuid
 from pathlib import Path
 
 DETECTOR_NAME = "normative_reference_regex"
-DETECTOR_VERSION = "2"
+DETECTOR_VERSION = "3"
 
 DOCUMENT_RE = re.compile(
     r"\b(?P<type>Ley|Decreto|Resoluci[oó]n|Circular|Concepto|Oficio)"
-    r"(?:\s+[ÚU]nico)?"
+    r"(?:\s+[ÚU]nico(?:\s+Reglamentario)?)?"
+    r"(?:\s+DIAN)?"
     r"\s+(?:(?:N[uú]mero|No\.?|Nro\.?)\s*)?"
     r"(?P<number>\d+[A-Za-z]?)"
     r"\s+de\s+(?P<year>\d{4})\b",
+    re.IGNORECASE,
+)
+
+DIAN_INTERNAL_DOC_RE = re.compile(
+    r"\b(?P<type>Concepto|Oficio)\s+"
+    r"(?P<number>\d+(?:\s+\d+)*)\s+"
+    r"int(?:\.?|-)?\s*(?P<internal>\d+)\s+"
+    r"de\s+(?P<year>\d{4})\b",
+    re.IGNORECASE,
+)
+
+DIAN_DATED_DOC_RE = re.compile(
+    r"\b(?P<type>Concepto|Oficio)\s+"
+    r"(?P<number>\d+(?:\s+\d+)*)"
+    r"(?:\s+int(?:\.?|-)?\s*(?P<internal>\d+))?"
+    r"\s+del\s+\d{1,2}\s+de\s+"
+    r"[A-Za-zÁÉÍÓÚÜÑáéíóúüñ]+\s+de\s+"
+    r"(?P<year>\d{4})\b",
     re.IGNORECASE,
 )
 
@@ -28,11 +47,13 @@ ARTICLE_SCOPE_RE = re.compile(
     r"(?P<articles>"
     r"\d[\d.\-\s,;yYº°oO]*?"
     r")"
+    r"(?:\s*\[\d+\])?"
     r"\s+(?:del|de\s+la)\s+"
     r"(?P<target>"
     r"Estatuto\s+Tributario"
     r"|(?:Ley|Decreto|Resoluci[oó]n)"
-    r"(?:\s+[ÚU]nico)?"
+    r"(?:\s+[ÚU]nico(?:\s+Reglamentario)?)?"
+    r"(?:\s+DIAN)?"
     r"\s+(?:(?:N[uú]mero|No\.?|Nro\.?)\s*)?"
     r"\d+[A-Za-z]?\s+de\s+\d{4}"
     r")",
@@ -41,6 +62,20 @@ ARTICLE_SCOPE_RE = re.compile(
 
 ARTICLE_TOKEN_RE = re.compile(
     r"\d+(?:\.\d+)*(?:-\d+)?(?:[oOº°])?"
+)
+
+
+DOCUMENT_THEN_ARTICLE_RE = re.compile(
+    r"(?P<target>"
+    r"(?:Ley|Decreto|Resoluci[oó]n)"
+    r"(?:\s+[ÚU]nico(?:\s+Reglamentario)?)?"
+    r"(?:\s+DIAN)?"
+    r"\s+(?:(?:N[uú]mero|No\.?|Nro\.?)\s*)?"
+    r"\d+[A-Za-z]?\s+de\s+\d{4}"
+    r")"
+    r"[^.;:]{0,120}?"
+    r"\bart[ií]culo\s+(?P<article>\d+(?:\.\d+)*(?:-\d+)?)\b",
+    re.IGNORECASE,
 )
 
 
@@ -57,7 +92,8 @@ ARTICLE_HIERARCHY_SCOPE_RE = re.compile(
     r"\s+(?:del|de\s+la)\s+"
     r"(?P<target>"
     r"(?:Ley|Decreto|Resoluci[oó]n)"
-    r"(?:\s+[ÚU]nico)?"
+    r"(?:\s+[ÚU]nico(?:\s+Reglamentario)?)?"
+    r"(?:\s+DIAN)?"
     r"\s+(?:(?:N[uú]mero|No\.?|Nro\.?)\s*)?"
     r"\d+[A-Za-z]?\s+de\s+\d{4}"
     r")",
@@ -128,9 +164,18 @@ def normalize_document_type(value: str) -> str:
     return mapping[key]
 
 
+def normalize_document_number(value: str) -> str:
+    compact = re.sub(r"\s+", "", value).upper()
+    match = re.fullmatch(r"0*(\d+)([A-Z]?)", compact)
+    if not match:
+        return compact
+    number = str(int(match.group(1)))
+    return number + match.group(2)
+
+
 def target_from_document_match(match: re.Match[str]) -> TargetDocument:
     document_type = normalize_document_type(match.group("type"))
-    number = match.group("number").upper()
+    number = normalize_document_number(match.group("number"))
     year = int(match.group("year"))
     return TargetDocument(
         key=f"CO:{document_type}:{number}:{year}",
@@ -158,6 +203,27 @@ def target_from_text(value: str) -> TargetDocument:
 def extract_mentions(text: str) -> list[Mention]:
     mentions: list[Mention] = []
     occupied: set[tuple[int, int, str]] = set()
+
+    def add_document_match(match: re.Match[str]) -> None:
+        target = target_from_document_match(match)
+        normalized = target.key
+        key = (match.start(), match.end(), normalized)
+        if key in occupied:
+            return
+        occupied.add(key)
+        mentions.append(
+            Mention(
+                mention_type="document",
+                raw_text=match.group(0),
+                context_text=match.group(0),
+                normalized_reference=normalized,
+                target=target,
+                article_designation=None,
+                char_start=match.start(),
+                char_end=match.end(),
+                confidence=1.0,
+            )
+        )
 
     for scope in list(ARTICLE_SCOPE_RE.finditer(text)) + list(ARTICLE_HIERARCHY_SCOPE_RE.finditer(text)):
         target = target_from_text(scope.group("target"))
@@ -188,26 +254,42 @@ def extract_mentions(text: str) -> list[Mention]:
                 )
             )
 
-    for match in DOCUMENT_RE.finditer(text):
-        target = target_from_document_match(match)
-        normalized = target.key
-        key = (match.start(), match.end(), normalized)
-        if key in occupied:
-            continue
-        occupied.add(key)
-        mentions.append(
-            Mention(
-                mention_type="document",
-                raw_text=match.group(0),
-                context_text=match.group(0),
-                normalized_reference=normalized,
-                target=target,
-                article_designation=None,
-                char_start=match.start(),
-                char_end=match.end(),
-                confidence=1.0,
+    for reverse in DOCUMENT_THEN_ARTICLE_RE.finditer(text):
+        target_text = reverse.group("target")
+        target_match = DOCUMENT_RE.fullmatch(target_text)
+        if target_match is None:
+            raise RuntimeError(
+                f"unsupported reverse article target: {target_text!r}"
             )
-        )
+        target = target_from_document_match(target_match)
+        article = reverse.group("article")
+        start = reverse.start("article")
+        end = reverse.end("article")
+        normalized = f"{target.key}:ART:{article}"
+        key = (start, end, normalized)
+        if key not in occupied:
+            occupied.add(key)
+            mentions.append(
+                Mention(
+                    mention_type="article",
+                    raw_text=text[start:end],
+                    context_text=reverse.group(0),
+                    normalized_reference=normalized,
+                    target=target,
+                    article_designation=article,
+                    char_start=start,
+                    char_end=end,
+                    confidence=1.0,
+                )
+            )
+
+    for regex in (
+        DIAN_INTERNAL_DOC_RE,
+        DIAN_DATED_DOC_RE,
+        DOCUMENT_RE,
+    ):
+        for match in regex.finditer(text):
+            add_document_match(match)
 
     for match in ET_RE.finditer(text):
         target = TargetDocument(
