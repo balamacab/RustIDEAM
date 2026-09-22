@@ -18,7 +18,7 @@ def sha256_file(path: Path) -> str:
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Initialize the col-taxdata SQLite state database."
+        description="Initialize or migrate the col-taxdata SQLite database."
     )
     parser.add_argument(
         "--db",
@@ -26,29 +26,26 @@ def main() -> int:
         help="SQLite database path.",
     )
     parser.add_argument(
-        "--schema",
-        default="schema/001_initial.sql",
-        help="SQL schema path.",
+        "--schema-dir",
+        default="schema",
+        help="Directory containing ordered *.sql migrations.",
     )
     args = parser.parse_args()
 
     db_path = Path(args.db)
-    schema_path = Path(args.schema)
+    schema_dir = Path(args.schema_dir)
 
-    if not schema_path.is_file():
-        raise SystemExit(f"Schema not found: {schema_path}")
+    migrations = sorted(schema_dir.glob("*.sql"))
+    if not migrations:
+        raise SystemExit(f"No SQL migrations found in: {schema_dir}")
 
     db_path.parent.mkdir(parents=True, exist_ok=True)
-
-    schema_sql = schema_path.read_text(encoding="utf-8")
-    schema_hash = sha256_file(schema_path)
 
     con = sqlite3.connect(db_path)
     try:
         con.execute("PRAGMA foreign_keys = ON")
         con.execute("PRAGMA journal_mode = WAL")
         con.execute("PRAGMA synchronous = NORMAL")
-        con.executescript(schema_sql)
 
         con.execute(
             """
@@ -59,23 +56,44 @@ def main() -> int:
             )
             """
         )
-        con.execute(
-            """
-            INSERT INTO schema_metadata(schema_name, schema_sha256)
-            VALUES (?, ?)
-            ON CONFLICT(schema_name) DO UPDATE SET
-                schema_sha256 = excluded.schema_sha256,
-                applied_at = CURRENT_TIMESTAMP
-            """,
-            (schema_path.name, schema_hash),
-        )
-        con.commit()
+
+        for migration in migrations:
+            schema_hash = sha256_file(migration)
+            existing = con.execute(
+                """
+                SELECT schema_sha256
+                FROM schema_metadata
+                WHERE schema_name = ?
+                """,
+                (migration.name,),
+            ).fetchone()
+
+            if existing is not None:
+                if existing[0] != schema_hash:
+                    raise RuntimeError(
+                        f"Applied migration changed on disk: {migration.name}"
+                    )
+                print(f"already applied: {migration.name}")
+                continue
+
+            con.executescript(migration.read_text(encoding="utf-8"))
+            con.execute(
+                """
+                INSERT INTO schema_metadata(
+                    schema_name,
+                    schema_sha256
+                )
+                VALUES (?, ?)
+                """,
+                (migration.name, schema_hash),
+            )
+            con.commit()
+            print(f"applied: {migration.name}")
+
     finally:
         con.close()
 
-    print(f"initialized: {db_path}")
-    print(f"schema: {schema_path}")
-    print(f"schema_sha256: {schema_hash}")
+    print(f"database ready: {db_path}")
     return 0
 
 
