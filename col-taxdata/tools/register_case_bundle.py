@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 from datetime import datetime, timezone
 import json
 import sqlite3
@@ -149,6 +150,7 @@ def create_claim_evidence_from_segment(
     claim_id: str,
     document_id: str,
     sequence_no: int,
+    expected_text_sha256: str | None = None,
 ) -> tuple[str, str, str, bool]:
     rows = con.execute(
         """
@@ -216,6 +218,21 @@ def create_claim_evidence_from_segment(
         source_url,
         _created_at,
     ) = newest
+
+    actual_text_sha256 = hashlib.sha256(
+        exact_quote.encode("utf-8")
+    ).hexdigest()
+    if (
+        expected_text_sha256 is not None
+        and actual_text_sha256 != expected_text_sha256
+    ):
+        raise RuntimeError(
+            "source segment text fingerprint mismatch: "
+            f"document_id={document_id} "
+            f"sequence_no={sequence_no} "
+            f"expected={expected_text_sha256} "
+            f"actual={actual_text_sha256}"
+        )
 
     existing = con.execute(
         """
@@ -652,6 +669,9 @@ def register_case(
                             claim_id=claim_id,
                             document_id=document_id,
                             sequence_no=sequence_no,
+                            expected_text_sha256=(
+                                segment_binding.get("text_sha256")
+                            ),
                         )
                     )
                     evidence_inserted += int(inserted)
