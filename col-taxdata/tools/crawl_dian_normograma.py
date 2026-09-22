@@ -594,9 +594,58 @@ def process_document(
             "--data-root",
             str(data_root),
         ],
+        tolerate=True,
     )
     if error:
-        raise RuntimeError(error)
+        if "legal document heading was not detected" not in error:
+            raise RuntimeError(error)
+
+        raw_path = data_root / str(local_path)
+        if not raw_path.exists():
+            raise RuntimeError(error)
+
+        html = raw_path.read_text(
+            encoding="utf-8",
+            errors="replace",
+        )
+        discovered = discover_links(
+            con,
+            parent_url=url,
+            html=html,
+            scope=scope,
+            depth=depth,
+            max_depth=max_depth,
+            documents_only=False,
+        )
+        with con:
+            con.execute(
+                """
+                UPDATE dian_crawl_queue
+                SET item_type = 'index'
+                WHERE url = ?
+                """,
+                (url,),
+            )
+
+        stages.append(
+            {
+                "stage": "reclassify_navigation_page",
+                "result": {
+                    "reason": "legal_document_heading_not_detected",
+                    "discovery": discovered,
+                },
+            }
+        )
+        return {
+            "source_id": source_id,
+            "manifestation_id": manifestation_id,
+            "extraction_id": None,
+            "sha256": sha256,
+            "reclassified_item_type": "index",
+            "stages": stages,
+            "warnings": [],
+        }
+
     assert extracted is not None
     extraction_id = str(extracted["extraction_id"])
     stages.append({"stage": "extract", "result": extracted})
@@ -967,6 +1016,25 @@ def fail_item(
         )
 
 
+
+def requeue_interrupted(
+    con: sqlite3.Connection,
+    *,
+    url: str,
+) -> None:
+    with con:
+        con.execute(
+            """
+            UPDATE dian_crawl_queue
+            SET status = 'pending',
+                last_error = 'worker interrupted by operator',
+                next_attempt_at = ?
+            WHERE url = ?
+            """,
+            (utc_now(), url),
+        )
+
+
 def status_payload(con: sqlite3.Connection) -> dict[str, Any]:
     counts = {
         f"{item_type}:{status}": count
@@ -1203,7 +1271,11 @@ def main() -> int:
                     finish_item(
                         con,
                         url=url,
-                        refresh_seconds=args.document_refresh_seconds,
+                        refresh_seconds=(
+                            args.index_refresh_seconds
+                            if result.get("reclassified_item_type") == "index"
+                            else args.document_refresh_seconds
+                        ),
                         result=result,
                     )
                     since_reconcile += 1
@@ -1229,6 +1301,23 @@ def main() -> int:
                 )
 
             except KeyboardInterrupt:
+                requeue_interrupted(
+                    con,
+                    url=url,
+                )
+                print(
+                    json.dumps(
+                        {
+                            "event": "interrupted",
+                            "at": utc_now(),
+                            "item_type": item_type,
+                            "url": url,
+                            "status": "requeued",
+                        },
+                        ensure_ascii=False,
+                    ),
+                    flush=True,
+                )
                 raise
             except Exception as exc:
                 fail_item(
