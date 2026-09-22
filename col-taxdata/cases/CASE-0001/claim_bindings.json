@@ -56,5 +56,33 @@
       }
     ],
     "relevance": "Estatuto Tributario art. 847: legal representative must give notice within ten days after the event causing dissolution."
+  },
+  "CLM-0001": {
+    "status": "validated",
+    "source_segments": [
+      {
+        "document_id": "DOC-953dfb6ed74256259a337297d3a03634",
+        "sequence_no": 10779
+      },
+      {
+        "document_id": "DOC-953dfb6ed74256259a337297d3a03634",
+        "sequence_no": 10827
+      },
+      {
+        "document_id": "DOC-f99906761bda56828f7c79f133e3e4fb",
+        "sequence_no": 35
+      }
+    ],
+    "relevance": "Decreto 1625 de 2016 arts. 1.6.1.2.18 and 1.6.1.2.19 require liquidation as the cancellation event and proof that the entity is liquidated; DIAN Concepto 16972/2025 confirms legal personality and tax obligations subsist until registration of the final liquidation account."
+  },
+  "CLM-0003": {
+    "status": "validated",
+    "source_segments": [
+      {
+        "document_id": "DOC-f2cebeb1cb865955b9c3d8be684a2259",
+        "sequence_no": 295
+      }
+    ],
+    "relevance": "Decreto 2229 de 2023, substituted art. 1.6.1.13.2.18: fraction-year tax returns may be filed from the day following liquidation."
   }
 }
