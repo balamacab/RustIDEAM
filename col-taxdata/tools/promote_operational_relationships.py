@@ -1,0 +1,458 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import argparse
+from datetime import datetime, timezone
+import json
+import re
+import sqlite3
+import uuid
+from pathlib import Path
+
+
+PROMOTER_NAME = "operational_relationship_promoter"
+PROMOTER_VERSION = "1"
+
+SOURCE_ARTICLE_RE = re.compile(
+    r"^ART[IÍ]CULO\s+(?P<designation>\d+)"
+    r"(?:[oOº°])?\s*\.",
+    re.IGNORECASE,
+)
+
+OPERATIONAL_RELATION_TYPES = {
+    "modifies",
+    "adds",
+    "repeals",
+    "substitutes",
+}
+
+
+def utc_now() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def deterministic_id(prefix: str, material: str) -> str:
+    value = uuid.uuid5(uuid.NAMESPACE_URL, material)
+    return f"{prefix}-{value.hex}"
+
+
+def promote(
+    *,
+    detection_run_id: str,
+    resolution_method: str,
+    db_path: Path,
+) -> dict[str, object]:
+    con = sqlite3.connect(db_path)
+    con.execute("PRAGMA foreign_keys = ON")
+
+    try:
+        run = con.execute(
+            """
+            SELECT
+                rdr.extraction_id,
+                te.manifestation_id,
+                m.document_id,
+                m.sha256,
+                m.retrieved_at,
+                s.source_url
+            FROM reference_detection_runs rdr
+            JOIN text_extractions te
+              ON te.extraction_id = rdr.extraction_id
+            JOIN manifestations m
+              ON m.manifestation_id = te.manifestation_id
+            JOIN sources s
+              ON s.source_id = m.source_id
+            WHERE rdr.detection_run_id = ?
+            """,
+            (detection_run_id,),
+        ).fetchone()
+
+        if run is None:
+            raise RuntimeError(
+                f"detection run not found: {detection_run_id}"
+            )
+
+        (
+            extraction_id,
+            manifestation_id,
+            source_document_id,
+            source_sha256,
+            retrieved_at,
+            source_url,
+        ) = run
+
+        if source_document_id is None:
+            raise RuntimeError(
+                "source manifestation has no canonical document_id"
+            )
+
+        rows = con.execute(
+            """
+            SELECT
+                erm.relation_mention_id,
+                erm.relation_type,
+                erm.extracted_segment_id,
+                erm.confidence,
+                rr.reference_resolution_id,
+                rr.target_document_id,
+                rr.target_provision_id,
+                rr.confidence,
+                rr.status,
+                rr.requires_human_review,
+                es.sequence_no,
+                es.char_start,
+                es.char_end,
+                es.text
+            FROM explicit_relation_mentions erm
+            JOIN reference_mentions rm
+              ON rm.reference_mention_id =
+                 erm.target_reference_mention_id
+            LEFT JOIN reference_resolutions rr
+              ON rr.reference_mention_id =
+                 rm.reference_mention_id
+             AND rr.resolution_method = ?
+            JOIN extracted_segments es
+              ON es.extracted_segment_id =
+                 erm.extracted_segment_id
+            WHERE erm.detection_run_id = ?
+              AND erm.relation_type IN (
+                  'modifies',
+                  'adds',
+                  'repeals',
+                  'substitutes'
+              )
+            ORDER BY es.sequence_no, erm.relation_mention_id
+            """,
+            (resolution_method, detection_run_id),
+        ).fetchall()
+
+        now = utc_now()
+        eligible = 0
+        relationships_inserted = 0
+        relationships_reused = 0
+        evidence_inserted = 0
+        provenance_inserted = 0
+        source_unmapped: list[dict[str, object]] = []
+        target_unresolved: list[dict[str, object]] = []
+        source_review_items_inserted = 0
+
+        with con:
+            for (
+                relation_mention_id,
+                relation_type,
+                extracted_segment_id,
+                relation_confidence,
+                reference_resolution_id,
+                target_document_id,
+                target_provision_id,
+                resolution_confidence,
+                resolution_status,
+                resolution_requires_review,
+                sequence_no,
+                seg_char_start,
+                seg_char_end,
+                segment_text,
+            ) in rows:
+                if (
+                    reference_resolution_id is None
+                    or resolution_status != "resolved"
+                    or resolution_requires_review != 0
+                    or target_provision_id is None
+                ):
+                    target_unresolved.append(
+                        {
+                            "sequence_no": sequence_no,
+                            "relation_type": relation_type,
+                        }
+                    )
+                    continue
+
+                source_match = SOURCE_ARTICLE_RE.match(
+                    (segment_text or "").strip()
+                )
+                source_designation = (
+                    str(int(source_match.group("designation")))
+                    if source_match is not None
+                    else None
+                )
+
+                source_provision_id = None
+                if source_designation is not None:
+                    source_row = con.execute(
+                        """
+                        SELECT provision_id
+                        FROM provisions
+                        WHERE document_id = ?
+                          AND normalized_designation = ?
+                        """,
+                        (
+                            source_document_id,
+                            source_designation,
+                        ),
+                    ).fetchone()
+                    if source_row is not None:
+                        source_provision_id = source_row[0]
+
+                if source_provision_id is None:
+                    review_id = deterministic_id(
+                        "REV",
+                        (
+                            f"{relation_mention_id}:"
+                            f"{PROMOTER_NAME}:{PROMOTER_VERSION}:"
+                            "OPERATIONAL_RELATION_SOURCE_PROVISION_UNRESOLVED"
+                        ),
+                    )
+                    cur = con.execute(
+                        """
+                        INSERT OR IGNORE INTO review_queue(
+                            review_id,
+                            entity_type,
+                            entity_id,
+                            reason_code,
+                            severity,
+                            created_at
+                        )
+                        VALUES (
+                            ?,
+                            'explicit_relation_mention',
+                            ?,
+                            'OPERATIONAL_RELATION_SOURCE_PROVISION_UNRESOLVED',
+                            'medium',
+                            ?
+                        )
+                        """,
+                        (
+                            review_id,
+                            relation_mention_id,
+                            now,
+                        ),
+                    )
+                    source_review_items_inserted += int(bool(cur.rowcount))
+                    con.execute(
+                        """
+                        UPDATE explicit_relation_mentions
+                        SET requires_human_review = 1,
+                            status = 'candidate'
+                        WHERE relation_mention_id = ?
+                        """,
+                        (relation_mention_id,),
+                    )
+                    source_unmapped.append(
+                        {
+                            "sequence_no": sequence_no,
+                            "relation_type": relation_type,
+                            "source_designation": source_designation,
+                        }
+                    )
+                    continue
+
+                eligible += 1
+
+                confidence = min(
+                    float(relation_confidence),
+                    float(resolution_confidence),
+                )
+
+                evidence_id = deterministic_id(
+                    "EVD",
+                    (
+                        f"{relation_mention_id}:"
+                        f"{reference_resolution_id}:"
+                        f"{PROMOTER_NAME}:{PROMOTER_VERSION}"
+                    ),
+                )
+                cur = con.execute(
+                    """
+                    INSERT OR IGNORE INTO evidence(
+                        evidence_id,
+                        claim_id,
+                        manifestation_id,
+                        segment_id,
+                        page_number,
+                        char_start,
+                        char_end,
+                        exact_quote,
+                        source_url,
+                        source_sha256,
+                        retrieved_at,
+                        extraction_method,
+                        extractor_version,
+                        confidence,
+                        review_status,
+                        extracted_segment_id
+                    )
+                    VALUES (
+                        ?, NULL, ?, NULL, NULL, ?, ?, ?, ?, ?, ?,
+                        ?, ?, ?, 'machine_validated', ?
+                    )
+                    """,
+                    (
+                        evidence_id,
+                        manifestation_id,
+                        seg_char_start,
+                        seg_char_end,
+                        segment_text,
+                        source_url,
+                        source_sha256,
+                        retrieved_at,
+                        (
+                            f"{PROMOTER_NAME}:{PROMOTER_VERSION};"
+                            f"relation_mention={relation_mention_id};"
+                            f"resolution={reference_resolution_id};"
+                            f"source_designation={source_designation}"
+                        ),
+                        PROMOTER_VERSION,
+                        confidence,
+                        extracted_segment_id,
+                    ),
+                )
+                evidence_inserted += int(bool(cur.rowcount))
+
+                relationship_id = deterministic_id(
+                    "REL",
+                    (
+                        f"{source_provision_id}:{relation_type}:"
+                        f"{target_provision_id}:"
+                        f"{relation_mention_id}:"
+                        f"{PROMOTER_NAME}:{PROMOTER_VERSION}"
+                    ),
+                )
+
+                existing = con.execute(
+                    """
+                    SELECT 1
+                    FROM relationships
+                    WHERE relationship_id = ?
+                    """,
+                    (relationship_id,),
+                ).fetchone()
+
+                con.execute(
+                    """
+                    INSERT INTO relationships(
+                        relationship_id,
+                        source_type,
+                        source_id,
+                        relation_type,
+                        target_type,
+                        target_id,
+                        scope,
+                        asserted_date,
+                        effective_date,
+                        end_date,
+                        status,
+                        evidence_id,
+                        confidence,
+                        requires_human_review
+                    )
+                    VALUES (
+                        ?, 'provision', ?, ?, 'provision', ?,
+                        'explicit_operational_text',
+                        NULL, NULL, NULL,
+                        'validated', ?, ?, 0
+                    )
+                    ON CONFLICT(relationship_id) DO UPDATE SET
+                        evidence_id = excluded.evidence_id,
+                        confidence = excluded.confidence,
+                        status = excluded.status,
+                        requires_human_review =
+                            excluded.requires_human_review
+                    """,
+                    (
+                        relationship_id,
+                        source_provision_id,
+                        relation_type,
+                        target_provision_id,
+                        evidence_id,
+                        confidence,
+                    ),
+                )
+
+                if existing is None:
+                    relationships_inserted += 1
+                else:
+                    relationships_reused += 1
+
+                cur = con.execute(
+                    """
+                    INSERT OR IGNORE INTO relationship_provenance(
+                        relationship_id,
+                        relation_mention_id,
+                        reference_resolution_id,
+                        promoter_name,
+                        promoter_version,
+                        created_at
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        relationship_id,
+                        relation_mention_id,
+                        reference_resolution_id,
+                        PROMOTER_NAME,
+                        PROMOTER_VERSION,
+                        now,
+                    ),
+                )
+                provenance_inserted += int(bool(cur.rowcount))
+
+                con.execute(
+                    """
+                    UPDATE explicit_relation_mentions
+                    SET status = 'validated',
+                        requires_human_review = 0
+                    WHERE relation_mention_id = ?
+                    """,
+                    (relation_mention_id,),
+                )
+
+        return {
+            "promoter_name": PROMOTER_NAME,
+            "promoter_version": PROMOTER_VERSION,
+            "detection_run_id": detection_run_id,
+            "resolution_method": resolution_method,
+            "extraction_id": extraction_id,
+            "source_document_id": source_document_id,
+            "operational_relations_seen": len(rows),
+            "eligible_relations": eligible,
+            "relationships_inserted": relationships_inserted,
+            "relationships_reused": relationships_reused,
+            "evidence_inserted": evidence_inserted,
+            "provenance_inserted": provenance_inserted,
+            "source_review_items_inserted":
+                source_review_items_inserted,
+            "source_unmapped_count": len(source_unmapped),
+            "source_unmapped": source_unmapped,
+            "target_unresolved_count": len(target_unresolved),
+            "target_unresolved": target_unresolved,
+        }
+    finally:
+        con.close()
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(
+        description=(
+            "Promote resolved operational amendment relations as "
+            "canonical provision-to-provision relationships."
+        )
+    )
+    parser.add_argument("--detection-run-id", required=True)
+    parser.add_argument(
+        "--resolution-method",
+        default="canonical_reference_resolver:1",
+    )
+    parser.add_argument("--db", default="data/state/taxdata.sqlite")
+    args = parser.parse_args()
+
+    result = promote(
+        detection_run_id=args.detection_run_id,
+        resolution_method=args.resolution_method,
+        db_path=Path(args.db),
+    )
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
