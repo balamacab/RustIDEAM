@@ -12,7 +12,7 @@ import uuid
 from pathlib import Path
 
 DETECTOR_NAME = "normative_reference_regex"
-DETECTOR_VERSION = "1"
+DETECTOR_VERSION = "2"
 
 DOCUMENT_RE = re.compile(
     r"\b(?P<type>Ley|Decreto|Resoluci[oó]n|Circular|Concepto|Oficio)"
@@ -41,6 +41,27 @@ ARTICLE_SCOPE_RE = re.compile(
 
 ARTICLE_TOKEN_RE = re.compile(
     r"\d+(?:\.\d+)*(?:-\d+)?(?:[oOº°])?"
+)
+
+
+ARTICLE_HIERARCHY_SCOPE_RE = re.compile(
+    r"\bart[ií]culos?\s+"
+    r"(?P<articles>"
+    r"\d[\d.\-\s,;yYº°oO]*?"
+    r")"
+    r"\s+(?:del|de\s+la)\s+"
+    r"(?P<hierarchy>"
+    r"(?:Secci[oó]n|Cap[ií]tulo|T[ií]tulo|Parte|Libro)"
+    r"\s+[^.;:]{1,260}?"
+    r")"
+    r"\s+(?:del|de\s+la)\s+"
+    r"(?P<target>"
+    r"(?:Ley|Decreto|Resoluci[oó]n)"
+    r"(?:\s+[ÚU]nico)?"
+    r"\s+(?:(?:N[uú]mero|No\.?|Nro\.?)\s*)?"
+    r"\d+[A-Za-z]?\s+de\s+\d{4}"
+    r")",
+    re.IGNORECASE,
 )
 
 ET_RE = re.compile(r"\bEstatuto\s+Tributario\b", re.IGNORECASE)
@@ -138,7 +159,7 @@ def extract_mentions(text: str) -> list[Mention]:
     mentions: list[Mention] = []
     occupied: set[tuple[int, int, str]] = set()
 
-    for scope in ARTICLE_SCOPE_RE.finditer(text):
+    for scope in list(ARTICLE_SCOPE_RE.finditer(text)) + list(ARTICLE_HIERARCHY_SCOPE_RE.finditer(text)):
         target = target_from_text(scope.group("target"))
         articles_text = scope.group("articles")
         articles_base = scope.start("articles")
