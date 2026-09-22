@@ -35,6 +35,19 @@ DOC_PREFIX = "/dian/compilacion/docs/"
 HTML_SUFFIXES = (".htm", ".html")
 
 
+def index_allowed_for_scope(url: str, scope: str) -> bool:
+    name = Path(urllib.parse.urlparse(url).path).name.lower()
+
+    if scope == "tributario":
+        return (
+            name == "tributario.html"
+            or name.startswith("t_")
+            or name.startswith("nyb_novedades_derecho_tributario")
+        )
+
+    return False
+
+
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
@@ -94,13 +107,19 @@ def canonical_url(base_url: str, href: str) -> str | None:
     )
 
 
-def classify_url(url: str) -> str | None:
+def classify_url(
+    url: str,
+    *,
+    scope: str | None = None,
+) -> str | None:
     path = urllib.parse.urlparse(url).path.lower()
     if not path.startswith(ALLOWED_PREFIX):
         return None
     if path.startswith(DOC_PREFIX) and path.endswith(HTML_SUFFIXES):
         return "document"
     if path.endswith(HTML_SUFFIXES):
+        if scope is not None and not index_allowed_for_scope(url, scope):
+            return None
         return "index"
     return None
 
@@ -247,6 +266,65 @@ def seed(con: sqlite3.Connection, scope: str) -> int:
     return inserted
 
 
+def purge_out_of_scope_queue(
+    con: sqlite3.Connection,
+    scope: str,
+) -> dict[str, int]:
+    rows = con.execute(
+        """
+        SELECT url, item_type, discovered_from
+        FROM dian_crawl_queue
+        WHERE scope = ?
+        """,
+        (scope,),
+    ).fetchall()
+
+    remove: set[str] = set()
+    for url, item_type, discovered_from in rows:
+        if item_type == "index":
+            if not index_allowed_for_scope(url, scope):
+                remove.add(url)
+            continue
+
+        if item_type == "document" and discovered_from:
+            parent_path = urllib.parse.urlparse(discovered_from).path.lower()
+            if (
+                not parent_path.startswith(DOC_PREFIX)
+                and not index_allowed_for_scope(discovered_from, scope)
+            ):
+                remove.add(url)
+
+    if not remove:
+        return {
+            "queue_items_removed": 0,
+            "discovery_edges_removed": 0,
+        }
+
+    queue_removed = 0
+    edges_removed = 0
+    with con:
+        for url in sorted(remove):
+            cur = con.execute(
+                "DELETE FROM dian_crawl_queue WHERE url = ? AND scope = ?",
+                (url, scope),
+            )
+            queue_removed += cur.rowcount
+
+            cur = con.execute(
+                """
+                DELETE FROM dian_discovery_edges
+                WHERE parent_url = ? OR child_url = ?
+                """,
+                (url, url),
+            )
+            edges_removed += cur.rowcount
+
+    return {
+        "queue_items_removed": queue_removed,
+        "discovery_edges_removed": edges_removed,
+    }
+
+
 def reset_stale_running(
     con: sqlite3.Connection,
     stale_seconds: int,
@@ -335,7 +413,7 @@ def discover_links(
                 continue
             seen.add(url)
 
-            item_type = classify_url(url)
+            item_type = classify_url(url, scope=scope)
             if item_type is None:
                 continue
             if documents_only and item_type != "document":
@@ -990,6 +1068,7 @@ def main() -> int:
             con,
             args.stale_running_seconds,
         )
+        purged = purge_out_of_scope_queue(con, args.scope)
         inserted = seed(con, args.scope)
         print(
             json.dumps(
@@ -999,6 +1078,7 @@ def main() -> int:
                     "scope": args.scope,
                     "seeded": inserted,
                     "stale_running_reset": reset,
+                    "scope_cleanup": purged,
                 },
                 ensure_ascii=False,
             ),
