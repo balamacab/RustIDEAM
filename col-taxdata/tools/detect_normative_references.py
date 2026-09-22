@@ -26,9 +26,7 @@ DOCUMENT_RE = re.compile(
 ARTICLE_SCOPE_RE = re.compile(
     r"\bart[ií]culos?\s+"
     r"(?P<articles>"
-    r"\d+(?:\.\d+)*(?:-\d+)?"
-    r"(?:\s*\.?\s*(?:,|y)\s*"
-    r"\d+(?:\.\d+)*(?:-\d+)?)*"
+    r"\d[\d.\-\s,;yYº°oO]*?"
     r")"
     r"\s+(?:del|de\s+la)\s+"
     r"(?P<target>"
@@ -41,7 +39,9 @@ ARTICLE_SCOPE_RE = re.compile(
     re.IGNORECASE,
 )
 
-ARTICLE_TOKEN_RE = re.compile(r"\d+(?:\.\d+)*(?:-\d+)?")
+ARTICLE_TOKEN_RE = re.compile(
+    r"\d+(?:\.\d+)*(?:-\d+)?(?:[oOº°])?"
+)
 
 ET_RE = re.compile(r"\bEstatuto\s+Tributario\b", re.IGNORECASE)
 
@@ -145,7 +145,7 @@ def extract_mentions(text: str) -> list[Mention]:
         context_text = scope.group(0)
 
         for token in ARTICLE_TOKEN_RE.finditer(articles_text):
-            article = token.group(0).rstrip(".")
+            article = re.sub(r"[oOº°]$", "", token.group(0).rstrip("."))
             start = articles_base + token.start()
             end = articles_base + token.end()
             normalized = f"{target.key}:ART:{article}"
