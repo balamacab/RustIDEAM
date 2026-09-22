@@ -84,5 +84,27 @@
       }
     ],
     "relevance": "Decreto 2229 de 2023, substituted art. 1.6.1.13.2.18: fraction-year tax returns may be filed from the day following liquidation."
+  },
+  "CLM-0002": {
+    "status": "validated",
+    "source_segments": [
+      {
+        "document_id": "DOC-1a0007a044295918839fd96e58f204f4",
+        "sequence_no": 9029
+      },
+      {
+        "document_id": "DOC-1a0007a044295918839fd96e58f204f4",
+        "sequence_no": 9033
+      },
+      {
+        "document_id": "DOC-1a0007a044295918839fd96e58f204f4",
+        "sequence_no": 9098
+      },
+      {
+        "document_id": "DOC-f2cebeb1cb865955b9c3d8be684a2259",
+        "sequence_no": 295
+      }
+    ],
+    "relevance": "ET art. 591 imposes the income-tax return duty on taxpayers subject to the tax, subject to art. 592 exceptions; ET art. 595 defines the fiscal-period end when liquidation occurs during the year; Decreto 2229 de 2023 art. 1.6.1.13.2.18 regulates the fraction-year return."
   }
 }
