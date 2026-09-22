@@ -1,0 +1,40 @@
+{
+  "case_id": "CASE-0001",
+  "items": [
+    {
+      "code": "LEGAL_IDENTITY_NOT_CONFIRMED",
+      "question": "Confirmar razón social exacta y documento de constitución/liquidación de SAENE LLC.",
+      "impact": "Determina el documento de liquidación exigible."
+    },
+    {
+      "code": "RUT_CAPACITY_NOT_CONFIRMED",
+      "question": "Confirmar por qué calidad está inscrita en el RUT: persona jurídica/asimilada, sociedad extranjera, establecimiento permanente, inversionista extranjero, sede efectiva de administración u otra.",
+      "impact": "La causal y los soportes de cancelación cambian según esta calidad."
+    },
+    {
+      "code": "RUT_RESPONSIBILITIES_NOT_INSPECTED",
+      "question": "Revisar responsabilidades activas del RUT.",
+      "impact": "Determina si existen declaraciones finales adicionales de IVA, retención, consumo u otras."
+    },
+    {
+      "code": "2025_RETURN_NOT_INSPECTED",
+      "question": "Revisar el Formulario 110 de 2025 completo, no sólo patrimonio.",
+      "impact": "Debe confirmarse si existen saldo a favor, anticipo, pérdidas, retenciones u otros valores trasladables a la fracción 2026."
+    },
+    {
+      "code": "ARTICLE_847_NOTICE_STATUS_UNKNOWN",
+      "question": "Confirmar si se informó oportunamente a DIAN la entrada en disolución/liquidación.",
+      "impact": "El artículo 847 impone un deber específico al representante legal."
+    },
+    {
+      "code": "RUB_STATUS_UNKNOWN",
+      "question": "Confirmar si SAENE LLC era obligada a RUB y si el reporte aplicable está presentado.",
+      "impact": "DIAN verifica esta obligación cuando corresponda."
+    },
+    {
+      "code": "DIAN_DEBT_AND_PROCEEDINGS_UNKNOWN",
+      "question": "Confirmar ausencia de deudas exigibles y procesos administrativos/judiciales relevantes.",
+      "impact": "Puede bloquear la cancelación del RUT."
+    }
+  ]
+}
