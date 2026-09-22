@@ -6,6 +6,8 @@ import json
 import sqlite3
 from pathlib import Path
 
+from materialize_case_report import render_report
+
 
 def load_manifest(case_dir: Path) -> dict:
     path = case_dir / "sources" / "manifest.json"
@@ -218,6 +220,18 @@ def validate_case(
         for _, status in claims
     )
 
+    report_path = case_dir / "report.md"
+    if report_path.exists():
+        stored_report = report_path.read_text(encoding="utf-8")
+        generated_report = render_report(
+            con=con,
+            case_id=case_id,
+            case_dir=case_dir,
+        )
+        report_matches_materializer = stored_report == generated_report
+    else:
+        report_matches_materializer = False
+
     errors = []
 
     if manifest.get("case_id") != case_id:
@@ -230,6 +244,8 @@ def validate_case(
         errors.append("validated_claim_without_canonical_support")
     if duplicate_claim_evidence:
         errors.append("duplicate_claim_evidence")
+    if not report_matches_materializer:
+        errors.append("report_not_materialized_from_canonical_state")
 
     return {
         "case_id": case_id,
@@ -248,6 +264,7 @@ def validate_case(
         "sqlite_sources": sorted(db_sources),
         "manifest_sources": sorted(manifest_sources),
         "manifest_matches_sqlite": manifest_matches_sqlite,
+        "report_matches_materializer": report_matches_materializer,
         "orphan_case_items": [
             {"item_type": row[0], "item_id": row[1]}
             for row in orphan_case_items
