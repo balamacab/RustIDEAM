@@ -1,0 +1,9 @@
+services:
+  taxdata:
+    build:
+      context: "https://github.com/balamacab/RustIDEAM.git#main:col-taxdata"
+    image: col-taxdata:local
+    working_dir: /app
+    volumes:
+      - ./data:/app/data
+    restart: "no"
