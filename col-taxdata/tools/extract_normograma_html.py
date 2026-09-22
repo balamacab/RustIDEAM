@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+from dataclasses import dataclass
 import hashlib
 import html
 from html.parser import HTMLParser
@@ -12,18 +13,19 @@ import sqlite3
 import tempfile
 import unicodedata
 import uuid
+from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 
 EXTRACTOR_NAME = "normograma_html"
-EXTRACTOR_VERSION = "1"
+EXTRACTOR_VERSION = "2"
 
 BLOCK_TAGS = {
     "address", "article", "aside", "blockquote", "dd", "div", "dl", "dt",
     "fieldset", "figcaption", "figure", "footer", "form",
     "h1", "h2", "h3", "h4", "h5", "h6",
     "header", "hr", "li", "main", "nav", "ol", "p", "pre",
-    "section", "table", "tbody", "td", "tfoot", "th", "thead", "tr", "ul",
+    "section", "tbody", "tfoot", "thead", "ul",
 }
 SKIP_TAGS = {"script", "style", "noscript", "svg", "template"}
 
@@ -43,6 +45,15 @@ FOOTER_MARKERS = {
     "COMPILACIÓN JURÍDICA DIAN",
     "COMPILACION JURIDICA DIAN",
 }
+PORTAL_ANNOTATION_PREFIXES = (
+    "CONSULTAR LA VIGENCIA DE ESTA NORMA DIRECTAMENTE EN LOS ARTICULOS QUE MODIFICA Y/O ADICIONA",
+)
+
+
+@dataclass(frozen=True)
+class RawBlock:
+    text: str
+    kind: str = "text"
 
 
 def utc_now() -> str:
@@ -79,80 +90,180 @@ def uppercase_ratio(value: str) -> float:
     return sum(ch.isupper() for ch in letters) / len(letters)
 
 
+def is_portal_annotation(text: str) -> bool:
+    key = normalize_key(text).strip("<> ")
+    return any(key.startswith(prefix) for prefix in PORTAL_ANNOTATION_PREFIXES)
+
+
 class VisibleBlockParser(HTMLParser):
+    """Extract visible text while preserving table rows as single blocks."""
+
     def __init__(self) -> None:
         super().__init__(convert_charrefs=True)
-        self.blocks: list[str] = []
+        self.blocks: list[RawBlock] = []
         self.current: list[str] = []
         self.skip_depth = 0
+        self.table_depth = 0
+        self.row_depth = 0
+        self.cell_depth = 0
+        self.current_row: list[str] = []
+        self.current_cell: list[str] = []
 
-    def flush(self) -> None:
+    def append_block(self, text: str, kind: str = "text") -> None:
+        text = normalize_space(text)
+        if not text:
+            return
+        block = RawBlock(text=text, kind=kind)
+        if self.blocks and self.blocks[-1] == block:
+            return
+        self.blocks.append(block)
+
+    def flush_text(self) -> None:
         text = normalize_space(" ".join(self.current))
         self.current.clear()
-        if text and (not self.blocks or self.blocks[-1] != text):
-            self.blocks.append(text)
+        if text:
+            self.append_block(text, "text")
+
+    def flush_cell(self) -> None:
+        text = normalize_space(" ".join(self.current_cell))
+        self.current_cell.clear()
+        if text:
+            self.current_row.append(text)
+
+    def flush_row(self) -> None:
+        self.flush_cell()
+        if self.current_row:
+            self.append_block(" | ".join(self.current_row), "table_row")
+        self.current_row.clear()
 
     def handle_starttag(self, tag: str, attrs) -> None:
         tag = tag.lower()
+
         if tag in SKIP_TAGS:
             self.skip_depth += 1
             return
         if self.skip_depth:
             return
-        if tag in BLOCK_TAGS or tag == "br":
-            self.flush()
+
+        if tag == "table":
+            self.flush_text()
+            self.table_depth += 1
+            return
+
+        if self.table_depth and tag == "tr":
+            self.flush_text()
+            if self.row_depth:
+                self.flush_row()
+            self.row_depth += 1
+            self.current_row.clear()
+            return
+
+        if self.row_depth and tag in {"td", "th"}:
+            self.flush_cell()
+            self.cell_depth += 1
+            return
+
+        if tag == "br":
+            if self.cell_depth:
+                self.current_cell.append(" ")
+            else:
+                self.flush_text()
+            return
+
+        if tag in BLOCK_TAGS and not self.cell_depth:
+            self.flush_text()
 
     def handle_endtag(self, tag: str) -> None:
         tag = tag.lower()
+
         if tag in SKIP_TAGS:
             if self.skip_depth:
                 self.skip_depth -= 1
             return
         if self.skip_depth:
             return
-        if tag in BLOCK_TAGS:
-            self.flush()
+
+        if tag in {"td", "th"} and self.cell_depth:
+            self.flush_cell()
+            self.cell_depth -= 1
+            return
+
+        if tag == "tr" and self.row_depth:
+            self.flush_row()
+            self.row_depth -= 1
+            return
+
+        if tag == "table" and self.table_depth:
+            if self.row_depth:
+                self.flush_row()
+                self.row_depth = 0
+            self.table_depth -= 1
+            self.flush_text()
+            return
+
+        if tag in BLOCK_TAGS and not self.cell_depth:
+            self.flush_text()
 
     def handle_data(self, data: str) -> None:
-        if not self.skip_depth:
-            value = normalize_space(data)
-            if value:
-                self.current.append(value)
+        if self.skip_depth:
+            return
+
+        value = normalize_space(data)
+        if not value:
+            return
+
+        if self.cell_depth:
+            self.current_cell.append(value)
+        else:
+            self.current.append(value)
 
     def close(self) -> None:
         super().close()
-        self.flush()
+        if self.row_depth:
+            self.flush_row()
+        self.flush_text()
 
 
-def find_legal_body(blocks: list[str]) -> list[str]:
+def find_legal_body(blocks: list[RawBlock]) -> list[RawBlock]:
     candidates: list[int] = []
     for i, block in enumerate(blocks):
-        if LEGAL_HEADING_RE.match(normalize_key(block)):
+        if LEGAL_HEADING_RE.match(normalize_key(block.text)):
             candidates.append(i)
 
     if not candidates:
         raise RuntimeError("legal document heading was not detected")
 
     start = next(
-        (i for i in candidates if uppercase_ratio(blocks[i]) >= 0.80),
+        (
+            i
+            for i in candidates
+            if uppercase_ratio(blocks[i].text) >= 0.80
+        ),
         candidates[0],
     )
 
     end = len(blocks)
     for i in range(start + 1, len(blocks)):
-        if normalize_key(blocks[i]) in FOOTER_MARKERS:
+        if normalize_key(blocks[i].text) in FOOTER_MARKERS:
             end = i
             break
 
-    body = blocks[start:end]
+    body = [
+        block
+        for block in blocks[start:end]
+        if not is_portal_annotation(block.text)
+    ]
     if len(body) < 5:
         raise RuntimeError("detected legal body is unexpectedly short")
     return body
 
 
-def classify_segment(text: str) -> str:
+def classify_segment(block: RawBlock) -> str:
+    text = block.text
     key = normalize_key(text)
 
+    if block.kind == "table_row":
+        return "table_row"
     if LEGAL_HEADING_RE.match(key):
         return "document_heading"
     if REG_ARTICLE_RE.match(key):
@@ -174,14 +285,18 @@ def classify_segment(text: str) -> str:
     return "text"
 
 
-def build_segments(blocks: list[str]) -> tuple[str, list[dict[str, object]]]:
-    normalized_text = "\n\n".join(blocks) + "\n"
+def build_segments(
+    blocks: list[RawBlock],
+) -> tuple[str, list[dict[str, object]]]:
+    texts = [block.text for block in blocks]
+    normalized_text = "\n\n".join(texts) + "\n"
     segments: list[dict[str, object]] = []
     cursor = 0
     current_section: str | None = None
 
-    for sequence_no, text in enumerate(blocks, start=1):
-        segment_type = classify_segment(text)
+    for sequence_no, block in enumerate(blocks, start=1):
+        text = block.text
+        segment_type = classify_segment(block)
         if segment_type in {
             "document_heading",
             "article",
@@ -320,6 +435,10 @@ def extract_manifestation(
             (extraction_id,),
         ).fetchone()
 
+        counts = dict(
+            sorted(Counter(segment["segment_type"] for segment in segments).items())
+        )
+
         if existing is not None:
             if (
                 existing[0] != normalized_sha256
@@ -332,12 +451,14 @@ def extract_manifestation(
             return {
                 "extraction_id": extraction_id,
                 "manifestation_id": manifestation_id,
+                "extractor_version": EXTRACTOR_VERSION,
                 "source_url": source_url,
                 "raw_sha256": raw_sha256,
                 "normalized_sha256": normalized_sha256,
                 "local_path": str(output_relative),
                 "char_count": len(normalized_text),
                 "segment_count": len(segments),
+                "segment_types": counts,
                 "reused": True,
             }
 
@@ -414,12 +535,14 @@ def extract_manifestation(
         return {
             "extraction_id": extraction_id,
             "manifestation_id": manifestation_id,
+            "extractor_version": EXTRACTOR_VERSION,
             "source_url": source_url,
             "raw_sha256": raw_sha256,
             "normalized_sha256": normalized_sha256,
             "local_path": str(output_relative),
             "char_count": len(normalized_text),
             "segment_count": len(segments),
+            "segment_types": counts,
             "reused": False,
         }
 
