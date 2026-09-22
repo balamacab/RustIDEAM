@@ -10,7 +10,7 @@ from pathlib import Path
 
 
 REGISTRAR_NAME = "case_bundle_registry"
-REGISTRAR_VERSION = "3"
+REGISTRAR_VERSION = "4"
 
 
 def utc_now() -> str:
@@ -296,6 +296,201 @@ def create_claim_evidence_from_segment(
     return evidence_id, extracted_segment_id, source_id, bool(cur.rowcount)
 
 
+
+def endpoint_document_id(
+    con: sqlite3.Connection,
+    *,
+    entity_type: str,
+    entity_id: str,
+) -> str | None:
+    if entity_type == "document":
+        row = con.execute(
+            "SELECT document_id FROM documents WHERE document_id = ?",
+            (entity_id,),
+        ).fetchone()
+        return row[0] if row else None
+
+    if entity_type == "provision":
+        row = con.execute(
+            """
+            SELECT document_id
+            FROM provisions
+            WHERE provision_id = ?
+            """,
+            (entity_id,),
+        ).fetchone()
+        return row[0] if row else None
+
+    return None
+
+
+def source_records_for_documents(
+    con: sqlite3.Connection,
+    document_ids: set[str],
+) -> dict[str, dict[str, object]]:
+    records: dict[str, dict[str, object]] = {}
+
+    for document_id in sorted(document_ids):
+        rows = con.execute(
+            """
+            SELECT
+                s.source_id,
+                s.source_url,
+                s.authority,
+                s.source_kind,
+                m.manifestation_id,
+                m.sha256,
+                m.retrieved_at
+            FROM manifestations m
+            JOIN sources s
+              ON s.source_id = m.source_id
+            WHERE m.document_id = ?
+            ORDER BY m.retrieved_at, m.manifestation_id
+            """,
+            (document_id,),
+        ).fetchall()
+
+        for row in rows:
+            source_id = row[0]
+            record = records.setdefault(
+                source_id,
+                {
+                    "source_id": source_id,
+                    "source_url": row[1],
+                    "authority": row[2],
+                    "source_kind": row[3],
+                    "document_ids": set(),
+                    "manifestations": [],
+                },
+            )
+            record["document_ids"].add(document_id)
+            record["manifestations"].append(
+                {
+                    "manifestation_id": row[4],
+                    "sha256": row[5],
+                    "retrieved_at": row[6],
+                }
+            )
+
+    return records
+
+
+def canonical_case_source_records(
+    con: sqlite3.Connection,
+    *,
+    case_id: str,
+) -> tuple[list[dict[str, object]], set[str]]:
+    document_ids: set[str] = set()
+    direct_source_ids: set[str] = set()
+
+    for document_id, source_id in con.execute(
+        """
+        SELECT DISTINCT
+            m.document_id,
+            m.source_id
+        FROM evidence e
+        JOIN manifestations m
+          ON m.manifestation_id = e.manifestation_id
+        WHERE e.claim_id IN (
+            SELECT item_id
+            FROM case_items
+            WHERE case_id = ?
+              AND item_type = 'claim'
+        )
+        """,
+        (case_id,),
+    ):
+        direct_source_ids.add(source_id)
+        if document_id:
+            document_ids.add(document_id)
+
+    relationship_rows = con.execute(
+        """
+        SELECT
+            r.source_type,
+            r.source_id,
+            r.target_type,
+            r.target_id,
+            m.document_id,
+            m.source_id
+        FROM relationships r
+        JOIN case_items ci
+          ON ci.item_type = 'relationship'
+         AND ci.item_id = r.relationship_id
+        LEFT JOIN evidence e
+          ON e.evidence_id = r.evidence_id
+        LEFT JOIN manifestations m
+          ON m.manifestation_id = e.manifestation_id
+        WHERE ci.case_id = ?
+        """,
+        (case_id,),
+    ).fetchall()
+
+    for (
+        source_type,
+        source_id,
+        target_type,
+        target_id,
+        evidence_document_id,
+        evidence_source_id,
+    ) in relationship_rows:
+        if evidence_source_id:
+            direct_source_ids.add(evidence_source_id)
+        if evidence_document_id:
+            document_ids.add(evidence_document_id)
+
+        for entity_type, entity_id in (
+            (source_type, source_id),
+            (target_type, target_id),
+        ):
+            document_id = endpoint_document_id(
+                con,
+                entity_type=entity_type,
+                entity_id=entity_id,
+            )
+            if document_id:
+                document_ids.add(document_id)
+
+    records = source_records_for_documents(con, document_ids)
+
+    for source_id in direct_source_ids:
+        if source_id in records:
+            continue
+        row = con.execute(
+            """
+            SELECT source_url, authority, source_kind
+            FROM sources
+            WHERE source_id = ?
+            """,
+            (source_id,),
+        ).fetchone()
+        if row:
+            records[source_id] = {
+                "source_id": source_id,
+                "source_url": row[0],
+                "authority": row[1],
+                "source_kind": row[2],
+                "document_ids": set(),
+                "manifestations": [],
+            }
+
+    result = []
+    for source_id in sorted(records):
+        record = records[source_id]
+        result.append(
+            {
+                "source_id": record["source_id"],
+                "source_url": record["source_url"],
+                "authority": record["authority"],
+                "source_kind": record["source_kind"],
+                "document_ids": sorted(record["document_ids"]),
+                "manifestations": record["manifestations"],
+            }
+        )
+
+    return result, document_ids
+
+
 def register_case(
     *,
     case_dir: Path,
@@ -325,7 +520,7 @@ def register_case(
     claims_validated = 0
     case_items_inserted = 0
     evidence_inserted = 0
-    available_sources = []
+    declared_manifest_sources_present = []
     missing_sources = []
     linked_documents = set()
     linked_relationships = set()
@@ -370,7 +565,7 @@ def register_case(
                     missing_sources.append(source_id)
                     continue
 
-                available_sources.append(source_id)
+                declared_manifest_sources_present.append(source_id)
                 cur = con.execute(
                     """
                     INSERT OR IGNORE INTO case_items(
@@ -746,6 +941,51 @@ def register_case(
                 if desired_status in {"validated", "human_verified"}:
                     claims_validated += 1
 
+            canonical_sources, canonical_document_ids = (
+                canonical_case_source_records(
+                    con,
+                    case_id=case_id,
+                )
+            )
+
+            for document_id in canonical_document_ids:
+                linked_documents.add(document_id)
+                cur = con.execute(
+                    """
+                    INSERT OR IGNORE INTO case_items(
+                        case_id, item_type, item_id,
+                        relevance, added_at
+                    )
+                    VALUES (?, 'document', ?, ?, ?)
+                    """,
+                    (
+                        case_id,
+                        document_id,
+                        "canonical document reached from case support graph",
+                        now,
+                    ),
+                )
+                case_items_inserted += int(bool(cur.rowcount))
+
+            for source_record in canonical_sources:
+                source_id = source_record["source_id"]
+                cur = con.execute(
+                    """
+                    INSERT OR IGNORE INTO case_items(
+                        case_id, item_type, item_id,
+                        relevance, added_at
+                    )
+                    VALUES (?, 'source', ?, ?, ?)
+                    """,
+                    (
+                        case_id,
+                        source_id,
+                        "canonical source reached from case support graph",
+                        now,
+                    ),
+                )
+                case_items_inserted += int(bool(cur.rowcount))
+
         return {
             "registrar_name": REGISTRAR_NAME,
             "registrar_version": REGISTRAR_VERSION,
@@ -759,7 +999,13 @@ def register_case(
                 claims_validated,
             "case_items_inserted": case_items_inserted,
             "evidence_inserted": evidence_inserted,
-            "available_sources": sorted(available_sources),
+            "available_sources": [
+                item["source_id"]
+                for item in canonical_sources
+            ],
+            "canonical_sources": canonical_sources,
+            "declared_manifest_sources_present":
+                sorted(declared_manifest_sources_present),
             "missing_sources": sorted(missing_sources),
             "linked_documents": sorted(linked_documents),
             "linked_relationships": sorted(linked_relationships),
