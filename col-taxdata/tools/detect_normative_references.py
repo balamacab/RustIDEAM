@@ -73,7 +73,7 @@ DOCUMENT_THEN_ARTICLE_RE = re.compile(
     r"\s+(?:(?:N[uú]mero|No\.?|Nro\.?)\s*)?"
     r"\d+[A-Za-z]?\s+de\s+\d{4}"
     r")"
-    r"[^.;:]{0,120}?"
+    r"\s+(?:en\s+)?(?:su\s+)?"
     r"\bart[ií]culo\s+(?P<article>\d+(?:\.\d+)*(?:-\d+)?)\b",
     re.IGNORECASE,
 )
