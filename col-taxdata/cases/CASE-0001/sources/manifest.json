@@ -1,0 +1,61 @@
+{
+  "case_id": "CASE-0001",
+  "sources": [
+    {
+      "id": "SRC-0001",
+      "authority": "DIAN",
+      "type": "norma_compilada",
+      "title": "Decreto 1625 de 2016 - arts. 1.6.1.2.18, 1.6.1.2.19, 1.6.1.2.28 y siguientes",
+      "url": "https://normograma.dian.gov.co/dian/compilacion/docs/pdf/decreto_1625_2016.pdf",
+      "status": "discovered_not_downloaded"
+    },
+    {
+      "id": "SRC-0002",
+      "authority": "DIAN",
+      "type": "doctrina",
+      "title": "Concepto 016972 int. 2002 de 2025",
+      "url": "https://normograma.dian.gov.co/dian/compilacion/docs/oficio_dian_16972_2025.htm",
+      "status": "discovered_not_downloaded"
+    },
+    {
+      "id": "SRC-0003",
+      "authority": "DIAN",
+      "type": "guia_oficial",
+      "title": "Renta personas jurídicas",
+      "url": "https://www.dian.gov.co/impuestos/sociedades/Paginas/Renta-personas-juridicas.aspx",
+      "status": "discovered_not_downloaded"
+    },
+    {
+      "id": "SRC-0004",
+      "authority": "DIAN",
+      "type": "norma_compilada",
+      "title": "Decreto 2229 de 2023 - declaración por fracción de año",
+      "url": "https://normograma.dian.gov.co/dian/compilacion/docs/decreto_2229_2023.htm",
+      "status": "discovered_not_downloaded"
+    },
+    {
+      "id": "SRC-0005",
+      "authority": "DIAN",
+      "type": "resolucion_compilada",
+      "title": "Resolución 227 de 2025 - información exógena",
+      "url": "https://normograma.dian.gov.co/dian/compilacion/docs/resolucion_dian_0227_2025.htm",
+      "status": "discovered_not_downloaded"
+    },
+    {
+      "id": "SRC-0006",
+      "authority": "DIAN",
+      "type": "doctrina",
+      "title": "Concepto 005950 int. 383 de 2026",
+      "url": "https://normograma.dian.gov.co/dian/compilacion/docs/oficio_dian_5950_2026.htm",
+      "status": "discovered_not_downloaded"
+    },
+    {
+      "id": "SRC-0007",
+      "authority": "DIAN",
+      "type": "tramite_oficial",
+      "title": "Cancelación de la inscripción en el RUT",
+      "url": "https://www.dian.gov.co/tramitesservicios/tramites-y-servicios/tributarios/Paginas/RUT.aspx",
+      "status": "discovered_not_downloaded"
+    }
+  ]
+}
