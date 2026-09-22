@@ -10,7 +10,7 @@ from pathlib import Path
 
 
 REGISTRAR_NAME = "case_bundle_registry"
-REGISTRAR_VERSION = "1"
+REGISTRAR_VERSION = "2"
 
 
 def utc_now() -> str:
@@ -115,6 +115,133 @@ def copy_claim_evidence(
         ),
     )
     return evidence_id, bool(cur.rowcount)
+
+
+def create_claim_evidence_from_segment(
+    con: sqlite3.Connection,
+    *,
+    claim_id: str,
+    document_id: str,
+    sequence_no: int,
+) -> tuple[str, str, str, bool]:
+    rows = con.execute(
+        """
+        SELECT
+            es.extracted_segment_id,
+            es.extraction_id,
+            es.char_start,
+            es.char_end,
+            es.text,
+            te.extractor_name,
+            te.extractor_version,
+            m.manifestation_id,
+            m.sha256,
+            m.retrieved_at,
+            m.source_id,
+            s.source_url,
+            te.created_at
+        FROM manifestations m
+        JOIN sources s
+          ON s.source_id = m.source_id
+        JOIN text_extractions te
+          ON te.manifestation_id = m.manifestation_id
+        JOIN extracted_segments es
+          ON es.extraction_id = te.extraction_id
+        WHERE m.document_id = ?
+          AND es.sequence_no = ?
+          AND te.status = 'success'
+        ORDER BY te.created_at DESC, te.extraction_id DESC
+        """,
+        (document_id, sequence_no),
+    ).fetchall()
+
+    if not rows:
+        raise RuntimeError(
+            "source segment not found: "
+            f"document_id={document_id} sequence_no={sequence_no}"
+        )
+
+    newest = rows[0]
+    newest_created_at = newest[12]
+    same_latest = [row for row in rows if row[12] == newest_created_at]
+    if len(same_latest) > 1:
+        identities = {
+            (row[0], row[1], row[4])
+            for row in same_latest
+        }
+        if len(identities) > 1:
+            raise RuntimeError(
+                "ambiguous latest source segment: "
+                f"document_id={document_id} sequence_no={sequence_no}"
+            )
+
+    (
+        extracted_segment_id,
+        extraction_id,
+        char_start,
+        char_end,
+        exact_quote,
+        extractor_name,
+        extractor_version,
+        manifestation_id,
+        source_sha256,
+        retrieved_at,
+        source_id,
+        source_url,
+        _created_at,
+    ) = newest
+
+    evidence_id = deterministic_id(
+        "EVD",
+        (
+            f"case-claim:{claim_id}:extracted-segment:"
+            f"{extracted_segment_id}:{REGISTRAR_VERSION}"
+        ),
+    )
+    cur = con.execute(
+        """
+        INSERT OR IGNORE INTO evidence(
+            evidence_id,
+            claim_id,
+            manifestation_id,
+            segment_id,
+            page_number,
+            char_start,
+            char_end,
+            exact_quote,
+            source_url,
+            source_sha256,
+            retrieved_at,
+            extraction_method,
+            extractor_version,
+            confidence,
+            review_status,
+            extracted_segment_id
+        )
+        VALUES (
+            ?, ?, ?, NULL, NULL, ?, ?, ?, ?, ?, ?,
+            ?, ?, 1.0, 'validated', ?
+        )
+        """,
+        (
+            evidence_id,
+            claim_id,
+            manifestation_id,
+            char_start,
+            char_end,
+            exact_quote,
+            source_url,
+            source_sha256,
+            retrieved_at,
+            (
+                f"{REGISTRAR_NAME}:{REGISTRAR_VERSION}:"
+                f"source_segment:{extractor_name}:{extraction_id}"
+            ),
+            extractor_version,
+            extracted_segment_id,
+        ),
+    )
+    return evidence_id, extracted_segment_id, source_id, bool(cur.rowcount)
 
 
 def register_case(
@@ -345,95 +472,215 @@ def register_case(
                     continue
 
                 relationship_ids = binding.get("relationship_ids", [])
-                if not relationship_ids:
+                evidence_ids = binding.get("evidence_ids", [])
+                source_segments = binding.get("source_segments", [])
+
+                if not (
+                    relationship_ids
+                    or evidence_ids
+                    or source_segments
+                ):
                     raise RuntimeError(
-                        f"binding has no relationships: {claim_id}"
+                        f"binding has no canonical support: {claim_id}"
                     )
 
-                primary_relationship_id = binding.get(
-                    "primary_relationship_id"
-                )
-                if primary_relationship_id not in relationship_ids:
-                    raise RuntimeError(
-                        f"primary relationship is not bound: {claim_id}"
-                    )
+                generated_evidence_ids = []
 
-                primary_evidence_id = None
-                for relationship_id in relationship_ids:
+                if relationship_ids:
+                    primary_relationship_id = binding.get(
+                        "primary_relationship_id"
+                    )
+                    if primary_relationship_id not in relationship_ids:
+                        raise RuntimeError(
+                            "primary relationship is not bound: "
+                            f"{claim_id}"
+                        )
+
+                    primary_evidence_id = None
+                    for relationship_id in relationship_ids:
+                        row = con.execute(
+                            """
+                            SELECT evidence_id, status
+                            FROM relationships
+                            WHERE relationship_id = ?
+                            """,
+                            (relationship_id,),
+                        ).fetchone()
+                        if row is None:
+                            raise RuntimeError(
+                                "relationship not found: "
+                                f"{relationship_id}"
+                            )
+                        if row[1] != "validated":
+                            raise RuntimeError(
+                                "relationship not validated: "
+                                f"{relationship_id}"
+                            )
+                        if row[0] is None:
+                            raise RuntimeError(
+                                "relationship has no evidence: "
+                                f"{relationship_id}"
+                            )
+
+                        linked_relationships.add(relationship_id)
+                        cur = con.execute(
+                            """
+                            INSERT OR IGNORE INTO case_items(
+                                case_id, item_type, item_id,
+                                relevance, added_at
+                            )
+                            VALUES (?, 'relationship', ?, ?, ?)
+                            """,
+                            (
+                                case_id,
+                                relationship_id,
+                                binding.get(
+                                    "relevance",
+                                    (
+                                        "canonical support for "
+                                        f"{claim_id}"
+                                    ),
+                                ),
+                                now,
+                            ),
+                        )
+                        case_items_inserted += int(bool(cur.rowcount))
+
+                        if relationship_id == primary_relationship_id:
+                            primary_evidence_id = row[0]
+
+                    if primary_evidence_id is None:
+                        raise RuntimeError(
+                            f"primary evidence unresolved: {claim_id}"
+                        )
+
+                    new_evidence_id, inserted = copy_claim_evidence(
+                        con,
+                        claim_id=claim_id,
+                        source_evidence_id=primary_evidence_id,
+                    )
+                    evidence_inserted += int(inserted)
+                    generated_evidence_ids.append(new_evidence_id)
+
+                for source_evidence_id in evidence_ids:
                     row = con.execute(
                         """
-                        SELECT evidence_id, status
-                        FROM relationships
-                        WHERE relationship_id = ?
+                        SELECT 1
+                        FROM evidence
+                        WHERE evidence_id = ?
                         """,
-                        (relationship_id,),
+                        (source_evidence_id,),
                     ).fetchone()
                     if row is None:
                         raise RuntimeError(
-                            f"relationship not found: {relationship_id}"
+                            "bound evidence not found: "
+                            f"{source_evidence_id}"
                         )
-                    if row[1] != "validated":
-                        raise RuntimeError(
-                            f"relationship not validated: {relationship_id}"
-                        )
-                    if row[0] is None:
-                        raise RuntimeError(
-                            f"relationship has no evidence: {relationship_id}"
-                        )
+                    new_evidence_id, inserted = copy_claim_evidence(
+                        con,
+                        claim_id=claim_id,
+                        source_evidence_id=source_evidence_id,
+                    )
+                    evidence_inserted += int(inserted)
+                    generated_evidence_ids.append(new_evidence_id)
 
-                    linked_relationships.add(relationship_id)
+                for segment_binding in source_segments:
+                    document_id = segment_binding["document_id"]
+                    sequence_no = int(
+                        segment_binding["sequence_no"]
+                    )
+                    new_evidence_id, extracted_segment_id, source_id, inserted = (
+                        create_claim_evidence_from_segment(
+                            con,
+                            claim_id=claim_id,
+                            document_id=document_id,
+                            sequence_no=sequence_no,
+                        )
+                    )
+                    evidence_inserted += int(inserted)
+                    generated_evidence_ids.append(new_evidence_id)
+                    linked_documents.add(document_id)
+
                     cur = con.execute(
                         """
                         INSERT OR IGNORE INTO case_items(
                             case_id, item_type, item_id,
                             relevance, added_at
                         )
-                        VALUES (?, 'relationship', ?, ?, ?)
+                        VALUES (?, 'document', ?, ?, ?)
                         """,
                         (
                             case_id,
-                            relationship_id,
-                            binding.get(
-                                "relevance",
-                                f"canonical support for {claim_id}",
+                            document_id,
+                            (
+                                f"canonical document supporting "
+                                f"{claim_id}"
                             ),
                             now,
                         ),
                     )
                     case_items_inserted += int(bool(cur.rowcount))
 
-                    if relationship_id == primary_relationship_id:
-                        primary_evidence_id = row[0]
-
-                if primary_evidence_id is None:
-                    raise RuntimeError(
-                        f"primary evidence unresolved: {claim_id}"
+                    cur = con.execute(
+                        """
+                        INSERT OR IGNORE INTO case_items(
+                            case_id, item_type, item_id,
+                            relevance, added_at
+                        )
+                        VALUES (
+                            ?, 'extracted_segment', ?, ?, ?
+                        )
+                        """,
+                        (
+                            case_id,
+                            extracted_segment_id,
+                            (
+                                f"source segment supporting "
+                                f"{claim_id}"
+                            ),
+                            now,
+                        ),
                     )
+                    case_items_inserted += int(bool(cur.rowcount))
 
-                new_evidence_id, inserted = copy_claim_evidence(
-                    con,
-                    claim_id=claim_id,
-                    source_evidence_id=primary_evidence_id,
-                )
-                evidence_inserted += int(inserted)
-                linked_evidence.add(new_evidence_id)
-
-                cur = con.execute(
-                    """
-                    INSERT OR IGNORE INTO case_items(
-                        case_id, item_type, item_id,
-                        relevance, added_at
+                    cur = con.execute(
+                        """
+                        INSERT OR IGNORE INTO case_items(
+                            case_id, item_type, item_id,
+                            relevance, added_at
+                        )
+                        VALUES (?, 'source', ?, ?, ?)
+                        """,
+                        (
+                            case_id,
+                            source_id,
+                            (
+                                f"official source supporting "
+                                f"{claim_id}"
+                            ),
+                            now,
+                        ),
                     )
-                    VALUES (?, 'evidence', ?, ?, ?)
-                    """,
-                    (
-                        case_id,
-                        new_evidence_id,
-                        f"primary evidence for {claim_id}",
-                        now,
-                    ),
-                )
-                case_items_inserted += int(bool(cur.rowcount))
+                    case_items_inserted += int(bool(cur.rowcount))
+
+                for new_evidence_id in generated_evidence_ids:
+                    linked_evidence.add(new_evidence_id)
+                    cur = con.execute(
+                        """
+                        INSERT OR IGNORE INTO case_items(
+                            case_id, item_type, item_id,
+                            relevance, added_at
+                        )
+                        VALUES (?, 'evidence', ?, ?, ?)
+                        """,
+                        (
+                            case_id,
+                            new_evidence_id,
+                            f"canonical evidence for {claim_id}",
+                            now,
+                        ),
+                    )
+                    case_items_inserted += int(bool(cur.rowcount))
 
                 con.execute(
                     """
