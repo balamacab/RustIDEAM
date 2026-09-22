@@ -1,0 +1,11 @@
+{
+  "allowed_domains": [
+    "dian.gov.co",
+    "normograma.dian.gov.co",
+    "funcionpublica.gov.co",
+    "consejodeestado.gov.co",
+    "corteconstitucional.gov.co",
+    "minhacienda.gov.co",
+    "ctcp.gov.co"
+  ]
+}
