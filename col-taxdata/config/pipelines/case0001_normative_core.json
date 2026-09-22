@@ -1,0 +1,21 @@
+{
+  "pipeline_id": "CASE-0001-normative-core-v1",
+  "description": "Rebuild the deterministic normative core used by CASE-0001 from official DIAN Normograma sources.",
+  "resolution_method": "canonical_reference_resolver:1",
+  "sources": [
+    {
+      "source_id": "SRC-0008",
+      "url": "https://normograma.dian.gov.co/dian/compilacion/docs/decreto_1625_2016.htm",
+      "authority": "DIAN",
+      "source_kind": "normograma_html",
+      "role": "compiled_target"
+    },
+    {
+      "source_id": "SRC-0004",
+      "url": "https://normograma.dian.gov.co/dian/compilacion/docs/decreto_2229_2023.htm",
+      "authority": "DIAN",
+      "source_kind": "normograma_html",
+      "role": "operative_source"
+    }
+  ]
+}
