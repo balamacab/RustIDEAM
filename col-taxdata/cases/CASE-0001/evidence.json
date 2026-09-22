@@ -1,0 +1,80 @@
+{
+  "case_id": "CASE-0001",
+  "status": "initial_research",
+  "claims": [
+    {
+      "id": "CLM-0001",
+      "claim": "Estar en proceso de liquidación no equivale a estar liquidada para efectos de cancelar el RUT.",
+      "status": "validated_from_official_source",
+      "sources": [
+        "SRC-0001",
+        "SRC-0002"
+      ],
+      "requires_human_review": false
+    },
+    {
+      "id": "CLM-0002",
+      "claim": "Una persona jurídica que se liquide durante 2026 debe presentar declaración de renta por fracción de año.",
+      "status": "validated_from_official_source",
+      "sources": [
+        "SRC-0003",
+        "SRC-0004"
+      ],
+      "requires_human_review": false
+    },
+    {
+      "id": "CLM-0003",
+      "claim": "La declaración por fracción de año puede presentarse desde el día siguiente a la liquidación.",
+      "status": "validated_from_official_source",
+      "sources": [
+        "SRC-0004"
+      ],
+      "requires_human_review": false
+    },
+    {
+      "id": "CLM-0004",
+      "claim": "Para cancelar el RUT a solicitud de parte, el RUT debe estar activo y actualizado y la numeración de facturación no utilizada debe estar inhabilitada.",
+      "status": "validated_from_official_source",
+      "sources": [
+        "SRC-0001"
+      ],
+      "requires_human_review": false
+    },
+    {
+      "id": "CLM-0005",
+      "claim": "DIAN verifica inexistencia de deudas exigibles y de procesos administrativos o jurisdiccionales en curso antes de cancelar el RUT.",
+      "status": "validated_from_official_source",
+      "sources": [
+        "SRC-0001"
+      ],
+      "requires_human_review": false
+    },
+    {
+      "id": "CLM-0006",
+      "claim": "Los obligados al RUB deben tener presentado el reporte de beneficiarios finales para la verificación de cancelación.",
+      "status": "validated_from_official_source",
+      "sources": [
+        "SRC-0001"
+      ],
+      "requires_human_review": false
+    },
+    {
+      "id": "CLM-0007",
+      "claim": "La Resolución 227 de 2025 excluye de la información exógena regulada por ella a quienes durante el año gravable de reporte adelanten el trámite de cancelación del RUT.",
+      "status": "validated_from_official_source",
+      "sources": [
+        "SRC-0005"
+      ],
+      "requires_human_review": false
+    },
+    {
+      "id": "CLM-0008",
+      "claim": "El representante legal debe informar a DIAN la causal de disolución dentro de diez días conforme al artículo 847 del Estatuto Tributario.",
+      "status": "validated_from_official_source",
+      "sources": [
+        "SRC-0006"
+      ],
+      "requires_human_review": false
+    }
+  ]
+}
