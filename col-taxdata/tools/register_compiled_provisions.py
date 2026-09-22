@@ -27,8 +27,8 @@ REG_ARTICLE_RE = re.compile(
     re.IGNORECASE,
 )
 
-EDITORIAL_PREFIX_RE = re.compile(
-    r"^<(?P<note>Art[ií]culo\s+[^>]+)>\s*",
+EDITORIAL_NOTE_RE = re.compile(
+    r"<(?P<note>(?:Art[ií]culo|Par[áa]grafo|Inciso)\\s+[^>]+)>",
     re.IGNORECASE,
 )
 
@@ -74,14 +74,20 @@ def parse_article(text: str) -> tuple[str, str | None, str, str | None]:
     rest = match.group("rest").strip()
 
     editorial_note = None
-    note_match = EDITORIAL_PREFIX_RE.match(rest)
+    note_match = EDITORIAL_NOTE_RE.search(rest)
     if note_match:
         editorial_note = note_match.group("note").strip()
-        rest = rest[note_match.end():].strip()
+        rest = (
+            rest[:note_match.start()] + " " + rest[note_match.end():]
+        ).strip()
+        rest = re.sub(r"\\s+", " ", rest)
 
     title = None
     normative_text = rest
-    title_match = re.match(r"^(?P<title>[A-ZÁÉÍÓÚÜÑ0-9 ,;:/()\-]+?)\.\s+(?P<body>.+)$", rest)
+    title_match = re.match(
+        r"^(?P<title>[A-ZÁÉÍÓÚÜÑ0-9 ,;:/()\\-]+?)\\.\\s+(?P<body>.+)$",
+        rest,
+    )
     if title_match and len(title_match.group("title")) <= 220:
         title = title_match.group("title").strip()
         normative_text = title_match.group("body").strip()
