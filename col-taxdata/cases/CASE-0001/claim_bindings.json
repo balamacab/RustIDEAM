@@ -15,11 +15,13 @@
     "source_segments": [
       {
         "document_id": "DOC-953dfb6ed74256259a337297d3a03634",
-        "sequence_no": 10922
+        "sequence_no": 10922,
+        "text_sha256": "c5133fc360c3f43cbbe490a3d9b4527bfa30272138f9fbd75c799f028e1cf611"
       },
       {
         "document_id": "DOC-953dfb6ed74256259a337297d3a03634",
-        "sequence_no": 10923
+        "sequence_no": 10923,
+        "text_sha256": "daf7e2e777d6db23c6d0f49d2a0122fed267d3fb3994c5b4237f46803f3f31cf"
       }
     ],
     "relevance": "Decreto 1625 de 2016 art. 1.6.1.2.28 numerals 3 and 4: active/updated RUT and unused invoice-numbering disablement before cancellation."
@@ -29,7 +31,8 @@
     "source_segments": [
       {
         "document_id": "DOC-953dfb6ed74256259a337297d3a03634",
-        "sequence_no": 10931
+        "sequence_no": 10931,
+        "text_sha256": "1cb8f830f5e71fb59fe4d3ef2f7ab81f3706f8a53a7e65bb1c4ef239850fc915"
       }
     ],
     "evidence_ids": [
@@ -42,7 +45,8 @@
     "source_segments": [
       {
         "document_id": "DOC-953dfb6ed74256259a337297d3a03634",
-        "sequence_no": 10932
+        "sequence_no": 10932,
+        "text_sha256": "65ed3f8b43aa3f789ab78d1a00ff85d83e3b6e1df1904516b2f66e8a020e18e0"
       }
     ],
     "relevance": "Decreto 1625 de 2016 art. 1.6.1.2.29: RUB filers are checked for presentation of the beneficial-owner report."
@@ -52,7 +56,8 @@
     "source_segments": [
       {
         "document_id": "DOC-1a0007a044295918839fd96e58f204f4",
-        "sequence_no": 12119
+        "sequence_no": 12119,
+        "text_sha256": "cda6cdf9380b0413f8f0d715db67311b1af5fe732cd3b8aae3743835c35e7e40"
       }
     ],
     "relevance": "Estatuto Tributario art. 847: legal representative must give notice within ten days after the event causing dissolution."
@@ -62,15 +67,18 @@
     "source_segments": [
       {
         "document_id": "DOC-953dfb6ed74256259a337297d3a03634",
-        "sequence_no": 10779
+        "sequence_no": 10779,
+        "text_sha256": "f222ca69f0ae5e796681e572c4b37fd369d83ce691417af8508ae7b3ad8460fe"
       },
       {
         "document_id": "DOC-953dfb6ed74256259a337297d3a03634",
-        "sequence_no": 10827
+        "sequence_no": 10827,
+        "text_sha256": "cec1143afa750b835c42c7086f332471ed3dc0fd3465150794908d53fc36250e"
       },
       {
         "document_id": "DOC-f99906761bda56828f7c79f133e3e4fb",
-        "sequence_no": 35
+        "sequence_no": 35,
+        "text_sha256": "d6a1eb10a6f198e496f229c0b6941094c2e2d6b5290d4d1d28227d299900f810"
       }
     ],
     "relevance": "Decreto 1625 de 2016 arts. 1.6.1.2.18 and 1.6.1.2.19 require liquidation as the cancellation event and proof that the entity is liquidated; DIAN Concepto 16972/2025 confirms legal personality and tax obligations subsist until registration of the final liquidation account."
@@ -80,7 +88,8 @@
     "source_segments": [
       {
         "document_id": "DOC-f2cebeb1cb865955b9c3d8be684a2259",
-        "sequence_no": 295
+        "sequence_no": 295,
+        "text_sha256": "b57b2b62fd8199b56682c0fc92d77f20a0bad1456dd9c7c2386c733bdba76bf8"
       }
     ],
     "relevance": "Decreto 2229 de 2023, substituted art. 1.6.1.13.2.18: fraction-year tax returns may be filed from the day following liquidation."
@@ -90,19 +99,23 @@
     "source_segments": [
       {
         "document_id": "DOC-1a0007a044295918839fd96e58f204f4",
-        "sequence_no": 9029
+        "sequence_no": 9029,
+        "text_sha256": "29c2c59a3b8d4969d301f95ad889923e6368bb47627fe8e57e54bc876d798b7c"
       },
       {
         "document_id": "DOC-1a0007a044295918839fd96e58f204f4",
-        "sequence_no": 9033
+        "sequence_no": 9033,
+        "text_sha256": "1b4bbd82003fdb200fd0fceda7ea3ebc95607a484b1e0dbb242539a3c6198a00"
       },
       {
         "document_id": "DOC-1a0007a044295918839fd96e58f204f4",
-        "sequence_no": 9098
+        "sequence_no": 9098,
+        "text_sha256": "2925858c087d1d711f03a1d60c0fe12e5f5b8c1eb020fd1af39c337a96f33352"
       },
       {
         "document_id": "DOC-f2cebeb1cb865955b9c3d8be684a2259",
-        "sequence_no": 295
+        "sequence_no": 295,
+        "text_sha256": "b57b2b62fd8199b56682c0fc92d77f20a0bad1456dd9c7c2386c733bdba76bf8"
       }
     ],
     "relevance": "ET art. 591 imposes the income-tax return duty on taxpayers subject to the tax, subject to art. 592 exceptions; ET art. 595 defines the fiscal-period end when liquidation occurs during the year; Decreto 2229 de 2023 art. 1.6.1.13.2.18 regulates the fraction-year return."
