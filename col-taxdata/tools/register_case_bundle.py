@@ -12,7 +12,7 @@ from case_support_graph import canonical_case_source_records
 
 
 REGISTRAR_NAME = "case_bundle_registry"
-REGISTRAR_VERSION = "4"
+REGISTRAR_VERSION = "5"
 
 
 def utc_now() -> str:
@@ -328,6 +328,7 @@ def register_case(
     claims_reused = 0
     claims_validated = 0
     case_items_inserted = 0
+    case_items_deleted = 0
     evidence_inserted = 0
     declared_manifest_sources_present = []
     missing_sources = []
@@ -795,6 +796,60 @@ def register_case(
                 )
                 case_items_inserted += int(bool(cur.rowcount))
 
+            canonical_source_ids = {
+                item["source_id"]
+                for item in canonical_sources
+            }
+
+            generated_rows = con.execute(
+                """
+                SELECT item_type, item_id, relevance
+                FROM case_items
+                WHERE case_id = ?
+                  AND item_type IN ('source', 'document')
+                """,
+                (case_id,),
+            ).fetchall()
+
+            for item_type, item_id, relevance in generated_rows:
+                relevance = relevance or ""
+                if item_type == "source":
+                    generated = (
+                        relevance == "official source referenced by case manifest"
+                        or relevance == (
+                            "canonical source reached from case support graph"
+                        )
+                        or relevance.startswith("official source supporting ")
+                    )
+                    stale = item_id not in canonical_source_ids
+                else:
+                    generated = (
+                        relevance == (
+                            "canonical document reached from case support graph"
+                        )
+                        or relevance.startswith(
+                            "canonical document reached from "
+                        )
+                        or relevance.startswith(
+                            "canonical document supporting "
+                        )
+                    )
+                    stale = item_id not in canonical_document_ids
+
+                if not generated or not stale:
+                    continue
+
+                cur = con.execute(
+                    """
+                    DELETE FROM case_items
+                    WHERE case_id = ?
+                      AND item_type = ?
+                      AND item_id = ?
+                    """,
+                    (case_id, item_type, item_id),
+                )
+                case_items_deleted += cur.rowcount
+
         return {
             "registrar_name": REGISTRAR_NAME,
             "registrar_version": REGISTRAR_VERSION,
@@ -807,6 +862,7 @@ def register_case(
             "claims_validated_from_canonical_bindings":
                 claims_validated,
             "case_items_inserted": case_items_inserted,
+            "case_items_deleted": case_items_deleted,
             "evidence_inserted": evidence_inserted,
             "available_sources": [
                 item["source_id"]
