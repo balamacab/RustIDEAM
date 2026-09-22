@@ -148,3 +148,17 @@ claim
 ```
 
 LLM runs will later also store model hash, prompt/schema version and raw structured output.
+
+## Versioned text extraction
+
+The initial `segments` table is retained for schema compatibility but is not used by the first production extraction path.
+
+Canonical extracted text is versioned through:
+
+- `text_extractions`: one deterministic output per manifestation + extractor + extractor version;
+- `extracted_segments`: addressable segments tied to a specific extraction;
+- `extracted_segments_fts`: derived full-text index.
+
+This avoids overwriting segment offsets when the parser changes. Evidence should prefer `evidence.extracted_segment_id` for newly generated records.
+
+For the Normograma DIAN adapter, extraction is deterministic and deliberately excludes page chrome before the first legal-document heading and after the DIAN compilation footer. The immutable raw HTML remains the primary preserved source.
