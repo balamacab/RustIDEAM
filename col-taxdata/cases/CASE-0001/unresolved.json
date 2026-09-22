@@ -35,6 +35,11 @@
       "code": "DIAN_DEBT_AND_PROCEEDINGS_UNKNOWN",
       "question": "Confirmar ausencia de deudas exigibles y procesos administrativos/judiciales relevantes.",
       "impact": "Puede bloquear la cancelación del RUT."
+    },
+    {
+      "code": "EXOGENA_CANCELLATION_TIMING_UNKNOWN",
+      "question": "Confirmar en qué fecha y durante qué año gravable se inició o se iniciará el trámite de cancelación del RUT.",
+      "impact": "Determina si puede aplicarse la exclusión de información establecida en el parágrafo 2 del artículo 1.3.1.1 de la Resolución 227 de 2025, modificado por la Resolución 233 de 2025."
     }
   ]
 }
