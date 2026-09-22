@@ -283,12 +283,14 @@ def main() -> int:
         operative_runs.append(
             {
                 "source_id": source_id,
+                "extraction_id": extraction_id,
                 "detection_run_id": detection_run_id,
             }
         )
 
     for item in operative_runs:
         source_id = item["source_id"]
+        extraction_id = item["extraction_id"]
         detection_run_id = item["detection_run_id"]
 
         resolution_result = run_command(
@@ -365,6 +367,25 @@ def main() -> int:
                 "stage": "promote_relationships",
                 "source_id": source_id,
                 "result": promotion_result,
+            }
+        )
+
+        temporality_result = run_command(
+            [
+                sys.executable,
+                tool("extract_document_temporality.py"),
+                "--extraction-id",
+                extraction_id,
+                "--db",
+                args.db,
+            ],
+            expect_json=True,
+        )
+        report["stages"].append(
+            {
+                "stage": "extract_document_temporality",
+                "source_id": source_id,
+                "result": temporality_result,
             }
         )
 
