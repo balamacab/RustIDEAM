@@ -12,7 +12,7 @@ import uuid
 from pathlib import Path
 
 DETECTOR_NAME = "normative_reference_regex"
-DETECTOR_VERSION = "5"
+DETECTOR_VERSION = "6"
 
 DOCUMENT_RE = re.compile(
     r"\b(?P<type>Ley|Decreto|Resoluci[oó]n|Circular|Concepto|Oficio)"
@@ -123,6 +123,22 @@ RELATION_TRIGGERS = (
     (re.compile(r"\bder[oó]guese\b", re.IGNORECASE), "repeals"),
     (re.compile(r"\bderoga\b", re.IGNORECASE), "repeals"),
 )
+
+
+EDITORIAL_RELATION_NOTE_RE = re.compile(
+    r"<(?P<subject>Art[ií]culo|Par[áa]grafo|Numeral|Inciso)"
+    r"(?P<subject_tail>[^<>]{0,160}?)\s+"
+    r"(?P<action>modificado|adicionado|derogado|sustituido)"
+    r"\s+por\s+(?P<body>[^<>]{1,700}?)>",
+    re.IGNORECASE,
+)
+
+EDITORIAL_RELATION_TYPES = {
+    "MODIFICADO": "modified_by",
+    "ADICIONADO": "added_by",
+    "DEROGADO": "repealed_by",
+    "SUSTITUIDO": "substituted_by",
+}
 
 
 @dataclass(frozen=True)
@@ -494,6 +510,56 @@ def detect(
                         "candidate",
                     )
                 )
+
+            for note in EDITORIAL_RELATION_NOTE_RE.finditer(text):
+                action = normalize_ascii(note.group("action")).upper()
+                relation_type = EDITORIAL_RELATION_TYPES[action]
+                trigger_text = (
+                    f"{note.group('subject')} "
+                    f"{note.group('action')} por"
+                )
+
+                for mention in mentions:
+                    if mention.mention_type != "article":
+                        continue
+                    if (
+                        mention.char_start < note.start()
+                        or mention.char_end > note.end()
+                    ):
+                        continue
+
+                    mention_id = mention_ids[
+                        (
+                            mention.mention_type,
+                            mention.char_start,
+                            mention.char_end,
+                            mention.normalized_reference,
+                        )
+                    ]
+                    relation_id = deterministic_id(
+                        "RLM",
+                        (
+                            f"col-taxdata:{detection_run_id}:{segment_id}:"
+                            f"{mention_id}:{relation_type}"
+                        ),
+                    )
+                    pending_relations.append(
+                        (
+                            relation_id,
+                            detection_run_id,
+                            extraction_id,
+                            segment_id,
+                            mention_id,
+                            relation_type,
+                            "current_document_to_target",
+                            trigger_text,
+                            note.group(0),
+                            f"{DETECTOR_NAME}:{DETECTOR_VERSION}",
+                            1.0,
+                            0,
+                            "candidate",
+                        )
+                    )
 
             if not is_current_document_operational_segment(segment_type, text):
                 continue
