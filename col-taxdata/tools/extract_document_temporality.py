@@ -12,7 +12,7 @@ from pathlib import Path
 
 
 PROCESSOR_NAME = "document_temporality_regex"
-PROCESSOR_VERSION = "1"
+PROCESSOR_VERSION = "2"
 
 MONTHS = {
     "enero": 1,
@@ -39,7 +39,7 @@ PUBLICATION_RE = re.compile(
 )
 
 ISSUED_RE = re.compile(
-    r"Dado\s+en\s+.+?,\s*(?:a\s+)?"
+    r"Dad[oa]\s+en\s+.+?,\s*(?:a\s+)?"
     r"(?P<day>\d{1,2})\s+de\s+"
     r"(?P<month>[A-Za-zÁÉÍÓÚÜÑáéíóúüñ]+)\s+de\s+"
     r"(?P<year>\d{4})",
@@ -48,7 +48,8 @@ ISSUED_RE = re.compile(
 
 EFFECTIVE_ON_PUBLICATION_RE = re.compile(
     r"rige\s+a\s+partir\s+de\s+la\s+fecha\s+de\s+su\s+"
-    r"publicaci[oó]n\s+en\s+el\s+Diario\s+Oficial",
+    r"publicaci[oó]n"
+    r"(?:\s+en\s+el\s+Diario\s+Oficial)?",
     re.IGNORECASE,
 )
 
@@ -463,26 +464,33 @@ def extract_temporality(
             events_inserted += int(inserted)
             evidence_links_inserted += links
 
-            relationships = con.execute(
+            source_relationships = con.execute(
                 """
-                SELECT relationship_id
-                FROM relationships
-                WHERE source_type = 'document'
-                  AND source_id = ?
-                  AND status = 'validated'
-                  AND relation_type IN (
+                SELECT DISTINCT r.relationship_id
+                FROM relationships r
+                LEFT JOIN provisions sp
+                  ON r.source_type = 'provision'
+                 AND sp.provision_id = r.source_id
+                WHERE r.status = 'validated'
+                  AND r.relation_type IN (
                       'substitutes',
                       'modifies',
                       'adds',
                       'repeals',
                       'partially_repeals'
                   )
-                ORDER BY relationship_id
+                  AND (
+                      (r.source_type = 'document' AND r.source_id = ?)
+                      OR
+                      (r.source_type = 'provision'
+                       AND sp.document_id = ?)
+                  )
+                ORDER BY r.relationship_id
                 """,
-                (document_id,),
+                (document_id, document_id),
             ).fetchall()
 
-            for (relationship_id,) in relationships:
+            for (relationship_id,) in source_relationships:
                 con.execute(
                     """
                     UPDATE relationships
@@ -520,6 +528,61 @@ def extract_temporality(
                     )
                     temporal_basis_inserted += int(bool(cur.rowcount))
 
+            inverse_relationships = con.execute(
+                """
+                SELECT DISTINCT r.relationship_id
+                FROM relationships r
+                JOIN provisions tp
+                  ON r.target_type = 'provision'
+                 AND tp.provision_id = r.target_id
+                WHERE r.status = 'validated'
+                  AND tp.document_id = ?
+                  AND r.relation_type IN (
+                      'modified_by',
+                      'added_by',
+                      'repealed_by',
+                      'substituted_by'
+                  )
+                ORDER BY r.relationship_id
+                """,
+                (document_id,),
+            ).fetchall()
+
+            for (relationship_id,) in inverse_relationships:
+                con.execute(
+                    """
+                    UPDATE relationships
+                    SET effective_date = ?
+                    WHERE relationship_id = ?
+                    """,
+                    (
+                        effective_date,
+                        relationship_id,
+                    ),
+                )
+
+                cur = con.execute(
+                    """
+                    INSERT OR IGNORE INTO relationship_temporal_basis(
+                        relationship_id,
+                        temporal_event_id,
+                        basis_role,
+                        created_at
+                    )
+                    VALUES (?, ?, 'effective_date', ?)
+                    """,
+                    (
+                        relationship_id,
+                        effective_event_id,
+                        now,
+                    ),
+                )
+                temporal_basis_inserted += int(bool(cur.rowcount))
+
+            relationships = (
+                source_relationships + inverse_relationships
+            )
+
         return {
             "processor_name": PROCESSOR_NAME,
             "processor_version": PROCESSOR_VERSION,
@@ -535,6 +598,8 @@ def extract_temporality(
             "evidence_inserted": evidence_inserted,
             "events_inserted": events_inserted,
             "event_evidence_links_inserted": evidence_links_inserted,
+            "source_relationships_updated": len(source_relationships),
+            "inverse_relationships_updated": len(inverse_relationships),
             "relationships_updated": len(relationships),
             "relationship_temporal_basis_inserted":
                 temporal_basis_inserted,
