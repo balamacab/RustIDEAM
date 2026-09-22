@@ -12,7 +12,7 @@ import uuid
 from pathlib import Path
 
 DETECTOR_NAME = "normative_reference_regex"
-DETECTOR_VERSION = "6"
+DETECTOR_VERSION = "7"
 
 DOCUMENT_RE = re.compile(
     r"\b(?P<type>Ley|Decreto|Resoluci[oó]n|Circular|Concepto|Oficio)"
@@ -94,7 +94,7 @@ ARTICLE_HIERARCHY_SCOPE_RE = re.compile(
     r"(?P<articles>"
     r"\d[\d.\-\s,;yYº°oO]*?"
     r")"
-    r"\s+(?:del|de\s+la)\s+"
+    r"\s+(?:del|de\s+la|al|a\s+la)\s+"
     r"(?P<hierarchy>"
     r"(?:Secci[oó]n|Cap[ií]tulo|T[ií]tulo|Parte|Libro)"
     r"\s+[^.;:]{1,260}?"
@@ -113,11 +113,14 @@ ARTICLE_HIERARCHY_SCOPE_RE = re.compile(
 ET_RE = re.compile(r"\bEstatuto\s+Tributario\b", re.IGNORECASE)
 
 RELATION_TRIGGERS = (
+    (re.compile(r"\bsustit[uú]yase\b", re.IGNORECASE), "substitutes"),
     (re.compile(r"\bsustit[uú]yanse\b", re.IGNORECASE), "substitutes"),
     (re.compile(r"\bsustituye\b", re.IGNORECASE), "substitutes"),
     (re.compile(r"\bmodif[ií]quese\b", re.IGNORECASE), "modifies"),
+    (re.compile(r"\bmodif[ií]quense\b", re.IGNORECASE), "modifies"),
     (re.compile(r"\bmodifica\b", re.IGNORECASE), "modifies"),
     (re.compile(r"\badici[oó]nese\b", re.IGNORECASE), "adds"),
+    (re.compile(r"\badici[oó]nense\b", re.IGNORECASE), "adds"),
     (re.compile(r"\badiciona\b", re.IGNORECASE), "adds"),
     (re.compile(r"\bder[oó]guense\b", re.IGNORECASE), "repeals"),
     (re.compile(r"\bder[oó]guese\b", re.IGNORECASE), "repeals"),
@@ -355,21 +358,28 @@ def extract_mentions(text: str) -> list[Mention]:
     return mentions
 
 
-def relation_trigger_before(
+def relation_triggers_before(
     text: str,
     target_start: int,
-) -> tuple[str, str] | None:
+    lower_bound: int = 0,
+) -> list[tuple[str, str]]:
     candidates: list[tuple[int, str, str]] = []
 
     for regex, relation_type in RELATION_TRIGGERS:
-        for match in regex.finditer(text, 0, target_start):
+        for match in regex.finditer(text, lower_bound, target_start):
             candidates.append((match.start(), match.group(0), relation_type))
 
-    if not candidates:
-        return None
+    candidates.sort(key=lambda item: item[0])
 
-    _, trigger_text, relation_type = max(candidates, key=lambda item: item[0])
-    return trigger_text, relation_type
+    result: list[tuple[str, str]] = []
+    seen_relation_types: set[str] = set()
+    for _, trigger_text, relation_type in candidates:
+        if relation_type in seen_relation_types:
+            continue
+        seen_relation_types.add(relation_type)
+        result.append((trigger_text, relation_type))
+
+    return result
 
 
 def is_current_document_operational_segment(
@@ -383,16 +393,9 @@ def is_current_document_operational_segment(
     if "EL PRESENTE DECRETO" in upper:
         return True
 
-    prefix = upper[:240]
     return any(
-        token in prefix
-        for token in (
-            "SUSTITUYANSE",
-            "MODIFIQUESE",
-            "ADICIONESE",
-            "DEROGUENSE",
-            "DEROGUESE",
-        )
+        regex.search(text) is not None
+        for regex, _ in RELATION_TRIGGERS
     )
 
 
@@ -564,15 +567,29 @@ def detect(
             if not is_current_document_operational_segment(segment_type, text):
                 continue
 
-            for mention in mentions:
-                if mention.mention_type != "article":
+            article_mentions = [
+                item for item in mentions
+                if item.mention_type == "article"
+            ]
+
+            for index, mention in enumerate(article_mentions):
+                previous_article_end = max(
+                    (
+                        item.char_end
+                        for item in article_mentions[:index]
+                        if item.char_end <= mention.char_start
+                    ),
+                    default=0,
+                )
+
+                triggers = relation_triggers_before(
+                    text,
+                    mention.char_start,
+                    lower_bound=previous_article_end,
+                )
+                if not triggers:
                     continue
 
-                trigger = relation_trigger_before(text, mention.char_start)
-                if trigger is None:
-                    continue
-
-                trigger_text, relation_type = trigger
                 mention_id = mention_ids[
                     (
                         mention.mention_type,
@@ -581,30 +598,32 @@ def detect(
                         mention.normalized_reference,
                     )
                 ]
-                relation_id = deterministic_id(
-                    "RLM",
-                    (
-                        f"col-taxdata:{detection_run_id}:{segment_id}:"
-                        f"{mention_id}:{relation_type}"
-                    ),
-                )
-                pending_relations.append(
-                    (
-                        relation_id,
-                        detection_run_id,
-                        extraction_id,
-                        segment_id,
-                        mention_id,
-                        relation_type,
-                        "current_document_to_target",
-                        trigger_text,
-                        mention.context_text,
-                        f"{DETECTOR_NAME}:{DETECTOR_VERSION}",
-                        1.0,
-                        0,
-                        "candidate",
+
+                for trigger_text, relation_type in triggers:
+                    relation_id = deterministic_id(
+                        "RLM",
+                        (
+                            f"col-taxdata:{detection_run_id}:{segment_id}:"
+                            f"{mention_id}:{relation_type}"
+                        ),
                     )
-                )
+                    pending_relations.append(
+                        (
+                            relation_id,
+                            detection_run_id,
+                            extraction_id,
+                            segment_id,
+                            mention_id,
+                            relation_type,
+                            "current_document_to_target",
+                            trigger_text,
+                            mention.context_text,
+                            f"{DETECTOR_NAME}:{DETECTOR_VERSION}",
+                            1.0,
+                            0,
+                            "candidate",
+                        )
+                    )
 
         with con:
             con.execute(
