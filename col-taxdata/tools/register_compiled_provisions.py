@@ -28,7 +28,7 @@ REG_ARTICLE_RE = re.compile(
 )
 
 EDITORIAL_NOTE_RE = re.compile(
-    r"<(?P<note>(?:Art[ií]culo|Par[áa]grafo|Inciso)\\s+[^>]+)>",
+    r"<(?P<note>(?:Art[ií]culo|Par[áa]grafo|Inciso)[ ]+[^>]+)>",
     re.IGNORECASE,
 )
 
@@ -80,12 +80,12 @@ def parse_article(text: str) -> tuple[str, str | None, str, str | None]:
         rest = (
             rest[:note_match.start()] + " " + rest[note_match.end():]
         ).strip()
-        rest = re.sub(r"\\s+", " ", rest)
+        rest = " ".join(rest.split())
 
     title = None
     normative_text = rest
     title_match = re.match(
-        r"^(?P<title>[A-ZÁÉÍÓÚÜÑ0-9 ,;:/()\\-]+?)\\.\\s+(?P<body>.+)$",
+        r"^(?P<title>[A-ZÁÉÍÓÚÜÑ0-9 ,;:/()\-]+?)[.][ ]+(?P<body>.+)$",
         rest,
     )
     if title_match and len(title_match.group("title")) <= 220:
