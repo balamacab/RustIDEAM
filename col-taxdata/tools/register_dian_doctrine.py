@@ -419,9 +419,6 @@ def register_doctrine(
 
             positions.setdefault(ordinal, {})[role] = body
 
-        if not positions:
-            raise RuntimeError("no doctrine problem/thesis positions found")
-
         incomplete = [
             ordinal
             for ordinal, parts in positions.items()
