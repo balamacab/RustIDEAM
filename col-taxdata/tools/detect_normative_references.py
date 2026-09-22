@@ -12,7 +12,7 @@ import uuid
 from pathlib import Path
 
 DETECTOR_NAME = "normative_reference_regex"
-DETECTOR_VERSION = "3"
+DETECTOR_VERSION = "4"
 
 DOCUMENT_RE = re.compile(
     r"\b(?P<type>Ley|Decreto|Resoluci[oó]n|Circular|Concepto|Oficio)"
