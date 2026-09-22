@@ -12,7 +12,7 @@ import uuid
 from pathlib import Path
 
 DETECTOR_NAME = "normative_reference_regex"
-DETECTOR_VERSION = "4"
+DETECTOR_VERSION = "5"
 
 DOCUMENT_RE = re.compile(
     r"\b(?P<type>Ley|Decreto|Resoluci[oó]n|Circular|Concepto|Oficio)"
@@ -26,9 +26,19 @@ DOCUMENT_RE = re.compile(
 
 DIAN_INTERNAL_DOC_RE = re.compile(
     r"\b(?P<type>Concepto|Oficio)\s+"
-    r"(?P<number>\d+(?:\s+\d+)*)\s+"
+    r"(?P<number>\d+(?:\s+\d+)*)"
+    r"\s*(?:[-–—]\s*)?"
     r"int(?:\.?|-)?\s*(?P<internal>\d+)\s+"
-    r"de\s+(?P<year>\d{4})\b",
+    r"(?:de|del\s+\d{1,2}\s+de\s+"
+    r"[A-Za-zÁÉÍÓÚÜÑáéíóúüñ]+\s+de)"
+    r"\s+(?P<year>\d{4})\b",
+    re.IGNORECASE,
+)
+
+DIAN_SPACED_DOC_RE = re.compile(
+    r"\b(?P<type>Concepto|Oficio)\s+"
+    r"(?P<number>\d+(?:\s+\d+)+)"
+    r"\s+de\s+(?P<year>\d{4})\b",
     re.IGNORECASE,
 )
 
@@ -286,6 +296,7 @@ def extract_mentions(text: str) -> list[Mention]:
     for regex in (
         DIAN_INTERNAL_DOC_RE,
         DIAN_DATED_DOC_RE,
+        DIAN_SPACED_DOC_RE,
         DOCUMENT_RE,
     ):
         for match in regex.finditer(text):
