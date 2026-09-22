@@ -10,7 +10,7 @@ from pathlib import Path
 
 
 REGISTRAR_NAME = "case_bundle_registry"
-REGISTRAR_VERSION = "2"
+REGISTRAR_VERSION = "3"
 
 
 def utc_now() -> str:
@@ -63,11 +63,35 @@ def copy_claim_evidence(
             f"source evidence not found: {source_evidence_id}"
         )
 
+    existing = con.execute(
+        """
+        SELECT evidence_id
+        FROM evidence
+        WHERE claim_id = ?
+          AND manifestation_id = ?
+          AND COALESCE(extracted_segment_id, '') =
+              COALESCE(?, '')
+          AND exact_quote = ?
+          AND source_sha256 = ?
+        ORDER BY evidence_id
+        LIMIT 1
+        """,
+        (
+            claim_id,
+            row[0],
+            row[11],
+            row[5],
+            row[7],
+        ),
+    ).fetchone()
+    if existing is not None:
+        return existing[0], False
+
     evidence_id = deterministic_id(
         "EVD",
         (
             f"case-claim:{claim_id}:source-evidence:"
-            f"{source_evidence_id}:{REGISTRAR_VERSION}"
+            f"{source_evidence_id}"
         ),
     )
     cur = con.execute(
@@ -191,11 +215,39 @@ def create_claim_evidence_from_segment(
         _created_at,
     ) = newest
 
+    existing = con.execute(
+        """
+        SELECT evidence_id
+        FROM evidence
+        WHERE claim_id = ?
+          AND manifestation_id = ?
+          AND extracted_segment_id = ?
+          AND exact_quote = ?
+          AND source_sha256 = ?
+        ORDER BY evidence_id
+        LIMIT 1
+        """,
+        (
+            claim_id,
+            manifestation_id,
+            extracted_segment_id,
+            exact_quote,
+            source_sha256,
+        ),
+    ).fetchone()
+    if existing is not None:
+        return (
+            existing[0],
+            extracted_segment_id,
+            source_id,
+            False,
+        )
+
     evidence_id = deterministic_id(
         "EVD",
         (
             f"case-claim:{claim_id}:extracted-segment:"
-            f"{extracted_segment_id}:{REGISTRAR_VERSION}"
+            f"{extracted_segment_id}"
         ),
     )
     cur = con.execute(
