@@ -29,6 +29,13 @@ TAX_SEEDS = [
     "https://normograma.dian.gov.co/dian/compilacion/t_3_jurisprudencia_tributaria.html",
 ]
 
+ALL_SEEDS = [
+    "https://normograma.dian.gov.co/dian/compilacion/tributario.html",
+    "https://normograma.dian.gov.co/dian/compilacion/aduanero.html",
+    "https://normograma.dian.gov.co/dian/compilacion/cambiario.html",
+    "https://normograma.dian.gov.co/dian/compilacion/normatividad_institucional_dian.html",
+]
+
 ALLOWED_HOST = "normograma.dian.gov.co"
 ALLOWED_PREFIX = "/dian/compilacion/"
 DOC_PREFIX = "/dian/compilacion/docs/"
@@ -37,6 +44,9 @@ HTML_SUFFIXES = (".htm", ".html")
 
 def index_allowed_for_scope(url: str, scope: str) -> bool:
     name = Path(urllib.parse.urlparse(url).path).name.lower()
+
+    if scope == "all":
+        return True
 
     if scope == "tributario":
         return (
@@ -248,11 +258,16 @@ def enqueue(
 
 
 def seed(con: sqlite3.Connection, scope: str) -> int:
-    if scope != "tributario":
+    if scope == "tributario":
+        seeds = TAX_SEEDS
+    elif scope == "all":
+        seeds = ALL_SEEDS
+    else:
         raise RuntimeError(f"unsupported scope: {scope}")
+
     inserted = 0
     with con:
-        for url in TAX_SEEDS:
+        for url in seeds:
             inserted += int(
                 enqueue(
                     con,
@@ -323,6 +338,20 @@ def purge_out_of_scope_queue(
         "queue_items_removed": queue_removed,
         "discovery_edges_removed": edges_removed,
     }
+
+
+def adopt_existing_queue_for_all(
+    con: sqlite3.Connection,
+) -> int:
+    with con:
+        cur = con.execute(
+            """
+            UPDATE dian_crawl_queue
+            SET scope = 'all'
+            WHERE scope != 'all'
+            """
+        )
+    return cur.rowcount
 
 
 def reset_stale_running(
@@ -825,12 +854,14 @@ def reconcile_unresolved(
 
 def due_item(
     con: sqlite3.Connection,
+    scope: str,
 ) -> tuple[str, str, str, int, int] | None:
     row = con.execute(
         """
         SELECT url, item_type, scope, depth, attempts
         FROM dian_crawl_queue
-        WHERE status IN ('pending', 'done', 'error')
+        WHERE scope = ?
+          AND status IN ('pending', 'done', 'error')
           AND next_attempt_at <= ?
         ORDER BY
             CASE item_type WHEN 'index' THEN 0 ELSE 1 END,
@@ -839,7 +870,7 @@ def due_item(
             first_seen_at
         LIMIT 1
         """,
-        (utc_now(),),
+        (scope, utc_now()),
     ).fetchone()
     if row is None:
         return None
@@ -1001,7 +1032,11 @@ def main() -> int:
             "cross-reference official DIAN Normograma documents."
         )
     )
-    parser.add_argument("--scope", default="tributario")
+    parser.add_argument(
+        "--scope",
+        choices=("all", "tributario"),
+        default="all",
+    )
     parser.add_argument("--db", default="data/state/taxdata.sqlite")
     parser.add_argument("--data-root", default="data")
     parser.add_argument("--schema-dir", default="schema")
@@ -1068,6 +1103,11 @@ def main() -> int:
             con,
             args.stale_running_seconds,
         )
+        adopted = (
+            adopt_existing_queue_for_all(con)
+            if args.scope == "all"
+            else 0
+        )
         purged = purge_out_of_scope_queue(con, args.scope)
         inserted = seed(con, args.scope)
         print(
@@ -1079,6 +1119,7 @@ def main() -> int:
                     "seeded": inserted,
                     "stale_running_reset": reset,
                     "scope_cleanup": purged,
+                    "queue_adopted_into_all": adopted,
                 },
                 ensure_ascii=False,
             ),
@@ -1089,7 +1130,7 @@ def main() -> int:
         since_reconcile = 0
 
         while True:
-            item = due_item(con)
+            item = due_item(con, args.scope)
             if item is None:
                 reconciliation = reconcile_unresolved(
                     con,
