@@ -22,7 +22,7 @@ from extract_normograma_html import (
 
 
 EXTRACTOR_NAME = "dian_rut_cancellation_html"
-EXTRACTOR_VERSION = "1"
+EXTRACTOR_VERSION = "2"
 
 START_HEADING = (
     "Cancelación de la inscripción en el "
@@ -75,7 +75,17 @@ def write_atomic(path: Path, content: bytes) -> None:
 
 def is_question(text: str) -> bool:
     stripped = text.strip()
-    return stripped.startswith("¿") and "?" in stripped
+    if "?" not in stripped:
+        return False
+
+    question_start = stripped.find("¿")
+    if question_start < 0:
+        return False
+
+    # DIAN sometimes prefixes a condition before the interrogative,
+    # e.g. "Si una sociedad ..., ¿puede cancelar el RUT?"
+    # Keep this conservative: the block must end as a question.
+    return stripped.endswith("?")
 
 
 def classify(block: RawBlock, sequence_no: int) -> str:
