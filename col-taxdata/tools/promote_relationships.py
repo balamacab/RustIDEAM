@@ -331,7 +331,7 @@ def main() -> int:
     parser.add_argument("--detection-run-id", required=True)
     parser.add_argument(
         "--resolution-method",
-        default="canonical_reference_resolver:1",
+        default="canonical_reference_resolver:2",
     )
     parser.add_argument("--db", default="data/state/taxdata.sqlite")
     args = parser.parse_args()
