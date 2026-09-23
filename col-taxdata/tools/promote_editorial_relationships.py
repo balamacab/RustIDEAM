@@ -81,9 +81,21 @@ def promote(
         ) = run
 
         if source_document_id is None:
-            raise RuntimeError(
-                "source manifestation has no canonical document_id"
-            )
+            # An unresolved source identity is a valid conservative outcome.
+            # Relationship promotion must not turn that state into an
+            # operational failure or invent a source document.
+            return {
+                "promoter_name": PROMOTER_NAME,
+                "promoter_version": PROMOTER_VERSION,
+                "detection_run_id": detection_run_id,
+                "resolution_method": resolution_method,
+                "extraction_id": extraction_id,
+                "source_document_id": None,
+                "status": "skipped",
+                "reason_code": "SOURCE_DOCUMENT_ID_UNRESOLVED",
+                "relationships_inserted": 0,
+                "relationships_reused": 0,
+            }
 
         rows = con.execute(
             """
