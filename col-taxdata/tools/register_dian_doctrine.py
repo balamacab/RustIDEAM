@@ -10,9 +10,11 @@ import unicodedata
 import uuid
 from pathlib import Path
 
+from register_document_identity import register_document_identity
+
 
 PARSER_NAME = "dian_doctrine_registry"
-PARSER_VERSION = "1"
+PARSER_VERSION = "2"
 
 TITLE_RE = re.compile(
     r"^CONCEPTO\s+(?P<external>\d+)\s+int\s+(?P<internal>\d+)\s+DE\s+(?P<year>\d{4})$",
@@ -273,9 +275,28 @@ def register_doctrine(
     extraction_id: str,
     db_path: Path,
 ) -> dict[str, object]:
+    """Register DIAN identity first, then optional modern doctrine metadata.
+
+    Canonical identity is intentionally independent from the modern Concepto
+    layout. Historic Oficios and older Conceptos therefore remain first-class
+    documents even when they do not contain the modern internal-number/date/
+    problem-thesis structure.
+    """
+
+    identity = register_document_identity(
+        extraction_id=extraction_id,
+        db_path=db_path,
+    )
+    if identity["status"] != "registered":
+        return {
+            "parser_name": PARSER_NAME,
+            "parser_version": PARSER_VERSION,
+            "doctrine_metadata_status": "not_registered",
+            **identity,
+        }
+
     con = sqlite3.connect(db_path)
     con.execute("PRAGMA foreign_keys = ON")
-
     try:
         base = con.execute(
             """
@@ -294,17 +315,17 @@ def register_doctrine(
             """,
             (extraction_id,),
         ).fetchone()
-
         if base is None:
             raise RuntimeError(f"extraction not found: {extraction_id}")
 
         (
             manifestation_id,
-            existing_document_id,
+            document_id,
             source_sha256,
             retrieved_at,
             source_url,
         ) = base
+        assert document_id == identity["document_id"]
 
         segments = con.execute(
             """
@@ -322,38 +343,44 @@ def register_doctrine(
             (extraction_id,),
         ).fetchall()
 
-        by_seq = {row[1]: row for row in segments}
-
         title_matches = []
         for row in segments:
             match = TITLE_RE.fullmatch(row[5].strip())
             if match:
                 title_matches.append((row, match))
 
-        if len(title_matches) != 1:
-            raise RuntimeError(
-                "expected exactly one full DIAN concept title; "
-                f"found {len(title_matches)}"
-            )
+        # Only the modern Concepto shape has the richer doctrine metadata
+        # modeled by schema/009. Identity registration above is complete even
+        # when this optional structure is absent.
+        if identity["document_type"] != "CONCEPTO" or len(title_matches) != 1:
+            return {
+                "parser_name": PARSER_NAME,
+                "parser_version": PARSER_VERSION,
+                **identity,
+                "doctrine_metadata_status": "not_applicable",
+                "modern_title_matches": len(title_matches),
+            }
 
         title_row, title_match = title_matches[0]
         external_number = title_match.group("external")
         normalized_external_number = str(int(external_number))
         internal_number = title_match.group("internal")
         year = int(title_match.group("year"))
-        canonical_key = (
-            f"CO:CONCEPTO:{normalized_external_number}:{year}"
-        )
-        document_id = deterministic_id("DOC", canonical_key)
 
         if (
-            existing_document_id is not None
-            and existing_document_id != document_id
+            normalized_external_number != str(identity["number"])
+            or year != int(identity["year"])
         ):
-            raise RuntimeError(
-                "manifestation already linked to another document: "
-                f"{existing_document_id}"
-            )
+            # This should normally have been rejected by the family identity
+            # parser. Keep the metadata layer conservative if a future parser
+            # change broadens its heading acceptance.
+            return {
+                "parser_name": PARSER_NAME,
+                "parser_version": PARSER_VERSION,
+                **identity,
+                "doctrine_metadata_status": "unresolved",
+                "metadata_reason": "DOCTRINE_TITLE_IDENTITY_CONFLICT",
+            }
 
         date_matches = []
         for row in segments:
@@ -361,11 +388,22 @@ def register_doctrine(
             if match:
                 date_matches.append((row, match))
 
-        if len(date_matches) != 1:
-            raise RuntimeError(
-                "expected exactly one doctrine month/day date; "
-                f"found {len(date_matches)}"
-            )
+        web_matches = []
+        for row in segments:
+            match = WEB_PUBLICATION_RE.search(row[5])
+            if match:
+                web_matches.append((row, match))
+
+        if len(date_matches) != 1 or len(web_matches) != 1:
+            return {
+                "parser_name": PARSER_NAME,
+                "parser_version": PARSER_VERSION,
+                **identity,
+                "doctrine_metadata_status": "unresolved",
+                "metadata_reason": "DOCTRINE_DATE_EVIDENCE_AMBIGUOUS",
+                "doctrine_date_matches": len(date_matches),
+                "web_publication_matches": len(web_matches),
+            }
 
         date_row, date_match = date_matches[0]
         doctrine_date = parse_spanish_date(
@@ -373,19 +411,6 @@ def register_doctrine(
             date_match.group("month"),
             str(year),
         )
-
-        web_matches = []
-        for row in segments:
-            match = WEB_PUBLICATION_RE.search(row[5])
-            if match:
-                web_matches.append((row, match))
-
-        if len(web_matches) != 1:
-            raise RuntimeError(
-                "expected exactly one DIAN web publication date; "
-                f"found {len(web_matches)}"
-            )
-
         web_row, web_match = web_matches[0]
         web_publication_date = parse_spanish_date(
             web_match.group("day"),
@@ -394,6 +419,7 @@ def register_doctrine(
         )
 
         positions: dict[int, dict[str, tuple]] = {}
+        incomplete_positions: list[int] = []
         for idx, row in enumerate(segments):
             if row[2] != "table_row":
                 continue
@@ -404,30 +430,17 @@ def register_doctrine(
             ordinal = int(label.group("ordinal"))
             kind_norm = normalize_ascii(label.group("kind")).upper()
             role = "problem" if kind_norm.startswith("PROBLEMA") else "thesis"
+            if idx + 1 >= len(segments) or segments[idx + 1][2] != "table_row":
+                incomplete_positions.append(ordinal)
+                continue
+            positions.setdefault(ordinal, {})[role] = segments[idx + 1]
 
-            if idx + 1 >= len(segments):
-                raise RuntimeError(
-                    f"missing body after {role} label ordinal {ordinal}"
-                )
-
-            body = segments[idx + 1]
-            if body[2] != "table_row":
-                raise RuntimeError(
-                    f"expected table_row body after {role} label "
-                    f"ordinal {ordinal}"
-                )
-
-            positions.setdefault(ordinal, {})[role] = body
-
-        incomplete = [
+        incomplete_positions.extend(
             ordinal
             for ordinal, parts in positions.items()
             if set(parts) != {"problem", "thesis"}
-        ]
-        if incomplete:
-            raise RuntimeError(
-                f"incomplete doctrine position pairs: {incomplete}"
-            )
+        )
+        incomplete_positions = sorted(set(incomplete_positions))
 
         now = utc_now()
         evidence_inserted = 0
@@ -483,60 +496,28 @@ def register_doctrine(
 
             con.execute(
                 """
-                INSERT INTO documents(
-                    document_id,
-                    jurisdiction,
-                    entity,
-                    document_type,
-                    title,
-                    issued_date,
-                    publication_date,
-                    created_at,
-                    updated_at
-                )
-                VALUES (
-                    ?, 'CO', 'DIAN', 'CONCEPTO', ?, ?, ?, ?, ?
-                )
-                ON CONFLICT(document_id) DO UPDATE SET
-                    entity = excluded.entity,
-                    document_type = excluded.document_type,
-                    title = excluded.title,
-                    issued_date = excluded.issued_date,
-                    publication_date = excluded.publication_date,
-                    updated_at = excluded.updated_at
+                UPDATE documents
+                SET entity = 'DIAN',
+                    document_type = 'CONCEPTO',
+                    title = ?,
+                    issued_date = ?,
+                    publication_date = ?,
+                    updated_at = ?
+                WHERE document_id = ?
                 """,
                 (
-                    document_id,
                     title_row[5].strip(),
                     doctrine_date,
                     web_publication_date,
                     now,
-                    now,
+                    document_id,
                 ),
             )
 
-            identifiers = [
-                (
-                    "canonical_key",
-                    canonical_key,
-                    1,
-                    "canonical_identity",
-                ),
-                (
-                    "concept_number",
-                    external_number,
-                    1,
-                    "external_number",
-                ),
-                (
-                    "internal_number",
-                    internal_number,
-                    0,
-                    "internal_number",
-                ),
-            ]
-
-            for identifier_type, identifier_value, primary, role in identifiers:
+            for identifier_type, identifier_value, primary, role in (
+                ("concept_number", external_number, 1, "external_number"),
+                ("internal_number", internal_number, 0, "internal_number"),
+            ):
                 _, inserted_id, inserted_ev = register_identifier(
                     con,
                     document_id=document_id,
@@ -550,15 +531,6 @@ def register_doctrine(
                 )
                 identifiers_inserted += int(inserted_id)
                 identifier_evidence_inserted += int(inserted_ev)
-
-            con.execute(
-                """
-                UPDATE manifestations
-                SET document_id = ?
-                WHERE manifestation_id = ?
-                """,
-                (document_id, manifestation_id),
-            )
 
             con.execute(
                 """
@@ -625,19 +597,15 @@ def register_doctrine(
             event_evidence_links_inserted += int(linked)
 
             for ordinal in sorted(positions):
-                problem = positions[ordinal]["problem"]
-                thesis = positions[ordinal]["thesis"]
-                position_id = deterministic_id(
-                    "DPOS",
-                    f"{document_id}:{ordinal}",
-                )
-
+                parts = positions[ordinal]
+                if set(parts) != {"problem", "thesis"}:
+                    continue
+                problem = parts["problem"]
+                thesis = parts["thesis"]
+                position_id = deterministic_id("DPOS", f"{document_id}:{ordinal}")
                 existed = con.execute(
-                    """
-                    SELECT 1
-                    FROM doctrine_positions
-                    WHERE doctrine_position_id = ?
-                    """,
+                    "SELECT 1 FROM doctrine_positions "
+                    "WHERE doctrine_position_id = ?",
                     (position_id,),
                 ).fetchone()
 
@@ -655,9 +623,7 @@ def register_doctrine(
                         created_at,
                         updated_at
                     )
-                    VALUES (
-                        ?, ?, ?, ?, ?, ?, ?, 'validated', ?, ?
-                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, 'validated', ?, ?)
                     ON CONFLICT(doctrine_position_id) DO UPDATE SET
                         problem_segment_id = excluded.problem_segment_id,
                         thesis_segment_id = excluded.thesis_segment_id,
@@ -693,7 +659,6 @@ def register_doctrine(
                     role=f"problem_{ordinal}",
                 )
                 evidence_inserted += int(inserted)
-
                 thesis_evidence, inserted = create_evidence(
                     con,
                     manifestation_id=manifestation_id,
@@ -722,53 +687,45 @@ def register_doctrine(
                         )
                         VALUES (?, ?, ?, ?)
                         """,
-                        (
-                            position_id,
-                            evidence_id,
-                            role,
-                            now,
-                        ),
+                        (position_id, evidence_id, role, now),
                     )
                     position_evidence_inserted += int(bool(cur.rowcount))
 
         return {
             "parser_name": PARSER_NAME,
             "parser_version": PARSER_VERSION,
-            "document_id": document_id,
-            "canonical_key": canonical_key,
-            "manifestation_id": manifestation_id,
-            "extraction_id": extraction_id,
-            "document_type": "CONCEPTO",
-            "entity": "DIAN",
+            **identity,
+            "doctrine_metadata_status": (
+                "partial" if incomplete_positions else "registered"
+            ),
+            "metadata_reason": (
+                "INCOMPLETE_DOCTRINE_POSITIONS"
+                if incomplete_positions
+                else None
+            ),
+            "incomplete_positions": incomplete_positions,
             "external_number": external_number,
-            "normalized_external_number":
-                normalized_external_number,
+            "normalized_external_number": normalized_external_number,
             "internal_number": internal_number,
-            "year": year,
             "doctrine_date": doctrine_date,
             "web_publication_date": web_publication_date,
             "positions_found": len(positions),
             "positions_inserted": positions_inserted,
             "evidence_inserted": evidence_inserted,
             "identifiers_inserted": identifiers_inserted,
-            "identifier_evidence_inserted":
-                identifier_evidence_inserted,
+            "identifier_evidence_inserted": identifier_evidence_inserted,
             "events_inserted": events_inserted,
-            "event_evidence_links_inserted":
-                event_evidence_links_inserted,
-            "position_evidence_inserted":
-                position_evidence_inserted,
-            "reused": existing_document_id == document_id,
+            "event_evidence_links_inserted": event_evidence_links_inserted,
+            "position_evidence_inserted": position_evidence_inserted,
         }
     finally:
         con.close()
 
-
 def main() -> int:
     parser = argparse.ArgumentParser(
         description=(
-            "Register DIAN doctrinal concepts with canonical identity, "
-            "dates, problem/thesis pairs, and exact evidence."
+            "Register DIAN doctrine identity for historic/modern families and "
+            "enrich modern Conceptos with optional structured metadata."
         )
     )
     parser.add_argument("--extraction-id", required=True)
