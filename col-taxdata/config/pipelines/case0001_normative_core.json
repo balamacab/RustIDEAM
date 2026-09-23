@@ -1,7 +1,7 @@
 {
   "pipeline_id": "CASE-0001-normative-core-v1",
   "description": "Rebuild the deterministic normative core used by CASE-0001 from official DIAN Normograma sources.",
-  "resolution_method": "canonical_reference_resolver:1",
+  "resolution_method": "canonical_reference_resolver:2",
   "sources": [
     {
       "source_id": "SRC-0008",
