@@ -16,6 +16,15 @@ import urllib.request
 import uuid
 from typing import Any
 
+from source_identity import (
+    CONPES,
+    CONSTITUCION_POLITICA,
+    CORTE_CONSTITUCIONAL_SENTENCIA_C,
+    DIAN_CONCEPTO,
+    DIAN_OFICIO,
+    classify_source_url,
+)
+
 
 USER_AGENT = (
     "col-taxdata/1.0 "
@@ -136,8 +145,15 @@ def classify_url(
 
 def source_kind_for_url(url: str) -> str:
     name = Path(urllib.parse.urlparse(url).path).name.lower()
-    if name.startswith(("oficio_dian_", "concepto_dian_")):
+    source_family = classify_source_url(url).family
+    if source_family in {DIAN_CONCEPTO, DIAN_OFICIO}:
         return "doctrina"
+    if source_family == CORTE_CONSTITUCIONAL_SENTENCIA_C:
+        return "jurisprudencia"
+    if source_family == CONPES:
+        return "conpes"
+    if source_family == CONSTITUCION_POLITICA:
+        return "constitucion"
     if name == "estatuto_tributario.htm":
         return "norma_compilada"
     if name == "decreto_1625_2016.htm":
@@ -652,13 +668,20 @@ def process_document(
 
     name = Path(urllib.parse.urlparse(url).path).name.lower()
 
+    source_family = classify_source_url(url).family
     registry_tool: str
     if name == "estatuto_tributario.htm":
         registry_tool = "register_estatuto_tributario.py"
     elif name == "decreto_1625_2016.htm":
         registry_tool = "register_compiled_provisions.py"
-    elif source_kind == "doctrina":
+    elif source_family in {DIAN_CONCEPTO, DIAN_OFICIO}:
         registry_tool = "register_dian_doctrine.py"
+    elif source_family in {
+        CORTE_CONSTITUCIONAL_SENTENCIA_C,
+        CONPES,
+        CONSTITUCION_POLITICA,
+    }:
+        registry_tool = "register_document_identity.py"
     else:
         registry_tool = "register_simple_normative_act.py"
 
