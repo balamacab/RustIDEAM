@@ -93,7 +93,10 @@ class IdentityAssessment:
 
     @property
     def accepted(self) -> bool:
-        return self.status == "accepted" and self.content is not None
+        # Family-specific parsers may accept a complete trusted source identity
+        # without a content-derived heading. Generic normative acceptance still
+        # supplies content and keeps its existing assertions.
+        return self.status == "accepted"
 
 
 def utc_now() -> str:
