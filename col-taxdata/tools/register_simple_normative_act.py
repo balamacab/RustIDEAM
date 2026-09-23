@@ -12,6 +12,12 @@ import sqlite3
 import unicodedata
 import uuid
 
+from source_identity import (
+    assess_generic_normative_identity,
+    equivalent_existing_canonical_key,
+    persist_assessment,
+)
+
 
 PARSER_NAME = "simple_normative_act_registry"
 PARSER_VERSION = "1"
@@ -223,28 +229,83 @@ def register_simple_act(
         if heading is None:
             raise RuntimeError("document heading not found")
 
-        heading_match = DOCUMENT_HEADING_RE.match(
-            normalize_ascii(heading[3]).upper()
-        )
-        if heading_match is None:
-            raise RuntimeError(
-                f"unsupported document heading: {heading[3]!r}"
+        assessment = assess_generic_normative_identity(source_url, heading[3])
+        with con:
+            review_id = persist_assessment(
+                con,
+                manifestation_id=manifestation_id,
+                extraction_id=extraction_id,
+                assessment=assessment,
             )
+            if not assessment.accepted:
+                if existing_document_id is not None:
+                    con.execute(
+                        "UPDATE manifestations SET document_id = NULL "
+                        "WHERE manifestation_id = ?",
+                        (manifestation_id,),
+                    )
+                return {
+                    "parser_name": PARSER_NAME,
+                    "parser_version": PARSER_VERSION,
+                    "status": "unresolved",
+                    "reason_code": assessment.reason_code,
+                    "review_id": review_id,
+                    "source_family": assessment.source.family,
+                    "manifestation_id": manifestation_id,
+                    "extraction_id": extraction_id,
+                    "document_id": None,
+                }
 
-        doc_type = normalize_document_type(heading_match.group("type"))
-        number = normalize_document_number(heading_match.group("number"))
-        year = int(heading_match.group("year"))
-        canonical_key = f"CO:{doc_type}:{number}:{year}"
+        assert assessment.content is not None
+        doc_type = assessment.content.document_type
+        number = assessment.content.number
+        year = assessment.content.year
+        canonical_key = assessment.content.canonical_key
+        assert doc_type and number and year and canonical_key
         document_id = deterministic_id("DOC", canonical_key)
 
         if (
             existing_document_id is not None
             and existing_document_id != document_id
         ):
-            raise RuntimeError(
-                "manifestation already linked to another document: "
-                f"{existing_document_id}"
+            equivalent_key = equivalent_existing_canonical_key(
+                con,
+                document_id=existing_document_id,
+                signal=assessment.content,
             )
+            if equivalent_key is not None:
+                document_id = existing_document_id
+                canonical_key = equivalent_key
+            else:
+                conflict = assessment.__class__(
+                    "unresolved",
+                    assessment.source,
+                    assessment.content,
+                    "SOURCE_IDENTITY_CONFLICT",
+                )
+                with con:
+                    review_id = persist_assessment(
+                        con,
+                        manifestation_id=manifestation_id,
+                        extraction_id=extraction_id,
+                        assessment=conflict,
+                    )
+                    con.execute(
+                        "UPDATE manifestations SET document_id = NULL "
+                        "WHERE manifestation_id = ?",
+                        (manifestation_id,),
+                    )
+                return {
+                    "parser_name": PARSER_NAME,
+                    "parser_version": PARSER_VERSION,
+                    "status": "unresolved",
+                    "reason_code": "SOURCE_IDENTITY_CONFLICT",
+                    "review_id": review_id,
+                    "source_family": assessment.source.family,
+                    "manifestation_id": manifestation_id,
+                    "extraction_id": extraction_id,
+                    "document_id": None,
+                }
 
         article_rows = con.execute(
             """

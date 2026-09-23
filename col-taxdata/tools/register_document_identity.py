@@ -4,18 +4,14 @@ from __future__ import annotations
 import argparse
 from datetime import datetime, timezone
 import json
-import re
 import sqlite3
-import unicodedata
 import uuid
 from pathlib import Path
 
-
-DOCUMENT_HEADING_RE = re.compile(
-    r"^(?P<type>DECRETO|LEY|RESOLUCI[ÓO]N|CIRCULAR)"
-    r"\s+(?:N[ÚU]MERO\s+)?(?P<number>\d+[A-Z]?)"
-    r"\s+DE\s+(?P<year>\d{4})\b",
-    re.IGNORECASE,
+from source_identity import (
+    assess_generic_normative_identity,
+    equivalent_existing_canonical_key,
+    persist_assessment,
 )
 
 
@@ -26,21 +22,6 @@ def utc_now() -> str:
 def deterministic_id(prefix: str, material: str) -> str:
     value = uuid.uuid5(uuid.NAMESPACE_URL, material)
     return f"{prefix}-{value.hex}"
-
-
-def normalize_ascii(value: str) -> str:
-    value = unicodedata.normalize("NFKD", value)
-    return "".join(ch for ch in value if not unicodedata.combining(ch))
-
-
-def normalize_document_type(value: str) -> str:
-    key = normalize_ascii(value).upper()
-    return {
-        "DECRETO": "DECRETO",
-        "LEY": "LEY",
-        "RESOLUCION": "RESOLUCION",
-        "CIRCULAR": "CIRCULAR",
-    }[key]
 
 
 def register_document_identity(
@@ -57,10 +38,13 @@ def register_document_identity(
             SELECT
                 te.manifestation_id,
                 es.text,
-                m.document_id
+                m.document_id,
+                s.source_url
             FROM text_extractions te
             JOIN manifestations m
               ON m.manifestation_id = te.manifestation_id
+            JOIN sources s
+              ON s.source_id = m.source_id
             JOIN extracted_segments es
               ON es.extraction_id = te.extraction_id
             WHERE te.extraction_id = ?
@@ -74,33 +58,84 @@ def register_document_identity(
         if row is None:
             raise RuntimeError("document heading not found")
 
-        manifestation_id, heading, existing_document_id = row
-
-        match = DOCUMENT_HEADING_RE.match(
-            normalize_ascii(heading).upper()
-        )
-        if not match:
-            raise RuntimeError(
-                f"unsupported document heading: {heading!r}"
-            )
-
-        doc_type = normalize_document_type(match.group("type"))
-        number = match.group("number").upper()
-        year = int(match.group("year"))
-        canonical_key = f"CO:{doc_type}:{number}:{year}"
-        document_id = deterministic_id("DOC", canonical_key)
-        now = utc_now()
-
-        if (
-            existing_document_id is not None
-            and existing_document_id != document_id
-        ):
-            raise RuntimeError(
-                "manifestation already linked to another document: "
-                f"{existing_document_id}"
-            )
+        manifestation_id, heading, existing_document_id, source_url = row
+        assessment = assess_generic_normative_identity(source_url, heading)
 
         with con:
+            review_id = persist_assessment(
+                con,
+                manifestation_id=manifestation_id,
+                extraction_id=extraction_id,
+                assessment=assessment,
+            )
+
+            if not assessment.accepted:
+                if existing_document_id is not None:
+                    con.execute(
+                        "UPDATE manifestations SET document_id = NULL WHERE manifestation_id = ?",
+                        (manifestation_id,),
+                    )
+                return {
+                    "status": "unresolved",
+                    "reason_code": assessment.reason_code,
+                    "review_id": review_id,
+                    "source_family": assessment.source.family,
+                    "source_url": source_url,
+                    "heading": heading,
+                    "manifestation_id": manifestation_id,
+                    "extraction_id": extraction_id,
+                    "document_id": None,
+                }
+
+            assert assessment.content is not None
+            doc_type = assessment.content.document_type
+            number = assessment.content.number
+            year = assessment.content.year
+            canonical_key = assessment.content.canonical_key
+            assert doc_type and number and year and canonical_key
+            document_id = deterministic_id("DOC", canonical_key)
+            now = utc_now()
+
+            if (
+                existing_document_id is not None
+                and existing_document_id != document_id
+            ):
+                equivalent_key = equivalent_existing_canonical_key(
+                    con,
+                    document_id=existing_document_id,
+                    signal=assessment.content,
+                )
+                if equivalent_key is not None:
+                    document_id = existing_document_id
+                    canonical_key = equivalent_key
+                else:
+                    review_id = persist_assessment(
+                        con,
+                        manifestation_id=manifestation_id,
+                        extraction_id=extraction_id,
+                        assessment=assessment.__class__(
+                            "unresolved",
+                            assessment.source,
+                            assessment.content,
+                            "SOURCE_IDENTITY_CONFLICT",
+                        ),
+                    )
+                    con.execute(
+                        "UPDATE manifestations SET document_id = NULL WHERE manifestation_id = ?",
+                        (manifestation_id,),
+                    )
+                    return {
+                        "status": "unresolved",
+                        "reason_code": "SOURCE_IDENTITY_CONFLICT",
+                        "review_id": review_id,
+                        "source_family": assessment.source.family,
+                        "source_url": source_url,
+                        "heading": heading,
+                        "manifestation_id": manifestation_id,
+                        "extraction_id": extraction_id,
+                        "document_id": None,
+                    }
+
             con.execute(
                 """
                 INSERT INTO documents(
@@ -161,12 +196,14 @@ def register_document_identity(
             )
 
         return {
+            "status": "registered",
             "document_id": document_id,
             "canonical_key": canonical_key,
             "document_type": doc_type,
             "number": number,
             "year": year,
             "heading": heading,
+            "source_family": assessment.source.family,
             "manifestation_id": manifestation_id,
             "extraction_id": extraction_id,
             "reused": existing_document_id == document_id,
