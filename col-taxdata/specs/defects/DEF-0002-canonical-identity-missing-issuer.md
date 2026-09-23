@@ -1,7 +1,7 @@
 ---
 id: DEF-0002
 type: defect
-status: specified
+status: verified
 priority: P1
 area: canonical-identity
 baseline: 2026-09-22-corpus-audit
