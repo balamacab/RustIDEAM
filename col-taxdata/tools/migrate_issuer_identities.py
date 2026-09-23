@@ -21,6 +21,7 @@ from source_identity import (
 
 
 MIGRATION_REASON = "DEF-0002_ISSUER_COLLISION_SPLIT"
+ISSUER_BACKFILL_REASON = "DEF-0002_ISSUER_KEY_BACKFILL"
 
 
 def utc_now() -> str:
@@ -44,6 +45,15 @@ class ManifestationMove:
     new_canonical_key: str
     signal: IdentitySignal
     assessment: IdentityAssessment
+
+
+@dataclass(frozen=True)
+class IssuerBackfill:
+    document_id: str
+    legacy_canonical_key: str
+    new_canonical_key: str
+    issuer_key: str
+    moves: tuple[ManifestationMove, ...]
 
 
 def primary_canonical_key(con: sqlite3.Connection, document_id: str) -> str | None:
@@ -148,13 +158,12 @@ def build_plan(con: sqlite3.Connection) -> dict[str, object]:
         )
 
     collision_groups: list[dict[str, object]] = []
+    issuer_backfills: list[IssuerBackfill] = []
     conflicts: list[dict[str, object]] = []
     all_moves: list[ManifestationMove] = []
 
     for legacy_document_id, moves in sorted(grouped.items()):
         issuers = sorted({item.issuer_key for item in moves})
-        if len(issuers) < 2:
-            continue
 
         total_linked = con.execute(
             "SELECT COUNT(*) FROM manifestations WHERE document_id = ?",
@@ -169,6 +178,33 @@ def build_plan(con: sqlite3.Connection) -> dict[str, object]:
                     "linked": total_linked,
                     "planned": len(planned_manifestations),
                 }
+            )
+            continue
+
+        if len(issuers) == 1:
+            new_keys = {item.new_canonical_key for item in moves}
+            if len(new_keys) != 1:
+                conflicts.append(
+                    {
+                        "legacy_document_id": legacy_document_id,
+                        "reason": "INCONSISTENT_ISSUER_AWARE_KEYS",
+                        "keys": sorted(new_keys),
+                    }
+                )
+                continue
+            # A five-part primary key is already issuer-aware. This keeps
+            # repeated execution idempotent even when an older stable document
+            # ID intentionally differs from a freshly generated deterministic ID.
+            if len(moves[0].legacy_canonical_key.split(":")) == 5:
+                continue
+            issuer_backfills.append(
+                IssuerBackfill(
+                    document_id=legacy_document_id,
+                    legacy_canonical_key=moves[0].legacy_canonical_key,
+                    new_canonical_key=next(iter(new_keys)),
+                    issuer_key=issuers[0],
+                    moves=tuple(moves),
+                )
             )
             continue
 
@@ -214,7 +250,14 @@ def build_plan(con: sqlite3.Connection) -> dict[str, object]:
         all_moves.extend(moves)
 
     affected_old_docs = sorted({m.legacy_document_id for m in all_moves})
-    affected_manifestations = sorted({m.manifestation_id for m in all_moves})
+    affected_manifestations = sorted(
+        {m.manifestation_id for m in all_moves}
+        | {
+            move.manifestation_id
+            for backfill in issuer_backfills
+            for move in backfill.moves
+        }
+    )
     old_provision_ids: list[str] = []
     if affected_old_docs:
         q = ",".join("?" for _ in affected_old_docs)
@@ -252,11 +295,23 @@ def build_plan(con: sqlite3.Connection) -> dict[str, object]:
 
     return {
         "collision_groups": collision_groups,
+        "issuer_backfill_groups": [
+            {
+                "document_id": item.document_id,
+                "legacy_canonical_key": item.legacy_canonical_key,
+                "new_canonical_key": item.new_canonical_key,
+                "issuer_key": item.issuer_key,
+                "manifestations": len(item.moves),
+            }
+            for item in issuer_backfills
+        ],
         "moves": all_moves,
+        "backfills": issuer_backfills,
         "conflicts": conflicts,
         "skipped_unresolved": skipped_unresolved,
         "metrics": {
             "collision_group_count": len(collision_groups),
+            "issuer_backfill_documents": len(issuer_backfills),
             "affected_manifestations": len(affected_manifestations),
             "new_documents": len({m.new_document_id for m in all_moves}),
             "legacy_documents_to_delete": len(affected_old_docs),
@@ -495,12 +550,146 @@ def rebind_temporal_events(
     return rebound
 
 
+def apply_issuer_backfills(
+    con: sqlite3.Connection,
+    backfills: list[IssuerBackfill],
+    now: str,
+) -> dict[str, int]:
+    counts = {
+        "documents_backfilled": 0,
+        "backfill_identifiers_inserted": 0,
+        "backfill_identifier_evidence_links": 0,
+        "backfill_provenance_inserted": 0,
+    }
+    for backfill in backfills:
+        for move in backfill.moves:
+            persist_assessment(
+                con,
+                manifestation_id=move.manifestation_id,
+                extraction_id=move.extraction_id,
+                assessment=move.assessment,
+            )
+
+        old_identifier_ids = [
+            row[0]
+            for row in con.execute(
+                """
+                SELECT identifier_id
+                FROM document_identifiers
+                WHERE document_id = ? AND identifier_type = 'canonical_key'
+                """,
+                (backfill.document_id,),
+            ).fetchall()
+        ]
+        con.execute(
+            """
+            UPDATE document_identifiers
+            SET issuer = ?, is_primary = 0
+            WHERE document_id = ? AND identifier_type = 'canonical_key'
+            """,
+            (backfill.issuer_key, backfill.document_id),
+        )
+        con.execute(
+            "UPDATE documents SET entity = ?, updated_at = ? WHERE document_id = ?",
+            (backfill.issuer_key, now, backfill.document_id),
+        )
+        identifier_id = deterministic_id(
+            "ID",
+            (
+                f"{backfill.document_id}:canonical:"
+                f"{backfill.new_canonical_key}"
+            ),
+        )
+        existed = con.execute(
+            "SELECT 1 FROM document_identifiers WHERE identifier_id = ?",
+            (identifier_id,),
+        ).fetchone()
+        con.execute(
+            """
+            INSERT INTO document_identifiers(
+                identifier_id, document_id, identifier_type,
+                identifier_value, issuer, is_primary
+            )
+            VALUES (?, ?, 'canonical_key', ?, ?, 1)
+            ON CONFLICT(document_id, identifier_type, identifier_value)
+            DO UPDATE SET issuer=excluded.issuer, is_primary=1
+            """,
+            (
+                identifier_id,
+                backfill.document_id,
+                backfill.new_canonical_key,
+                backfill.issuer_key,
+            ),
+        )
+        counts["backfill_identifiers_inserted"] += int(existed is None)
+
+        if old_identifier_ids:
+            q = ",".join("?" for _ in old_identifier_ids)
+            evidence_rows = con.execute(
+                f"""
+                SELECT DISTINCT evidence_id, evidence_role
+                FROM document_identifier_evidence
+                WHERE identifier_id IN ({q})
+                """,
+                old_identifier_ids,
+            ).fetchall()
+            for evidence_id, evidence_role in evidence_rows:
+                cur = con.execute(
+                    """
+                    INSERT OR IGNORE INTO document_identifier_evidence(
+                        identifier_id, evidence_id, evidence_role, created_at
+                    ) VALUES (?, ?, ?, ?)
+                    """,
+                    (identifier_id, evidence_id, evidence_role, now),
+                )
+                counts["backfill_identifier_evidence_links"] += int(
+                    bool(cur.rowcount)
+                )
+
+        for move in backfill.moves:
+            migration_id = deterministic_id(
+                "IDMIG",
+                (
+                    f"{move.manifestation_id}:{backfill.document_id}:"
+                    f"{backfill.new_canonical_key}"
+                ),
+            )
+            cur = con.execute(
+                """
+                INSERT OR IGNORE INTO document_identity_migrations(
+                    migration_id, manifestation_id, legacy_document_id,
+                    new_document_id, legacy_canonical_key, new_canonical_key,
+                    issuer_key, reason_code, migrated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    migration_id,
+                    move.manifestation_id,
+                    backfill.document_id,
+                    backfill.document_id,
+                    backfill.legacy_canonical_key,
+                    backfill.new_canonical_key,
+                    backfill.issuer_key,
+                    ISSUER_BACKFILL_REASON,
+                    now,
+                ),
+            )
+            counts["backfill_provenance_inserted"] += int(bool(cur.rowcount))
+        counts["documents_backfilled"] += 1
+    return counts
+
+
 def apply_plan(con: sqlite3.Connection, plan: dict[str, object]) -> dict[str, object]:
     moves: list[ManifestationMove] = list(plan["moves"])
+    backfills: list[IssuerBackfill] = list(plan["backfills"])
     if plan["conflicts"]:
         raise RuntimeError("collision plan contains conflicts; refusing mutation")
-    if not moves:
+    if not moves and not backfills:
         return {
+            "documents_backfilled": 0,
+            "backfill_identifiers_inserted": 0,
+            "backfill_identifier_evidence_links": 0,
+            "backfill_provenance_inserted": 0,
             "documents_inserted": 0,
             "identifiers_inserted": 0,
             "identifier_evidence_links": 0,
@@ -522,32 +711,37 @@ def apply_plan(con: sqlite3.Connection, plan: dict[str, object]) -> dict[str, ob
     counts: defaultdict[str, int] = defaultdict(int)
     detection_runs: set[str] = set()
 
-    qkeys = ",".join("?" for _ in legacy_keys)
-    detection_runs.update(
-        row[0]
-        for row in con.execute(
-            f"SELECT DISTINCT detection_run_id FROM reference_mentions WHERE target_document_key IN ({qkeys})",
-            legacy_keys,
-        ).fetchall()
-    )
-    qman = ",".join("?" for _ in manifestation_targets)
-    detection_runs.update(
-        row[0]
-        for row in con.execute(
-            f"""
-            SELECT DISTINCT rdr.detection_run_id
-            FROM reference_detection_runs rdr
-            JOIN text_extractions te ON te.extraction_id = rdr.extraction_id
-            WHERE te.manifestation_id IN ({qman})
-            """,
-            sorted(manifestation_targets),
-        ).fetchall()
-    )
+    if moves:
+        qkeys = ",".join("?" for _ in legacy_keys)
+        detection_runs.update(
+            row[0]
+            for row in con.execute(
+                f"SELECT DISTINCT detection_run_id FROM reference_mentions WHERE target_document_key IN ({qkeys})",
+                legacy_keys,
+            ).fetchall()
+        )
+        qman = ",".join("?" for _ in manifestation_targets)
+        detection_runs.update(
+            row[0]
+            for row in con.execute(
+                f"""
+                SELECT DISTINCT rdr.detection_run_id
+                FROM reference_detection_runs rdr
+                JOIN text_extractions te ON te.extraction_id = rdr.extraction_id
+                WHERE te.manifestation_id IN ({qman})
+                """,
+                sorted(manifestation_targets),
+            ).fetchall()
+        )
 
     old_provisions_by_doc: dict[str, set[str]] = {}
     provision_mapping: dict[tuple[str, str], str] = {}
 
     with con:
+        backfill_counts = apply_issuer_backfills(con, backfills, now)
+        for key, value in backfill_counts.items():
+            counts[key] += value
+
         for old_document_id in affected_old_docs:
             old_provisions_by_doc[old_document_id] = {
                 row[0]
@@ -701,12 +895,18 @@ def reprocess(*, db_path: Path, apply: bool) -> dict[str, object]:
     try:
         plan = build_plan(con)
         moves: list[ManifestationMove] = list(plan["moves"])
-        affected = {m.manifestation_id for m in moves}
+        backfills: list[IssuerBackfill] = list(plan["backfills"])
+        affected = {m.manifestation_id for m in moves} | {
+            move.manifestation_id
+            for backfill in backfills
+            for move in backfill.moves
+        }
         before_hashes = hash_snapshot(con, affected)
         summary = {
             "mode": "apply" if apply else "dry-run",
             **plan["metrics"],
             "collision_groups": plan["collision_groups"],
+            "issuer_backfill_groups": plan["issuer_backfill_groups"],
             "conflicts": plan["conflicts"],
             "skipped_unresolved": plan["skipped_unresolved"],
             "persistent_mutation": False,
@@ -723,7 +923,7 @@ def reprocess(*, db_path: Path, apply: bool) -> dict[str, object]:
                 "raw/normalized SHA-256 values changed during migration"
             )
         summary.update(changes)
-        summary["persistent_mutation"] = bool(moves)
+        summary["persistent_mutation"] = bool(moves or backfills)
         summary["hashes_unchanged"] = True
         return summary
     finally:
