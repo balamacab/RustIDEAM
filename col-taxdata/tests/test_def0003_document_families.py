@@ -179,11 +179,39 @@ class Def0003DocumentFamilyTests(unittest.TestCase):
             "CONCEPTO",
         )
 
+    def test_concepto_front_matter_distinguishes_radication_number(self):
+        self.assert_registered(
+            "concepto_aduanero_dian_0001481_2020.htm",
+            [
+                ("document_heading", "Concepto 907054 de 2020 DIAN"),
+                ("text", "Anotaciones"),
+                ("section_heading", "BUSCAR"),
+                ("section_heading", "ÍNDICE"),
+                (
+                    "section_heading",
+                    "CONCEPTO 100208221-1481 [907054] DE 2020",
+                ),
+            ],
+            "CO:DIAN:CONCEPTO:1481:2020",
+            "CONCEPTO",
+        )
+
     def test_sentencia_c_ignores_quoted_normative_heading(self):
         self.assert_registered(
             "c-621_2013.htm",
             [("document_heading", "LEY 1450 DE 2011")],
             "CO:CORTE_CONSTITUCIONAL:SENTENCIA_C:621:2013",
+            "SENTENCIA_C",
+        )
+
+    def test_late_family_citation_does_not_override_front_matter(self):
+        segments = [("document_heading", "SENTENCIA C-072 DE 2025")]
+        segments.extend(("text", f"front matter {i}") for i in range(2, 14))
+        segments.append(("document_heading", "SENTENCIA C-999 DE 2024"))
+        self.assert_registered(
+            "c-072_2025.htm",
+            segments,
+            "CO:CORTE_CONSTITUCIONAL:SENTENCIA_C:72:2025",
             "SENTENCIA_C",
         )
 
