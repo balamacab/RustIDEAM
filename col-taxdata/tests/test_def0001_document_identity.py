@@ -211,7 +211,7 @@ class Def0001IdentityTests(unittest.TestCase):
             "RESOLUCIÓN 000180 DE 2024",
             "ARTÍCULO 1. Texto",
         )
-        old_key = "CO:RESOLUCION:000180:2024"
+        old_key = "CO:DIAN:RESOLUCION:000180:2024"
         old_document_id = "DOC-existing-zero-padded"
         con = sqlite3.connect(self.db)
         try:
@@ -262,14 +262,14 @@ class Def0001IdentityTests(unittest.TestCase):
         self.assert_valid_norm(
             "resolucion_dian_0227_2025.htm",
             "RESOLUCIÓN 227 DE 2025",
-            "CO:RESOLUCION:227:2025",
+            "CO:DIAN:RESOLUCION:227:2025",
         )
 
     def test_valid_circular_stable(self):
         self.assert_valid_norm(
             "circular_dian_0010_2022.htm",
             "CIRCULAR 10 DE 2022",
-            "CO:CIRCULAR:10:2022",
+            "CO:DIAN:CIRCULAR:10:2022",
         )
 
     def test_source_family_classifier(self):
