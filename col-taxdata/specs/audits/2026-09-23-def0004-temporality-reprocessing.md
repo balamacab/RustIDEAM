@@ -228,6 +228,9 @@ where v3 validated events provide the replacement basis.
   without a uniquely resolved explicit commencement rule.
 - Historical crawler warning JSON is retained as operational history and is not
   rewritten by this defect fix.
-- The running crawler was not restarted/replaced during this task. Future
-  deployments should use the updated `main` image so newly crawled documents
-  execute processor v3 directly.
+- The running crawler was not restarted or replaced. After final verification,
+  the four DEF-0004 temporal runtime modules were hot-updated in the existing
+  container because the crawler launches the temporal extractor as a subprocess.
+  An in-container dry-run confirmed processor v3 and total delta 0 for Decreto
+  1625/2016. The `col-taxdata:local` image tag was also rebuilt from updated
+  `main` so any future container recreation starts with processor v3.
