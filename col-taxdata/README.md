@@ -100,3 +100,26 @@ Expected behavior:
 Milestone 1: prove end-to-end preservation of one official primary source for CASE-0001, including URL, retrieval time, HTTP metadata, SHA-256, immutable raw bytes and SQLite provenance.
 
 No mass ingestion should begin before this vertical slice is executed and inspected on the target server.
+
+## Specification-driven development
+
+Changes that affect legal identity, provenance, temporal state, extraction, retrieval, or corpus coverage are specified before implementation under [`specs/`](specs/README.md).
+
+Current structure:
+
+```text
+specs/
+├── README.md
+├── audits/
+│   └── 2026-09-22-corpus-audit.md
+├── defects/
+│   ├── README.md
+│   └── DEF-NNNN-*.md
+└── gaps/
+    └── GAP-NNNN-*.md
+```
+
+The 2026-09-22 corpus audit is the current quality baseline. Defect specs are the authoritative definition of observed behavior, proposed remediation, reprocessing requirements, acceptance criteria and regression coverage.
+
+Implementation must not modify immutable raw evidence to make a defect disappear. Fixes apply to parsers, canonicalization, derived indexes/state, migrations and controlled reprocessing.
+
