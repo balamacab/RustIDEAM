@@ -177,7 +177,9 @@ class Def0001IdentityTests(unittest.TestCase):
                 FROM text_extractions te
                 JOIN manifestations m ON m.manifestation_id=te.manifestation_id
                 JOIN document_identifiers di ON di.document_id=m.document_id
-                WHERE te.extraction_id=? AND di.identifier_type='canonical_key'
+                WHERE te.extraction_id=?
+                  AND di.identifier_type='canonical_key'
+                  AND di.is_primary=1
                 """,
                 (extraction_id,),
             ).fetchone()[0]
