@@ -18,7 +18,7 @@ items:
   - id: DEF-0001
     type: defect
     priority: P1
-    status: specified
+    status: verified
     area: document-identity
     spec: specs/defects/DEF-0001-document-identity-false-positive.md
     github_issue: 1

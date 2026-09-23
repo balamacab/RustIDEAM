@@ -6,7 +6,7 @@ The machine-readable ordering/dependency graph is maintained in [`specs/manifest
 
 | ID | Priority | Title | GitHub | Status |
 |---|---|---|---|---|
-| [DEF-0001](DEF-0001-document-identity-false-positive.md) | P1 | Document identity can be taken from a cited norm instead of the source document | [#1](https://github.com/balamacab/RustIDEAM/issues/1) | specified |
+| [DEF-0001](DEF-0001-document-identity-false-positive.md) | P1 | Document identity can be taken from a cited norm instead of the source document | [#1](https://github.com/balamacab/RustIDEAM/issues/1) | verified |
 | [DEF-0002](DEF-0002-canonical-identity-missing-issuer.md) | P1 | Canonical keys can merge different issuers with the same type/number/year | [#2](https://github.com/balamacab/RustIDEAM/issues/2) | specified |
 | [DEF-0003](DEF-0003-incomplete-document-type-registration.md) | P1 | 297 legal documents are extracted but have no canonical document identity | [#3](https://github.com/balamacab/RustIDEAM/issues/3) | specified |
 | [DEF-0004](DEF-0004-temporality-cardinality-assumptions.md) | P1 | Temporal extractor aborts when evidence cardinality is not exactly one | [#4](https://github.com/balamacab/RustIDEAM/issues/4) | specified |
