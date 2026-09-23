@@ -106,62 +106,96 @@ class Def0001IdentityTests(unittest.TestCase):
             con.close()
         return extraction_id
 
-    def assert_unresolved(self, filename: str, heading: str) -> None:
+    def assert_foreign_family_not_quoted(
+        self,
+        filename: str,
+        heading: str,
+        expected_key: str,
+    ) -> None:
         extraction_id = self.fixture(filename, heading, "ARTÍCULO 1. Texto")
         simple = register_simple_act(extraction_id=extraction_id, db_path=self.db)
         self.assertEqual(simple["status"], "unresolved")
         self.assertEqual(simple["reason_code"], "SOURCE_IDENTITY_CONFLICT")
 
-        fallback = register_document_identity(extraction_id=extraction_id, db_path=self.db)
-        self.assertEqual(fallback["status"], "unresolved")
-        self.assertIsNone(fallback["document_id"])
+        # DEF-0003 adds canonicalizers for these source families. The generic
+        # parser must still reject the quoted normative heading, while the
+        # family-aware identity registrar now assigns the source's own identity.
+        fallback = register_document_identity(
+            extraction_id=extraction_id,
+            db_path=self.db,
+        )
+        self.assertEqual(fallback["status"], "registered")
+        self.assertEqual(fallback["canonical_key"], expected_key)
 
         con = sqlite3.connect(self.db)
         try:
-            document_id = con.execute(
+            stored = con.execute(
                 """
-                SELECT m.document_id
-                FROM manifestations m JOIN text_extractions te
-                  ON te.manifestation_id=m.manifestation_id
+                SELECT di.identifier_value
+                FROM manifestations m
+                JOIN text_extractions te
+                  ON te.manifestation_id = m.manifestation_id
+                JOIN document_identifiers di
+                  ON di.document_id = m.document_id
                 WHERE te.extraction_id=?
+                  AND di.identifier_type='canonical_key'
+                  AND di.is_primary=1
                 """,
                 (extraction_id,),
             ).fetchone()[0]
-            self.assertIsNone(document_id)
-            reasons = con.execute(
+            self.assertEqual(stored, expected_key)
+
+            reviews = con.execute(
                 """
-                SELECT reason_code FROM review_queue
+                SELECT reason_code, resolved_at
+                FROM review_queue
                 WHERE entity_id=(
-                    SELECT manifestation_id FROM text_extractions WHERE extraction_id=?
-                ) AND resolved_at IS NULL
+                    SELECT manifestation_id
+                    FROM text_extractions
+                    WHERE extraction_id=?
+                )
+                  AND reason_code='SOURCE_IDENTITY_CONFLICT'
                 """,
                 (extraction_id,),
             ).fetchall()
-            self.assertIn(("SOURCE_IDENTITY_CONFLICT",), reasons)
+            self.assertTrue(reviews)
+            self.assertTrue(all(resolved_at is not None for _, resolved_at in reviews))
+
             signals = con.execute(
-                "SELECT signal_origin FROM document_identity_signals WHERE extraction_id=?",
+                "SELECT signal_origin FROM document_identity_signals "
+                "WHERE extraction_id=?",
                 (extraction_id,),
             ).fetchall()
-            self.assertEqual({x[0] for x in signals}, {"source_url", "document_heading"})
+            self.assertIn("source_url", {row[0] for row in signals})
         finally:
             con.close()
 
     def test_c621_cannot_become_ley_1450(self):
-        self.assert_unresolved("c-621_2013.htm", "LEY 1450 DE 2011")
+        self.assert_foreign_family_not_quoted(
+            "c-621_2013.htm",
+            "LEY 1450 DE 2011",
+            "CO:CORTE_CONSTITUCIONAL:SENTENCIA_C:621:2013",
+        )
 
     def test_c833_cannot_become_ley_1607(self):
-        self.assert_unresolved("c-833_2013.htm", "LEY 1607 DE 2012")
+        self.assert_foreign_family_not_quoted(
+            "c-833_2013.htm",
+            "LEY 1607 DE 2012",
+            "CO:CORTE_CONSTITUCIONAL:SENTENCIA_C:833:2013",
+        )
 
     def test_concepto_aduanero_cannot_become_quoted_decreto(self):
-        self.assert_unresolved(
+        self.assert_foreign_family_not_quoted(
             "concepto_aduanero_dian_0001465_2019.htm",
             "DECRETO 2685 DE 1999. ARTICULO 231 . RESCATE.",
+            "CO:DIAN:CONCEPTO:1465:2019",
         )
 
     def test_constitucion_cannot_become_resolucion(self):
-        self.assert_unresolved(
+        self.assert_foreign_family_not_quoted(
             "constitucion_politica_1991.htm",
             "RESOLUCIÓN 33933 DE 2025",
+            "CO:ASAMBLEA_CONSTITUYENTE:CONSTITUCION_POLITICA:1991:1991",
         )
 
     def assert_valid_norm(self, filename: str, heading: str, expected_key: str):
