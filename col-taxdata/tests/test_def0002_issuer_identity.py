@@ -408,6 +408,90 @@ class Def0002IssuerIdentityTests(unittest.TestCase):
         self.assertEqual(second["collision_group_count"], 0)
         self.assertEqual(second["affected_manifestations"], 0)
 
+    def test_noncollided_legacy_document_is_backfilled_in_place(self):
+        extraction_id, manifestation_id = self.fixture(
+            "resolucion_dian_0227_2025.htm", "RESOLUCIÓN 227 DE 2025"
+        )
+        legacy_document_id = "DOC-stable-existing-resolution"
+        con = sqlite3.connect(self.db)
+        try:
+            con.execute(
+                """
+                INSERT INTO documents(
+                    document_id, jurisdiction, entity, document_type, title,
+                    issued_date, publication_date, created_at, updated_at
+                ) VALUES (?, 'CO', 'UNKNOWN', 'RESOLUCION', ?, NULL, NULL, ?, ?)
+                """,
+                (legacy_document_id, "RESOLUCIÓN 227 DE 2025", NOW, NOW),
+            )
+            con.execute(
+                """
+                INSERT INTO document_identifiers(
+                    identifier_id, document_id, identifier_type,
+                    identifier_value, issuer, is_primary
+                ) VALUES ('ID-stable-legacy', ?, 'canonical_key',
+                          'CO:RESOLUCION:227:2025', NULL, 1)
+                """,
+                (legacy_document_id,),
+            )
+            con.execute(
+                "UPDATE manifestations SET document_id=? WHERE manifestation_id=?",
+                (legacy_document_id, manifestation_id),
+            )
+            con.commit()
+        finally:
+            con.close()
+
+        preview = reprocess(db_path=self.db, apply=False)
+        self.assertEqual(preview["collision_group_count"], 0)
+        self.assertEqual(preview["issuer_backfill_documents"], 1)
+        self.assertFalse(preview["persistent_mutation"])
+
+        applied = reprocess(db_path=self.db, apply=True)
+        self.assertEqual(applied["documents_backfilled"], 1)
+        self.assertEqual(applied["backfill_provenance_inserted"], 1)
+
+        con = sqlite3.connect(self.db)
+        try:
+            self.assertEqual(
+                con.execute(
+                    "SELECT document_id FROM manifestations WHERE manifestation_id=?",
+                    (manifestation_id,),
+                ).fetchone()[0],
+                legacy_document_id,
+            )
+            identifiers = con.execute(
+                """
+                SELECT identifier_value, issuer, is_primary
+                FROM document_identifiers
+                WHERE document_id=? AND identifier_type='canonical_key'
+                ORDER BY is_primary DESC, identifier_value
+                """,
+                (legacy_document_id,),
+            ).fetchall()
+            self.assertEqual(
+                identifiers,
+                [
+                    ("CO:DIAN:RESOLUCION:227:2025", "DIAN", 1),
+                    ("CO:RESOLUCION:227:2025", "DIAN", 0),
+                ],
+            )
+            explicit = resolve_one(
+                con,
+                mention_id="REF-existing-explicit",
+                mention_type="document",
+                target_document_key="CO:RESOLUCION:227:2025",
+                target_issuer="DIAN",
+                article_designation=None,
+            )
+            self.assertEqual(explicit["status"], "resolved")
+            self.assertEqual(explicit["target_document_id"], legacy_document_id)
+        finally:
+            con.close()
+
+        second = reprocess(db_path=self.db, apply=False)
+        self.assertEqual(second["issuer_backfill_documents"], 0)
+
     def test_schema_upgrade_from_012_to_013(self):
         upgrade_db = Path(self.tmp.name) / "upgrade.sqlite"
         con = sqlite3.connect(upgrade_db)
