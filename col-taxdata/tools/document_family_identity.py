@@ -38,6 +38,11 @@ DIAN_CONCEPTO_HEADING_RE = re.compile(
     r"\s+DE\s+(?P<year>\d{4})\b",
     re.IGNORECASE,
 )
+DIAN_CONCEPTO_BRACKET_HEADING_RE = re.compile(
+    r"^CONCEPTO\s+(?:\d+-)?(?P<number>\d+[A-Z]?)"
+    r"\s+\[\d+\]\s+DE\s+(?P<year>\d{4})\b",
+    re.IGNORECASE,
+)
 DIAN_OFICIO_HEADING_RE = re.compile(
     r"^OFICIO(?:\s+(?:TRIBUTARIO|ADUANERO|CAMBIARIO))?"
     r"\s+(?:(?:NO|NRO|NUMERO)\.?\s*)?"
@@ -136,7 +141,7 @@ def _heading_candidates(
 
     candidates: list[_HeadingCandidate] = []
     for segment in segments:
-        if segment.sequence_no > 12 and segment.segment_type != "document_heading":
+        if segment.sequence_no > 12:
             continue
         title = segment.text.strip()
         if not title:
@@ -144,17 +149,22 @@ def _heading_candidates(
         normalized = _normalized_heading(title)
 
         if source.family in {DIAN_CONCEPTO, DIAN_OFICIO}:
-            concept = DIAN_CONCEPTO_HEADING_RE.match(normalized)
-            if concept:
-                candidates.append(
-                    _candidate_from_match(
-                        family=source.family,
-                        title=title,
-                        document_type="CONCEPTO",
-                        issuer_key="DIAN",
-                        match=concept,
+            for concept_pattern in (
+                DIAN_CONCEPTO_HEADING_RE,
+                DIAN_CONCEPTO_BRACKET_HEADING_RE,
+            ):
+                concept = concept_pattern.match(normalized)
+                if concept:
+                    candidates.append(
+                        _candidate_from_match(
+                            family=source.family,
+                            title=title,
+                            document_type="CONCEPTO",
+                            issuer_key="DIAN",
+                            match=concept,
+                        )
                     )
-                )
+                    break
             if source.family == DIAN_OFICIO:
                 oficio = DIAN_OFICIO_HEADING_RE.match(normalized)
                 if oficio:
@@ -274,24 +284,6 @@ def assess_supported_family_identity(
         return None
 
     candidates = _heading_candidates(source, segments)
-    conflicting = [
-        candidate
-        for candidate in candidates
-        if _candidate_conflicts_with_source(source, candidate.signal)
-    ]
-    if conflicting:
-        return FamilyIdentityResult(
-            IdentityAssessment(
-                "unresolved",
-                source,
-                conflicting[0].signal,
-                "SOURCE_IDENTITY_CONFLICT",
-            ),
-            None,
-            conflicting[0].title,
-            conflicting[0].metadata,
-        )
-
     compatible = [
         candidate
         for candidate in candidates
@@ -311,6 +303,9 @@ def assess_supported_family_identity(
         )
 
     if compatible:
+        # A candidate that exactly confirms the trusted URL identity wins over
+        # other early family-shaped text. DIAN pages often expose both a
+        # radication/display number and the source-family number in front matter.
         candidate = compatible[0]
         if candidate.signal.canonical_key is None:
             return FamilyIdentityResult(
@@ -329,6 +324,24 @@ def assess_supported_family_identity(
             candidate.signal,
             candidate.title,
             candidate.metadata,
+        )
+
+    conflicting = [
+        candidate
+        for candidate in candidates
+        if _candidate_conflicts_with_source(source, candidate.signal)
+    ]
+    if conflicting:
+        return FamilyIdentityResult(
+            IdentityAssessment(
+                "unresolved",
+                source,
+                conflicting[0].signal,
+                "SOURCE_IDENTITY_CONFLICT",
+            ),
+            None,
+            conflicting[0].title,
+            conflicting[0].metadata,
         )
 
     if not _source_is_complete(source):
