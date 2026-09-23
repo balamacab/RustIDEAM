@@ -82,7 +82,7 @@ def main() -> int:
     pipeline_id = cfg["pipeline_id"]
     resolution_method = cfg.get(
         "resolution_method",
-        "canonical_reference_resolver:1",
+        "canonical_reference_resolver:2",
     )
     sources = cfg.get("sources", [])
 
