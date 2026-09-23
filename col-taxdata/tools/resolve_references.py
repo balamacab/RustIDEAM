@@ -10,7 +10,7 @@ from pathlib import Path
 
 
 RESOLVER_NAME = "canonical_reference_resolver"
-RESOLVER_VERSION = "1"
+RESOLVER_VERSION = "2"
 RESOLUTION_METHOD = f"{RESOLVER_NAME}:{RESOLVER_VERSION}"
 
 
@@ -29,6 +29,7 @@ def resolve_one(
     mention_id: str,
     mention_type: str,
     target_document_key: str,
+    target_issuer: str | None,
     article_designation: str | None,
 ) -> dict[str, object]:
     docs = con.execute(
@@ -39,9 +40,10 @@ def resolve_one(
           ON di.document_id = d.document_id
         WHERE di.identifier_type = 'canonical_key'
           AND di.identifier_value = ?
+          AND (? IS NULL OR di.issuer = ?)
         ORDER BY d.document_id
         """,
-        (target_document_key,),
+        (target_document_key, target_issuer, target_issuer),
     ).fetchall()
 
     if not docs:
@@ -179,6 +181,7 @@ def resolve_references(
                     rm.reference_mention_id,
                     rm.mention_type,
                     rm.target_document_key,
+                    rm.target_issuer,
                     rm.article_designation
                 FROM explicit_relation_mentions erm
                 JOIN reference_mentions rm
@@ -195,6 +198,7 @@ def resolve_references(
                     reference_mention_id,
                     mention_type,
                     target_document_key,
+                    target_issuer,
                     article_designation
                 FROM reference_mentions
                 WHERE detection_run_id = ?
@@ -220,6 +224,7 @@ def resolve_references(
                 mention_id,
                 mention_type,
                 target_document_key,
+                target_issuer,
                 article_designation,
             ) in rows:
                 result = resolve_one(
@@ -227,6 +232,7 @@ def resolve_references(
                     mention_id=mention_id,
                     mention_type=mention_type,
                     target_document_key=target_document_key,
+                    target_issuer=target_issuer,
                     article_designation=article_designation,
                 )
 
