@@ -1,5 +1,7 @@
 # Initial data model
 
+> **Status:** implementation-oriented historical context. This file describes the project's initial data-model framing and is retained because it explains schema history. The authoritative cross-cutting architecture/domain semantics are now [`../specs/architecture/domain-model.md`](../specs/architecture/domain-model.md), [`../specs/architecture/data-lifecycle.md`](../specs/architecture/data-lifecycle.md), and the related ADRs. Where this initial description omits later implemented concepts (for example issuer-aware identity or DEF-0004 temporal candidates/resolutions), use the current schema, verified specs, and architecture documents rather than inferring the old model is still complete.
+
 ## Core principle
 
 The model separates:

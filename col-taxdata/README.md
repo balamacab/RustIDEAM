@@ -1,51 +1,101 @@
 # Colombian Tax Data Agent — MVP
 
-Local-first pipeline for building structured, traceable, versioned Colombian accounting and tax datasets from primary sources.
+`col-taxdata` is a local-first pipeline for building structured, traceable and versioned Colombian tax/accounting legal data from primary official sources.
+
+The project is primarily **legal knowledge/data infrastructure**, not an LLM application. It preserves source evidence first, then derives canonical document/provision identity, references, relationships, temporal evidence, retrieval indexes and case-analysis material.
 
 ## Non-negotiable rule
 
-The LLM is never the legal source.
+The LLM is never the legal source or canonical authority.
 
-Every extracted legal assertion must be traceable to primary-source evidence. Unknown or insufficiently supported facts remain explicitly unresolved and may enter human review.
+Every validated legal assertion must remain traceable to primary-source evidence. Unknown, conflicting or insufficiently supported identity, relationships and temporal state remain explicitly unresolved/reviewable rather than being guessed.
 
-## MVP scope
+## Current MVP state
 
-The first iteration implements only the persistence and provenance foundation required before any large-scale crawling:
+The project has moved beyond its original single-source vertical slice:
 
-1. canonical legal documents;
-2. downloaded manifestations;
-3. immutable SHA-256 source tracking;
-4. text segments;
-5. extracted claims;
-6. exact evidence spans;
-7. typed document/provision relationships;
-8. temporal events;
-9. human-review queue;
-10. resumable processing jobs;
-11. auditable HTTP fetch history.
+- DIAN Normograma acquisition/crawl state is implemented.
+- Raw manifestations are SHA-256 registered and stored content-addressed.
+- Versioned text extraction and extracted segments are implemented.
+- SQLite FTS5 indexes extracted segments for retrieval.
+- Canonical document identity is source-family validated and issuer-aware where required.
+- Additional DIAN doctrine, Constitutional Court Sentencia C, CONPES and Constitución families are supported by family-specific identity logic.
+- Canonical provisions and manifestation-specific provision observations are represented.
+- Reference mentions, reference resolutions, explicit relation mentions and provenance-backed relationships are represented.
+- DEF-0004's temporal candidate/resolution/event model is implemented; ambiguous/missing temporal evidence remains unresolved rather than causing exact-one failures.
+- CASE-0001 demonstrates registered case claims/evidence and reproducible source/report materialization from canonical SQLite state.
 
-SQLite is the canonical operational store for the MVP. Parquet/JSONL exports will be derived artifacts.
+The 2026-09-22 corpus audit remains a **historical baseline**, not a statement that all of its defect counts are still current. DEF-0001 through DEF-0004 are now verified. Other specified defects/gaps remain separate work.
+
+SQLite is the authoritative operational store for the MVP. Runtime corpus data is intentionally excluded from Git.
+
+## Architecture and specifications
+
+Start with:
+
+- [`specs/architecture/overview.md`](specs/architecture/overview.md) — current architecture and current-vs-deferred boundary.
+- [`specs/architecture/domain-model.md`](specs/architecture/domain-model.md) — authoritative domain concepts and invariants.
+- [`specs/architecture/data-lifecycle.md`](specs/architecture/data-lifecycle.md) — immutable evidence and reprocessing lifecycle.
+- [`specs/architecture/glossary.md`](specs/architecture/glossary.md) — project terminology.
+- [`specs/architecture/identifier-semantics.md`](specs/architecture/identifier-semantics.md) — stable/domain/processing identifier semantics.
+- [`specs/architecture/adr/`](specs/architecture/adr/) — durable architectural decisions.
+- [`specs/README.md`](specs/README.md) — specification-driven development workflow.
+- [`specs/manifest.yaml`](specs/manifest.yaml) — tracked defect/gap state.
+- [`docs/DATA_MODEL.md`](docs/DATA_MODEL.md) — older implementation-oriented data-model notes; architecture specs above are authoritative for cross-cutting semantics.
+
+Documentation roles:
+
+```text
+README     = current project orientation / operational entry point
+specs      = authoritative behavioral contracts
+audits     = measured state at a point in time
+ADRs       = durable architectural decisions and trade-offs
+```
+
+## High-level data flow
+
+```text
+official source
+  -> discovery / fetch
+  -> immutable raw manifestation + SHA-256
+  -> versioned extraction / segments
+  -> source-family classification / canonical identity
+  -> provisions / references / resolutions / relationships
+  -> temporal candidates / events
+  -> FTS retrieval
+  -> case analysis
+  -> future MCP / RAG / LLM consumer
+```
+
+Raw evidence is immutable. Derived state may be rebuilt from preserved evidence under deterministic, auditable rules.
 
 ## Directory layout
+
+The active project contains, among other paths:
 
 ```text
 col-taxdata/
 ├── README.md
 ├── config/
-│   └── official_domains.json
+│   ├── official_domains.json
+│   └── pipelines/
 ├── docs/
 │   └── DATA_MODEL.md
 ├── schema/
-│   ├── 001_initial.sql
-│   └── 002_fetches.sql
+│   └── 001_...sql through current append-only migrations
+├── specs/
+│   ├── architecture/
+│   ├── audits/
+│   ├── defects/
+│   ├── gaps/
+│   └── manifest.yaml
 ├── tools/
-│   ├── init_db.py
-│   └── fetch_source.py
+├── tests/
 └── cases/
     └── CASE-0001/
 ```
 
-Runtime data is intentionally excluded from Git.
+Runtime data is excluded from Git:
 
 ```text
 data/
@@ -60,66 +110,54 @@ data/
     └── taxdata.sqlite
 ```
 
-## Initialize the database
+## Initialize or migrate the database
 
-Run from the `col-taxdata/` directory:
+Run from `col-taxdata/`:
 
 ```bash
 python3 tools/init_db.py
 ```
 
-The initializer applies ordered SQL migrations once and records their SHA-256 in `schema_metadata`. If an already-applied migration changes on disk, initialization stops instead of silently accepting schema drift.
+The initializer applies ordered SQL migrations once and records each migration SHA-256 in `schema_metadata`. If an already-applied migration changes on disk, initialization stops rather than silently accepting schema drift.
 
-## First vertical slice: one official source
+## Evidence preservation
 
-The first real source selected for CASE-0001 is DIAN's compiled Decreto 2229 de 2023 page.
+`tools/fetch_source.py`:
 
-After the database is initialized:
+- accepts only HTTP/HTTPS sources inside the official-domain allowlist;
+- validates redirects against the allowlist;
+- streams bytes while calculating SHA-256;
+- stores immutable raw bytes below `data/raw/sha256/`;
+- registers a source-specific Manifestation;
+- records HTTP attempts in `fetches`;
+- performs no legal parsing during fetch.
 
-```bash
-python3 tools/fetch_source.py \
-  --source-id SRC-0004 \
-  --url 'https://normograma.dian.gov.co/dian/compilacion/docs/decreto_2229_2023.htm' \
-  --authority DIAN \
-  --source-kind norma_compilada
-```
+Repeated same-source/same-byte content reuses Manifestation identity. A later parser change creates/rebuilds derived state; it does not rewrite the raw manifestation.
 
-Expected behavior:
+## Specification-driven changes
 
-- only HTTP/HTTPS is accepted;
-- the source and every redirect must remain inside the official-domain allowlist;
-- bytes are streamed to a temporary file;
-- SHA-256 is calculated during download;
-- the immutable original is stored as `data/raw/sha256/<prefix>/<sha256>.<ext>`;
-- repeated identical content reuses the same manifestation identity;
-- every HTTP attempt is recorded in `fetches`;
-- no parsing, summarization or LLM processing occurs at this stage.
+Changes affecting legal identity, provenance, temporal state, extraction, retrieval, relationships or corpus coverage are issue/spec driven under [`specs/`](specs/README.md).
 
-## Current milestone
+Key invariants include:
 
-Milestone 1: prove end-to-end preservation of one official primary source for CASE-0001, including URL, retrieval time, HTTP metadata, SHA-256, immutable raw bytes and SQLite provenance.
+- raw evidence and raw SHA-256 are immutable/traceable;
+- a Source/Manifestation is not automatically a canonical Document;
+- a cited norm is not the identity of the citing document;
+- same type/number/year from different issuers may be distinct Documents;
+- ambiguity remains unresolved instead of guessed;
+- absence of evidence is not legal truth;
+- derived state can be rebuilt from immutable evidence;
+- LLM output is not canonical legal authority.
 
-No mass ingestion should begin before this vertical slice is executed and inspected on the target server.
+## Deferred architecture
 
-## Specification-driven development
+These are **not current implementation**:
 
-Changes that affect legal identity, provenance, temporal state, extraction, retrieval, or corpus coverage are specified before implementation under [`specs/`](specs/README.md).
+- Ports and Adapters / persistence decoupling — GitHub issue #10;
+- complete code/config/runtime execution-provenance manifests — issue #11;
+- corpus doctor/invariant validator — issue #12;
+- PostgreSQL/Redis persistence adapters;
+- a graph database;
+- an MCP/RAG layer with authority to overwrite canonical/evidence state.
 
-Current structure:
-
-```text
-specs/
-├── README.md
-├── audits/
-│   └── 2026-09-22-corpus-audit.md
-├── defects/
-│   ├── README.md
-│   └── DEF-NNNN-*.md
-└── gaps/
-    └── GAP-NNNN-*.md
-```
-
-The 2026-09-22 corpus audit is the current quality baseline. Defect specs are the authoritative definition of observed behavior, proposed remediation, reprocessing requirements, acceptance criteria and regression coverage.
-
-Implementation must not modify immutable raw evidence to make a defect disappear. Fixes apply to parsers, canonicalization, derived indexes/state, migrations and controlled reprocessing.
-
+Future work must preserve the domain and provenance contracts documented in `specs/architecture/`.
