@@ -11,13 +11,22 @@ import unicodedata
 import uuid
 from pathlib import Path
 
+from source_identity import normalize_issuer_label
+
 DETECTOR_NAME = "normative_reference_regex"
-DETECTOR_VERSION = "7"
+DETECTOR_VERSION = "8"
+
+ISSUER_REFERENCE_PATTERN = (
+    r"DIAN"
+    r"|Banco\s+de\s+la\s+Rep[uú]blica(?:\s+Junta\s+Directiva)?"
+    r"|Presidencia(?:\s+de\s+la\s+Rep[uú]blica)?"
+    r"|MinCIT|MinComercio|MinTIC|SGCAN|DAPR"
+)
 
 DOCUMENT_RE = re.compile(
     r"\b(?P<type>Ley|Decreto|Resoluci[oó]n|Circular|Concepto|Oficio)"
     r"(?:\s+[ÚU]nico(?:\s+Reglamentario)?)?"
-    r"(?:\s+DIAN)?"
+    rf"(?:\s+(?P<issuer>{ISSUER_REFERENCE_PATTERN}))?"
     r"\s+(?:(?:N[uú]mero|No\.?|Nro\.?)\s*)?"
     r"(?P<number>\d+[A-Za-z]?)"
     r"\s+de\s+(?P<year>\d{4})\b",
@@ -63,7 +72,7 @@ ARTICLE_SCOPE_RE = re.compile(
     r"Estatuto\s+Tributario"
     r"|(?:Ley|Decreto|Resoluci[oó]n)"
     r"(?:\s+[ÚU]nico(?:\s+Reglamentario)?)?"
-    r"(?:\s+DIAN)?"
+    rf"(?:\s+(?:{ISSUER_REFERENCE_PATTERN}))?"
     r"\s+(?:(?:N[uú]mero|No\.?|Nro\.?)\s*)?"
     r"\d+[A-Za-z]?\s+de\s+\d{4}"
     r")",
@@ -79,7 +88,7 @@ DOCUMENT_THEN_ARTICLE_RE = re.compile(
     r"(?P<target>"
     r"(?:Ley|Decreto|Resoluci[oó]n)"
     r"(?:\s+[ÚU]nico(?:\s+Reglamentario)?)?"
-    r"(?:\s+DIAN)?"
+    rf"(?:\s+(?:{ISSUER_REFERENCE_PATTERN}))?"
     r"\s+(?:(?:N[uú]mero|No\.?|Nro\.?)\s*)?"
     r"\d+[A-Za-z]?\s+de\s+\d{4}"
     r")"
@@ -103,7 +112,7 @@ ARTICLE_HIERARCHY_SCOPE_RE = re.compile(
     r"(?P<target>"
     r"(?:Ley|Decreto|Resoluci[oó]n)"
     r"(?:\s+[ÚU]nico(?:\s+Reglamentario)?)?"
-    r"(?:\s+DIAN)?"
+    rf"(?:\s+(?:{ISSUER_REFERENCE_PATTERN}))?"
     r"\s+(?:(?:N[uú]mero|No\.?|Nro\.?)\s*)?"
     r"\d+[A-Za-z]?\s+de\s+\d{4}"
     r")",
@@ -150,6 +159,16 @@ class TargetDocument:
     document_type: str
     number: str | None
     year: int | None
+    issuer_key: str | None = None
+
+    @property
+    def normalized_key(self) -> str:
+        if self.issuer_key is not None and self.number is not None and self.year is not None:
+            return (
+                f"CO:{self.issuer_key}:{self.document_type}:"
+                f"{self.number}:{self.year}"
+            )
+        return self.key
 
 
 @dataclass(frozen=True)
@@ -206,11 +225,16 @@ def target_from_document_match(match: re.Match[str]) -> TargetDocument:
     document_type = normalize_document_type(match.group("type"))
     number = normalize_document_number(match.group("number"))
     year = int(match.group("year"))
+    issuer_raw = match.groupdict().get("issuer")
+    issuer_key = normalize_issuer_label(issuer_raw) if issuer_raw else None
+    if issuer_key is None and document_type in {"CONCEPTO", "OFICIO"}:
+        issuer_key = "DIAN"
     return TargetDocument(
         key=f"CO:{document_type}:{number}:{year}",
         document_type=document_type,
         number=number,
         year=year,
+        issuer_key=issuer_key,
     )
 
 
@@ -235,7 +259,7 @@ def extract_mentions(text: str) -> list[Mention]:
 
     def add_document_match(match: re.Match[str]) -> None:
         target = target_from_document_match(match)
-        normalized = target.key
+        normalized = target.normalized_key
         key = (match.start(), match.end(), normalized)
         if key in occupied:
             return
@@ -264,7 +288,7 @@ def extract_mentions(text: str) -> list[Mention]:
             article = re.sub(r"[oOº°]$", "", token.group(0).rstrip("."))
             start = articles_base + token.start()
             end = articles_base + token.end()
-            normalized = f"{target.key}:ART:{article}"
+            normalized = f"{target.normalized_key}:ART:{article}"
             key = (start, end, normalized)
             if key in occupied:
                 continue
@@ -294,7 +318,7 @@ def extract_mentions(text: str) -> list[Mention]:
         article = reverse.group("article")
         start = reverse.start("article")
         end = reverse.end("article")
-        normalized = f"{target.key}:ART:{article}"
+        normalized = f"{target.normalized_key}:ART:{article}"
         key = (start, end, normalized)
         if key not in occupied:
             occupied.add(key)
@@ -328,7 +352,7 @@ def extract_mentions(text: str) -> list[Mention]:
             number=None,
             year=None,
         )
-        normalized = target.key
+        normalized = target.normalized_key
         key = (match.start(), match.end(), normalized)
         if key in occupied:
             continue
@@ -504,6 +528,7 @@ def detect(
                         mention.target.document_type,
                         mention.target.number,
                         mention.target.year,
+                        mention.target.issuer_key,
                         mention.article_designation,
                         mention.char_start,
                         mention.char_end,
@@ -656,13 +681,13 @@ def detect(
                     normalized_reference,
                     target_document_key, target_document_type,
                     target_document_number, target_document_year,
-                    article_designation,
+                    target_issuer, article_designation,
                     char_start, char_end,
                     detection_method, confidence,
                     requires_human_review, status
                 )
                 VALUES (
-                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
                 )
                 """,
                 pending_mentions,
