@@ -10,6 +10,7 @@ from pathlib import Path
 
 from source_identity import (
     assess_generic_normative_identity,
+    canonical_identifier_values,
     equivalent_existing_canonical_key,
     persist_assessment,
 )
@@ -91,6 +92,7 @@ def register_document_identity(
             doc_type = assessment.content.document_type
             number = assessment.content.number
             year = assessment.content.year
+            issuer_key = assessment.content.issuer_key
             canonical_key = assessment.content.canonical_key
             assert doc_type and number and year and canonical_key
             document_id = deterministic_id("DOC", canonical_key)
@@ -149,42 +151,57 @@ def register_document_identity(
                     created_at,
                     updated_at
                 )
-                VALUES (?, 'CO', 'UNKNOWN', ?, ?, NULL, NULL, ?, ?)
+                VALUES (?, 'CO', ?, ?, ?, NULL, NULL, ?, ?)
                 ON CONFLICT(document_id) DO UPDATE SET
+                    entity = excluded.entity,
                     title = excluded.title,
                     updated_at = excluded.updated_at
                 """,
-                (document_id, doc_type, heading, now, now),
-            )
-
-            identifier_id = deterministic_id(
-                "ID",
-                f"{document_id}:canonical:{canonical_key}",
-            )
-            con.execute(
-                """
-                INSERT INTO document_identifiers(
-                    identifier_id,
-                    document_id,
-                    identifier_type,
-                    identifier_value,
-                    issuer,
-                    is_primary
-                )
-                VALUES (?, ?, 'canonical_key', ?, NULL, 1)
-                ON CONFLICT(
-                    document_id,
-                    identifier_type,
-                    identifier_value
-                )
-                DO NOTHING
-                """,
                 (
-                    identifier_id,
                     document_id,
-                    canonical_key,
+                    issuer_key or "UNKNOWN",
+                    doc_type,
+                    heading,
+                    now,
+                    now,
                 ),
             )
+
+            for identifier_value, is_primary in canonical_identifier_values(
+                assessment.content
+            ):
+                identifier_id = deterministic_id(
+                    "ID",
+                    f"{document_id}:canonical:{identifier_value}",
+                )
+                con.execute(
+                    """
+                    INSERT INTO document_identifiers(
+                        identifier_id,
+                        document_id,
+                        identifier_type,
+                        identifier_value,
+                        issuer,
+                        is_primary
+                    )
+                    VALUES (?, ?, 'canonical_key', ?, ?, ?)
+                    ON CONFLICT(
+                        document_id,
+                        identifier_type,
+                        identifier_value
+                    )
+                    DO UPDATE SET
+                        issuer = excluded.issuer,
+                        is_primary = excluded.is_primary
+                    """,
+                    (
+                        identifier_id,
+                        document_id,
+                        identifier_value,
+                        issuer_key,
+                        is_primary,
+                    ),
+                )
 
             con.execute(
                 """
@@ -199,6 +216,7 @@ def register_document_identity(
             "status": "registered",
             "document_id": document_id,
             "canonical_key": canonical_key,
+            "issuer_key": issuer_key,
             "document_type": doc_type,
             "number": number,
             "year": year,
