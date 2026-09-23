@@ -14,6 +14,7 @@ import uuid
 
 from source_identity import (
     assess_generic_normative_identity,
+    canonical_identifier_values,
     equivalent_existing_canonical_key,
     persist_assessment,
 )
@@ -260,6 +261,7 @@ def register_simple_act(
         doc_type = assessment.content.document_type
         number = assessment.content.number
         year = assessment.content.year
+        issuer_key = assessment.content.issuer_key
         canonical_key = assessment.content.canonical_key
         assert doc_type and number and year and canonical_key
         document_id = deterministic_id("DOC", canonical_key)
@@ -375,13 +377,15 @@ def register_simple_act(
                     created_at,
                     updated_at
                 )
-                VALUES (?, 'CO', 'UNKNOWN', ?, ?, NULL, NULL, ?, ?)
+                VALUES (?, 'CO', ?, ?, ?, NULL, NULL, ?, ?)
                 ON CONFLICT(document_id) DO UPDATE SET
+                    entity = excluded.entity,
                     title = excluded.title,
                     updated_at = excluded.updated_at
                 """,
                 (
                     document_id,
+                    issuer_key or "UNKNOWN",
                     doc_type,
                     heading[3],
                     now,
@@ -389,47 +393,66 @@ def register_simple_act(
                 ),
             )
 
-            identifier_id = deterministic_id(
-                "ID",
-                f"{document_id}:canonical:{canonical_key}",
-            )
-            cur = con.execute(
-                """
-                INSERT OR IGNORE INTO document_identifiers(
-                    identifier_id,
-                    document_id,
-                    identifier_type,
-                    identifier_value,
-                    issuer,
-                    is_primary
+            for identifier_value, is_primary in canonical_identifier_values(
+                assessment.content
+            ):
+                identifier_id = deterministic_id(
+                    "ID",
+                    f"{document_id}:canonical:{identifier_value}",
                 )
-                VALUES (?, ?, 'canonical_key', ?, NULL, 1)
-                """,
-                (
-                    identifier_id,
-                    document_id,
-                    canonical_key,
-                ),
-            )
-            identifiers_inserted += int(bool(cur.rowcount))
+                existed_identifier = con.execute(
+                    """
+                    SELECT 1
+                    FROM document_identifiers
+                    WHERE document_id = ?
+                      AND identifier_type = 'canonical_key'
+                      AND identifier_value = ?
+                    """,
+                    (document_id, identifier_value),
+                ).fetchone()
+                con.execute(
+                    """
+                    INSERT INTO document_identifiers(
+                        identifier_id,
+                        document_id,
+                        identifier_type,
+                        identifier_value,
+                        issuer,
+                        is_primary
+                    )
+                    VALUES (?, ?, 'canonical_key', ?, ?, ?)
+                    ON CONFLICT(document_id, identifier_type, identifier_value)
+                    DO UPDATE SET
+                        issuer = excluded.issuer,
+                        is_primary = excluded.is_primary
+                    """,
+                    (
+                        identifier_id,
+                        document_id,
+                        identifier_value,
+                        issuer_key,
+                        is_primary,
+                    ),
+                )
+                identifiers_inserted += int(existed_identifier is None)
 
-            cur = con.execute(
-                """
-                INSERT OR IGNORE INTO document_identifier_evidence(
-                    identifier_id,
-                    evidence_id,
-                    evidence_role,
-                    created_at
+                cur = con.execute(
+                    """
+                    INSERT OR IGNORE INTO document_identifier_evidence(
+                        identifier_id,
+                        evidence_id,
+                        evidence_role,
+                        created_at
+                    )
+                    VALUES (?, ?, 'document_heading', ?)
+                    """,
+                    (
+                        identifier_id,
+                        heading_evidence_id,
+                        now,
+                    ),
                 )
-                VALUES (?, ?, 'document_heading', ?)
-                """,
-                (
-                    identifier_id,
-                    heading_evidence_id,
-                    now,
-                ),
-            )
-            identifier_evidence_inserted += int(bool(cur.rowcount))
+                identifier_evidence_inserted += int(bool(cur.rowcount))
 
             con.execute(
                 """
@@ -557,6 +580,7 @@ def register_simple_act(
             "parser_version": PARSER_VERSION,
             "document_id": document_id,
             "canonical_key": canonical_key,
+            "issuer_key": issuer_key,
             "manifestation_id": manifestation_id,
             "extraction_id": extraction_id,
             "article_segments_total": len(article_rows),
