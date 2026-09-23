@@ -27,7 +27,7 @@ items:
   - id: DEF-0002
     type: defect
     priority: P1
-    status: specified
+    status: verified
     area: canonical-identity
     spec: specs/defects/DEF-0002-canonical-identity-missing-issuer.md
     github_issue: 2
