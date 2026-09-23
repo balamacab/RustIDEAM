@@ -848,7 +848,7 @@ def reconcile_unresolved(
         LEFT JOIN reference_resolutions rr
           ON rr.reference_mention_id = rm.reference_mention_id
          AND rr.resolution_method =
-             'canonical_reference_resolver:1'
+             'canonical_reference_resolver:2'
         WHERE rr.reference_resolution_id IS NULL
            OR rr.status != 'resolved'
         ORDER BY dr.created_at
