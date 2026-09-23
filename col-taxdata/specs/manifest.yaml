@@ -37,7 +37,7 @@ items:
   - id: DEF-0003
     type: defect
     priority: P1
-    status: implementing
+    status: verified
     area: document-identity
     spec: specs/defects/DEF-0003-incomplete-document-type-registration.md
     github_issue: 3
