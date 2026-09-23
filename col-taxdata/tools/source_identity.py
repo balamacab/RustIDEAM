@@ -19,6 +19,12 @@ CONSTITUCION_POLITICA = "CONSTITUCION_POLITICA"
 JURISPRUDENCIA = "JURISPRUDENCIA"
 UNKNOWN = "UNKNOWN"
 
+ISSUER_SCOPED_TYPES = {"RESOLUCION", "CIRCULAR"}
+ISSUER_KEYS = {
+    "CONGRESO", "PRESIDENCIA", "DIAN", "BANREP", "BANREP_JD",
+    "MINCIT", "MINTIC", "SGCAN", "DAPR",
+}
+
 DOCUMENT_HEADING_RE = re.compile(
     r"^(?P<type>DECRETO|LEY|RESOLUCI[ÓO]N|CIRCULAR)"
     r"\s+(?:N[ÚU]MERO\s+)?(?P<number>\d+[A-Z]?)"
@@ -38,12 +44,26 @@ class IdentitySignal:
     document_type: str | None = None
     number: str | None = None
     year: int | None = None
+    issuer_key: str | None = None
 
     @property
     def canonical_key(self) -> str | None:
-        if self.document_type and self.number and self.year:
-            return f"CO:{self.document_type}:{self.number}:{self.year}"
-        return None
+        if not (self.document_type and self.number and self.year):
+            return None
+        if self.document_type in ISSUER_SCOPED_TYPES:
+            if self.issuer_key is None:
+                return None
+            return (
+                f"CO:{self.issuer_key}:{self.document_type}:"
+                f"{self.number}:{self.year}"
+            )
+        return f"CO:{self.document_type}:{self.number}:{self.year}"
+
+    @property
+    def legacy_canonical_key(self) -> str | None:
+        if not (self.document_type and self.number and self.year):
+            return None
+        return f"CO:{self.document_type}:{self.number}:{self.year}"
 
 
 @dataclass(frozen=True)
@@ -89,6 +109,55 @@ def normalize_document_number(value: str) -> str:
     return str(int(match.group(1))) + match.group(2)
 
 
+def normalize_issuer_label(value: str) -> str | None:
+    """Map explicit issuer wording to a controlled deterministic key."""
+    normalized = re.sub(r"\\s+", " ", normalize_ascii(value).upper()).strip()
+    aliases = {
+        "DIAN": "DIAN",
+        "DIRECCION DE IMPUESTOS Y ADUANAS NACIONALES": "DIAN",
+        "BANCO DE LA REPUBLICA": "BANREP",
+        "BANCO DE LA REPUBLICA JUNTA DIRECTIVA": "BANREP_JD",
+        "JUNTA DIRECTIVA DEL BANCO DE LA REPUBLICA": "BANREP_JD",
+        "PRESIDENCIA": "PRESIDENCIA",
+        "PRESIDENCIA DE LA REPUBLICA": "PRESIDENCIA",
+        "CONGRESO": "CONGRESO",
+        "CONGRESO DE LA REPUBLICA": "CONGRESO",
+        "MINCIT": "MINCIT",
+        "MINCOMERCIO": "MINCIT",
+        "MINISTERIO DE COMERCIO INDUSTRIA Y TURISMO": "MINCIT",
+        "MINTIC": "MINTIC",
+        "MINISTERIO DE TECNOLOGIAS DE LA INFORMACION Y LAS COMUNICACIONES": "MINTIC",
+        "SGCAN": "SGCAN",
+        "SECRETARIA GENERAL DE LA COMUNIDAD ANDINA": "SGCAN",
+        "DAPR": "DAPR",
+        "DEPARTAMENTO ADMINISTRATIVO DE LA PRESIDENCIA DE LA REPUBLICA": "DAPR",
+    }
+    return aliases.get(normalized)
+
+
+def issuer_from_normative_filename(name: str, document_type: str) -> str | None:
+    """Infer issuer only from known Normograma filename families."""
+    if document_type == "LEY":
+        return "CONGRESO"
+    if document_type == "DECRETO":
+        return "PRESIDENCIA"
+    prefixes = (
+        ("resolucion_banrepublica_jd-", "BANREP_JD"),
+        ("resolucion_banrepublica_", "BANREP"),
+        ("resolucion_dian_", "DIAN"),
+        ("resolucion_mincomercioit_", "MINCIT"),
+        ("resolucion_mintic_", "MINTIC"),
+        ("resolucion_sgcandina_", "SGCAN"),
+        ("circular_dian_", "DIAN"),
+        ("circular_presidencia_", "PRESIDENCIA"),
+        ("circular_dapr_", "DAPR"),
+    )
+    for prefix, issuer_key in prefixes:
+        if name.startswith(prefix):
+            return issuer_key
+    return None
+
+
 def classify_source_url(source_url: str) -> IdentitySignal:
     name = Path(urllib.parse.unquote(urllib.parse.urlparse(source_url).path)).name.lower()
 
@@ -98,12 +167,19 @@ def classify_source_url(source_url: str) -> IdentitySignal:
         tail = URL_NUMBER_YEAR_RE.search(name)
         number = normalize_document_number(tail.group("number")) if tail else None
         year = int(tail.group("year")) if tail else None
-        return IdentitySignal(NORMATIVE_ACT, source_url, doc_type, number, year)
+        return IdentitySignal(
+            NORMATIVE_ACT,
+            source_url,
+            doc_type,
+            number,
+            year,
+            issuer_from_normative_filename(name, doc_type),
+        )
 
     if name.startswith("oficio_dian_"):
-        return IdentitySignal(DIAN_OFICIO, source_url)
+        return IdentitySignal(DIAN_OFICIO, source_url, issuer_key="DIAN")
     if name.startswith("concepto_") and ("_dian_" in name or name.startswith("concepto_dian_")):
-        return IdentitySignal(DIAN_CONCEPTO, source_url)
+        return IdentitySignal(DIAN_CONCEPTO, source_url, issuer_key="DIAN")
 
     match = C_DECISION_RE.match(name)
     if match:
@@ -179,7 +255,31 @@ def assess_generic_normative_identity(source_url: str, heading: str) -> Identity
     )
     if conflict:
         return IdentityAssessment("unresolved", source, content, "SOURCE_IDENTITY_CONFLICT")
+    if source.document_type in ISSUER_SCOPED_TYPES and source.issuer_key is None:
+        return IdentityAssessment(
+            "unresolved", source, content, "ISSUER_IDENTITY_UNRESOLVED"
+        )
+    content = IdentitySignal(
+        content.family,
+        content.raw_value,
+        content.document_type,
+        content.number,
+        content.year,
+        source.issuer_key,
+    )
     return IdentityAssessment("accepted", source, content)
+
+
+def canonical_identifier_values(signal: IdentitySignal) -> list[tuple[str, int]]:
+    """Return primary canonical key plus an issuer-qualified legacy alias."""
+    primary = signal.canonical_key
+    if primary is None:
+        return []
+    values = [(primary, 1)]
+    legacy = signal.legacy_canonical_key
+    if legacy is not None and legacy != primary:
+        values.append((legacy, 0))
+    return values
 
 
 def equivalent_existing_canonical_key(
@@ -192,18 +292,30 @@ def equivalent_existing_canonical_key(
         return None
     rows = con.execute(
         """
-        SELECT identifier_value
+        SELECT identifier_value, issuer
         FROM document_identifiers
         WHERE document_id = ? AND identifier_type = 'canonical_key'
         ORDER BY is_primary DESC, identifier_id
         """,
         (document_id,),
     ).fetchall()
-    for (value,) in rows:
+    for value, issuer in rows:
         parts = value.split(":")
-        if len(parts) != 4 or parts[0] != "CO":
+        if len(parts) == 5 and parts[0] == "CO":
+            _, key_issuer, doc_type, number, year = parts
+            if signal.document_type not in ISSUER_SCOPED_TYPES:
+                continue
+            if signal.issuer_key != key_issuer:
+                continue
+        elif len(parts) == 4 and parts[0] == "CO":
+            _, doc_type, number, year = parts
+            if signal.document_type in ISSUER_SCOPED_TYPES:
+                continue
+            if issuer is not None and signal.issuer_key is not None:
+                if issuer != signal.issuer_key:
+                    continue
+        else:
             continue
-        _, doc_type, number, year = parts
         try:
             year_int = int(year)
         except ValueError:
@@ -237,10 +349,17 @@ def record_identity_signals(
             INSERT INTO document_identity_signals(
                 identity_signal_id, manifestation_id, extraction_id,
                 signal_origin, source_family, document_type,
-                document_number, document_year, raw_value, created_at
+                document_number, document_year, issuer_key,
+                raw_value, created_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(identity_signal_id) DO NOTHING
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(identity_signal_id) DO UPDATE SET
+                source_family = excluded.source_family,
+                document_type = excluded.document_type,
+                document_number = excluded.document_number,
+                document_year = excluded.document_year,
+                issuer_key = excluded.issuer_key,
+                raw_value = excluded.raw_value
             """,
             (
                 signal_id,
@@ -251,6 +370,7 @@ def record_identity_signals(
                 signal.document_type,
                 signal.number,
                 signal.year,
+                signal.issuer_key,
                 signal.raw_value,
                 now,
             ),
