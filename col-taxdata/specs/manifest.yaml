@@ -48,7 +48,7 @@ items:
   - id: DEF-0004
     type: defect
     priority: P1
-    status: specified
+    status: implementing
     area: temporality
     spec: specs/defects/DEF-0004-temporality-cardinality-assumptions.md
     github_issue: 4

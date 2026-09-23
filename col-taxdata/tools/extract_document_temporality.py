@@ -2,608 +2,185 @@
 from __future__ import annotations
 
 import argparse
-from datetime import date, datetime, timezone
 import json
-import re
-import sqlite3
-import unicodedata
-import uuid
 from pathlib import Path
+import sqlite3
 
+from temporal_candidate_model import ROLES, collect_candidates, resolve_role
+from temporal_candidate_storage import (
+    Delta,
+    deterministic_id,
+    load_subject,
+    persist_candidate_state,
+    utc_now,
+)
+from temporal_event_promotion import (
+    find_legacy_events,
+    promote_resolved_events,
+    rebind_relationship_temporality,
+    resolved_dates,
+    supersede_legacy_events,
+    update_document_dates,
+)
 
 PROCESSOR_NAME = "document_temporality_regex"
-PROCESSOR_VERSION = "2"
-
-MONTHS = {
-    "enero": 1,
-    "febrero": 2,
-    "marzo": 3,
-    "abril": 4,
-    "mayo": 5,
-    "junio": 6,
-    "julio": 7,
-    "agosto": 8,
-    "septiembre": 9,
-    "setiembre": 9,
-    "octubre": 10,
-    "noviembre": 11,
-    "diciembre": 12,
-}
-
-PUBLICATION_RE = re.compile(
-    r"Diario\s+Oficial\s+No\.?\s*[\d.]+\s+de\s+"
-    r"(?P<day>\d{1,2})\s+de\s+"
-    r"(?P<month>[A-Za-zÁÉÍÓÚÜÑáéíóúüñ]+)\s+de\s+"
-    r"(?P<year>\d{4})",
-    re.IGNORECASE,
-)
-
-ISSUED_RE = re.compile(
-    r"Dad[oa]\s+en\s+.+?,\s*(?:a\s+)?"
-    r"(?P<day>\d{1,2})\s+de\s+"
-    r"(?P<month>[A-Za-zÁÉÍÓÚÜÑáéíóúüñ]+)\s+de\s+"
-    r"(?P<year>\d{4})",
-    re.IGNORECASE,
-)
-
-EFFECTIVE_ON_PUBLICATION_RE = re.compile(
-    r"rige\s+a\s+partir\s+de\s+la\s+fecha\s+de\s+su\s+"
-    r"publicaci[oó]n"
-    r"(?:\s+en\s+el\s+Diario\s+Oficial)?",
-    re.IGNORECASE,
-)
+PROCESSOR_VERSION = "3"
+LEGACY_PROCESSOR_VERSION = "2"
 
 
-def utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
-
-
-def deterministic_id(prefix: str, material: str) -> str:
-    value = uuid.uuid5(uuid.NAMESPACE_URL, material)
-    return f"{prefix}-{value.hex}"
-
-
-def normalize_ascii(value: str) -> str:
-    value = unicodedata.normalize("NFKD", value)
-    return "".join(ch for ch in value if not unicodedata.combining(ch))
-
-
-def parse_date(match: re.Match[str]) -> str:
-    month_key = normalize_ascii(match.group("month")).lower()
-    if month_key not in MONTHS:
-        raise RuntimeError(f"unsupported Spanish month: {match.group('month')!r}")
-    parsed = date(
-        int(match.group("year")),
-        MONTHS[month_key],
-        int(match.group("day")),
-    )
-    return parsed.isoformat()
-
-
-def create_evidence(
+def process_temporality(
     con: sqlite3.Connection,
     *,
-    manifestation_id: str,
-    source_url: str,
-    source_sha256: str,
-    retrieved_at: str,
-    segment_id: str,
-    char_start: int,
-    char_end: int,
-    text: str,
-    role: str,
-) -> tuple[str, bool]:
-    evidence_id = deterministic_id(
-        "EVD",
-        f"{segment_id}:{PROCESSOR_NAME}:{PROCESSOR_VERSION}:{role}",
+    extraction_id: str,
+) -> dict[str, object]:
+    """Resolve document temporality without converting ambiguity into fact."""
+    (
+        manifestation_id,
+        document_id,
+        source_sha256,
+        retrieved_at,
+        source_url,
+        source_extractor_version,
+        segments,
+    ) = load_subject(con, extraction_id)
+    candidates = collect_candidates(
+        deterministic_id=deterministic_id,
+        extraction_id=extraction_id,
+        segments=segments,
+        processor_name=PROCESSOR_NAME,
+        processor_version=PROCESSOR_VERSION,
     )
-    cur = con.execute(
-        """
-        INSERT OR IGNORE INTO evidence(
-            evidence_id,
-            claim_id,
-            manifestation_id,
-            segment_id,
-            page_number,
-            char_start,
-            char_end,
-            exact_quote,
-            source_url,
-            source_sha256,
-            retrieved_at,
-            extraction_method,
-            extractor_version,
-            confidence,
-            review_status,
-            extracted_segment_id
-        )
-        VALUES (
-            ?, NULL, ?, NULL, NULL, ?, ?, ?, ?, ?, ?,
-            ?, ?, 1.0, 'machine_validated', ?
-        )
-        """,
-        (
-            evidence_id,
-            manifestation_id,
-            char_start,
-            char_end,
-            text,
-            source_url,
-            source_sha256,
-            retrieved_at,
-            f"{PROCESSOR_NAME}:{PROCESSOR_VERSION}:{role}",
-            PROCESSOR_VERSION,
-            segment_id,
-        ),
-    )
-    return evidence_id, bool(cur.rowcount)
-
-
-def create_event(
-    con: sqlite3.Connection,
-    *,
-    document_id: str,
-    event_type: str,
-    event_date: str,
-    effective_from: str | None,
-    primary_evidence_id: str,
-    scope: str,
-    evidence_roles: list[tuple[str, str]],
-    now: str,
-) -> tuple[str, bool, int]:
-    event_id = deterministic_id(
-        "TEV",
-        (
-            f"{document_id}:{event_type}:{event_date}:"
-            f"{effective_from or ''}:{PROCESSOR_VERSION}"
-        ),
-    )
-    existing = con.execute(
-        "SELECT 1 FROM temporal_events WHERE temporal_event_id = ?",
-        (event_id,),
-    ).fetchone()
-
-    con.execute(
-        """
-        INSERT INTO temporal_events(
-            temporal_event_id,
-            entity_type,
-            entity_id,
-            event_type,
-            event_date,
-            effective_from,
-            effective_to,
-            caused_by_type,
-            caused_by_id,
-            scope,
-            status,
-            evidence_id,
-            confidence,
-            requires_human_review
-        )
-        VALUES (
-            ?, 'document', ?, ?, ?, ?, NULL,
-            NULL, NULL, ?, 'validated', ?, 1.0, 0
-        )
-        ON CONFLICT(temporal_event_id) DO UPDATE SET
-            event_date = excluded.event_date,
-            effective_from = excluded.effective_from,
-            scope = excluded.scope,
-            status = excluded.status,
-            evidence_id = excluded.evidence_id,
-            confidence = excluded.confidence,
-            requires_human_review = excluded.requires_human_review
-        """,
-        (
-            event_id,
-            document_id,
-            event_type,
-            event_date,
-            effective_from,
-            scope,
-            primary_evidence_id,
-        ),
+    resolutions = {
+        role: resolve_role(role, candidates[role])
+        for role in ROLES
+    }
+    now = utc_now()
+    delta = Delta()
+    evidence_by_candidate = persist_candidate_state(
+        con,
+        extraction_id=extraction_id,
+        manifestation_id=manifestation_id,
+        document_id=document_id,
+        source_url=source_url,
+        source_sha256=source_sha256,
+        retrieved_at=retrieved_at,
+        resolutions=resolutions,
+        processor_name=PROCESSOR_NAME,
+        processor_version=PROCESSOR_VERSION,
+        now=now,
+        delta=delta,
     )
 
-    evidence_links_inserted = 0
-    for evidence_id, role in evidence_roles:
-        cur = con.execute(
-            """
-            INSERT OR IGNORE INTO temporal_event_evidence(
-                temporal_event_id,
-                evidence_id,
-                evidence_role,
-                created_at
-            )
-            VALUES (?, ?, ?, ?)
-            """,
-            (event_id, evidence_id, role, now),
-        )
-        evidence_links_inserted += int(bool(cur.rowcount))
+    legacy_events = find_legacy_events(
+        con,
+        document_id=document_id,
+        processor_name=PROCESSOR_NAME,
+        legacy_processor_version=LEGACY_PROCESSOR_VERSION,
+    )
+    supersede_legacy_events(con, legacy_events=legacy_events, delta=delta)
+    (
+        publication,
+        issued,
+        commencement,
+        publication_date,
+        issued_date,
+        effective_date,
+    ) = resolved_dates(resolutions)
+    update_document_dates(
+        con,
+        document_id=document_id,
+        issued_date=issued_date,
+        publication_date=publication_date,
+        legacy_events=legacy_events,
+        now=now,
+        delta=delta,
+    )
+    issued_event_id, _, effective_event_id = promote_resolved_events(
+        con,
+        document_id=document_id,
+        publication=publication,
+        issued=issued,
+        commencement=commencement,
+        publication_date=publication_date,
+        issued_date=issued_date,
+        effective_date=effective_date,
+        evidence_by_candidate=evidence_by_candidate,
+        processor_version=PROCESSOR_VERSION,
+        now=now,
+        delta=delta,
+    )
+    source_count, inverse_count = rebind_relationship_temporality(
+        con,
+        document_id=document_id,
+        issued_event_id=issued_event_id,
+        effective_event_id=effective_event_id,
+        issued_date=issued_date,
+        effective_date=effective_date,
+        now=now,
+        delta=delta,
+    )
 
-    return event_id, existing is None, evidence_links_inserted
+    return {
+        "processor_name": PROCESSOR_NAME,
+        "processor_version": PROCESSOR_VERSION,
+        "source_extractor_version": source_extractor_version,
+        "status": "completed",
+        "document_id": document_id,
+        "manifestation_id": manifestation_id,
+        "extraction_id": extraction_id,
+        "roles": {
+            role: {
+                "status": resolutions[role].status,
+                "candidate_count": len(resolutions[role].candidates),
+                "trusted_candidate_count": len(resolutions[role].trusted_candidates),
+                "promoted_candidate_id": (
+                    resolutions[role].promoted.candidate_id
+                    if resolutions[role].promoted
+                    else None
+                ),
+            }
+            for role in ROLES
+        },
+        "issued_date": issued_date,
+        "publication_date": publication_date,
+        "effective_date": effective_date,
+        "source_relationships_considered": source_count,
+        "inverse_relationships_considered": inverse_count,
+        "delta": delta.as_dict(),
+    }
 
 
 def extract_temporality(
     *,
     extraction_id: str,
     db_path: Path,
+    dry_run: bool = False,
 ) -> dict[str, object]:
+    """Run the same decision path for preview and apply.
+
+    Dry-run performs every SQL mutation inside a savepoint and then rolls the
+    savepoint back, which makes its reported delta directly comparable to apply.
+    """
     con = sqlite3.connect(db_path)
     con.execute("PRAGMA foreign_keys = ON")
-
     try:
-        row = con.execute(
-            """
-            SELECT
-                te.manifestation_id,
-                m.document_id,
-                m.sha256,
-                m.retrieved_at,
-                s.source_url
-            FROM text_extractions te
-            JOIN manifestations m
-              ON m.manifestation_id = te.manifestation_id
-            JOIN sources s
-              ON s.source_id = m.source_id
-            WHERE te.extraction_id = ?
-            """,
-            (extraction_id,),
-        ).fetchone()
-
-        if row is None:
-            raise RuntimeError(f"extraction not found: {extraction_id}")
-
-        (
-            manifestation_id,
-            document_id,
-            source_sha256,
-            retrieved_at,
-            source_url,
-        ) = row
-
-        if document_id is None:
-            raise RuntimeError(
-                "manifestation has no canonical document identity"
-            )
-
-        segments = con.execute(
-            """
-            SELECT
-                extracted_segment_id,
-                sequence_no,
-                char_start,
-                char_end,
-                text
-            FROM extracted_segments
-            WHERE extraction_id = ?
-            ORDER BY sequence_no
-            """,
-            (extraction_id,),
-        ).fetchall()
-
-        publication_matches = []
-        issued_matches = []
-        effective_matches = []
-
-        for segment_id, sequence_no, char_start, char_end, text in segments:
-            pm = PUBLICATION_RE.search(text)
-            if pm:
-                publication_matches.append(
-                    (
-                        segment_id,
-                        sequence_no,
-                        char_start,
-                        char_end,
-                        text,
-                        parse_date(pm),
-                    )
-                )
-
-            im = ISSUED_RE.search(text)
-            if im:
-                issued_matches.append(
-                    (
-                        segment_id,
-                        sequence_no,
-                        char_start,
-                        char_end,
-                        text,
-                        parse_date(im),
-                    )
-                )
-
-            if EFFECTIVE_ON_PUBLICATION_RE.search(text):
-                effective_matches.append(
-                    (
-                        segment_id,
-                        sequence_no,
-                        char_start,
-                        char_end,
-                        text,
-                    )
-                )
-
-        if len(publication_matches) != 1:
-            raise RuntimeError(
-                "expected exactly one publication date; "
-                f"found {len(publication_matches)}"
-            )
-
-        if len(issued_matches) != 1:
-            raise RuntimeError(
-                "expected exactly one issued date; "
-                f"found {len(issued_matches)}"
-            )
-
-        if len(effective_matches) != 1:
-            raise RuntimeError(
-                "expected exactly one effective-on-publication rule; "
-                f"found {len(effective_matches)}"
-            )
-
-        publication = publication_matches[0]
-        issued = issued_matches[0]
-        effective = effective_matches[0]
-
-        publication_date = publication[5]
-        issued_date = issued[5]
-        effective_date = publication_date
-
-        now = utc_now()
-        evidence_inserted = 0
-        events_inserted = 0
-        evidence_links_inserted = 0
-        temporal_basis_inserted = 0
-
-        with con:
-            publication_evidence, inserted = create_evidence(
-                con,
-                manifestation_id=manifestation_id,
-                source_url=source_url,
-                source_sha256=source_sha256,
-                retrieved_at=retrieved_at,
-                segment_id=publication[0],
-                char_start=publication[2],
-                char_end=publication[3],
-                text=publication[4],
-                role="publication_date",
-            )
-            evidence_inserted += int(inserted)
-
-            issued_evidence, inserted = create_evidence(
-                con,
-                manifestation_id=manifestation_id,
-                source_url=source_url,
-                source_sha256=source_sha256,
-                retrieved_at=retrieved_at,
-                segment_id=issued[0],
-                char_start=issued[2],
-                char_end=issued[3],
-                text=issued[4],
-                role="issued_date",
-            )
-            evidence_inserted += int(inserted)
-
-            effective_evidence, inserted = create_evidence(
-                con,
-                manifestation_id=manifestation_id,
-                source_url=source_url,
-                source_sha256=source_sha256,
-                retrieved_at=retrieved_at,
-                segment_id=effective[0],
-                char_start=effective[2],
-                char_end=effective[3],
-                text=effective[4],
-                role="effective_on_publication",
-            )
-            evidence_inserted += int(inserted)
-
-            con.execute(
-                """
-                UPDATE documents
-                SET issued_date = ?,
-                    publication_date = ?,
-                    updated_at = ?
-                WHERE document_id = ?
-                """,
-                (
-                    issued_date,
-                    publication_date,
-                    now,
-                    document_id,
-                ),
-            )
-
-            issued_event_id, inserted, links = create_event(
-                con,
-                document_id=document_id,
-                event_type="issued",
-                event_date=issued_date,
-                effective_from=None,
-                primary_evidence_id=issued_evidence,
-                scope="document",
-                evidence_roles=[
-                    (issued_evidence, "issued_date_source"),
-                ],
-                now=now,
-            )
-            events_inserted += int(inserted)
-            evidence_links_inserted += links
-
-            publication_event_id, inserted, links = create_event(
-                con,
-                document_id=document_id,
-                event_type="published",
-                event_date=publication_date,
-                effective_from=None,
-                primary_evidence_id=publication_evidence,
-                scope="document",
-                evidence_roles=[
-                    (publication_evidence, "publication_date_source"),
-                ],
-                now=now,
-            )
-            events_inserted += int(inserted)
-            evidence_links_inserted += links
-
-            effective_event_id, inserted, links = create_event(
-                con,
-                document_id=document_id,
-                event_type="enters_into_force",
-                event_date=effective_date,
-                effective_from=effective_date,
-                primary_evidence_id=effective_evidence,
-                scope="document",
-                evidence_roles=[
-                    (effective_evidence, "commencement_rule"),
-                    (publication_evidence, "publication_date_basis"),
-                ],
-                now=now,
-            )
-            events_inserted += int(inserted)
-            evidence_links_inserted += links
-
-            source_relationships = con.execute(
-                """
-                SELECT DISTINCT r.relationship_id
-                FROM relationships r
-                LEFT JOIN provisions sp
-                  ON r.source_type = 'provision'
-                 AND sp.provision_id = r.source_id
-                WHERE r.status = 'validated'
-                  AND r.relation_type IN (
-                      'substitutes',
-                      'modifies',
-                      'adds',
-                      'repeals',
-                      'partially_repeals'
-                  )
-                  AND (
-                      (r.source_type = 'document' AND r.source_id = ?)
-                      OR
-                      (r.source_type = 'provision'
-                       AND sp.document_id = ?)
-                  )
-                ORDER BY r.relationship_id
-                """,
-                (document_id, document_id),
-            ).fetchall()
-
-            for (relationship_id,) in source_relationships:
-                con.execute(
-                    """
-                    UPDATE relationships
-                    SET asserted_date = ?,
-                        effective_date = ?
-                    WHERE relationship_id = ?
-                    """,
-                    (
-                        issued_date,
-                        effective_date,
-                        relationship_id,
-                    ),
-                )
-
-                for event_id, basis_role in (
-                    (issued_event_id, "asserted_date"),
-                    (effective_event_id, "effective_date"),
-                ):
-                    cur = con.execute(
-                        """
-                        INSERT OR IGNORE INTO relationship_temporal_basis(
-                            relationship_id,
-                            temporal_event_id,
-                            basis_role,
-                            created_at
-                        )
-                        VALUES (?, ?, ?, ?)
-                        """,
-                        (
-                            relationship_id,
-                            event_id,
-                            basis_role,
-                            now,
-                        ),
-                    )
-                    temporal_basis_inserted += int(bool(cur.rowcount))
-
-            inverse_relationships = con.execute(
-                """
-                SELECT DISTINCT r.relationship_id
-                FROM relationships r
-                JOIN provisions tp
-                  ON r.target_type = 'provision'
-                 AND tp.provision_id = r.target_id
-                WHERE r.status = 'validated'
-                  AND tp.document_id = ?
-                  AND r.relation_type IN (
-                      'modified_by',
-                      'added_by',
-                      'repealed_by',
-                      'substituted_by'
-                  )
-                ORDER BY r.relationship_id
-                """,
-                (document_id,),
-            ).fetchall()
-
-            for (relationship_id,) in inverse_relationships:
-                con.execute(
-                    """
-                    UPDATE relationships
-                    SET effective_date = ?
-                    WHERE relationship_id = ?
-                    """,
-                    (
-                        effective_date,
-                        relationship_id,
-                    ),
-                )
-
-                cur = con.execute(
-                    """
-                    INSERT OR IGNORE INTO relationship_temporal_basis(
-                        relationship_id,
-                        temporal_event_id,
-                        basis_role,
-                        created_at
-                    )
-                    VALUES (?, ?, 'effective_date', ?)
-                    """,
-                    (
-                        relationship_id,
-                        effective_event_id,
-                        now,
-                    ),
-                )
-                temporal_basis_inserted += int(bool(cur.rowcount))
-
-            relationships = (
-                source_relationships + inverse_relationships
-            )
-
-        return {
-            "processor_name": PROCESSOR_NAME,
-            "processor_version": PROCESSOR_VERSION,
-            "document_id": document_id,
-            "manifestation_id": manifestation_id,
-            "extraction_id": extraction_id,
-            "issued_date": issued_date,
-            "publication_date": publication_date,
-            "effective_date": effective_date,
-            "issued_segment_sequence": issued[1],
-            "publication_segment_sequence": publication[1],
-            "effective_rule_segment_sequence": effective[1],
-            "evidence_inserted": evidence_inserted,
-            "events_inserted": events_inserted,
-            "event_evidence_links_inserted": evidence_links_inserted,
-            "source_relationships_updated": len(source_relationships),
-            "inverse_relationships_updated": len(inverse_relationships),
-            "relationships_updated": len(relationships),
-            "relationship_temporal_basis_inserted":
-                temporal_basis_inserted,
-        }
+        con.execute("SAVEPOINT def0004_temporality")
+        try:
+            result = process_temporality(con, extraction_id=extraction_id)
+            if dry_run:
+                con.execute("ROLLBACK TO def0004_temporality")
+            con.execute("RELEASE def0004_temporality")
+            if not dry_run:
+                con.commit()
+        except Exception:
+            con.execute("ROLLBACK TO def0004_temporality")
+            con.execute("RELEASE def0004_temporality")
+            raise
+        result["dry_run"] = dry_run
+        result["persistent_mutation"] = (
+            not dry_run and any(result["delta"].values())
+        )
+        return result
     finally:
         con.close()
 
@@ -611,17 +188,18 @@ def extract_temporality(
 def main() -> int:
     parser = argparse.ArgumentParser(
         description=(
-            "Extract explicit document issuance/publication/commencement "
-            "temporality and bind canonical relationships to its evidence."
+            "Extract evidence-backed temporal candidates and promote only "
+            "uniquely supported document-level temporal state."
         )
     )
     parser.add_argument("--extraction-id", required=True)
     parser.add_argument("--db", default="data/state/taxdata.sqlite")
+    parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
-
     result = extract_temporality(
         extraction_id=args.extraction_id,
         db_path=Path(args.db),
+        dry_run=args.dry_run,
     )
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0

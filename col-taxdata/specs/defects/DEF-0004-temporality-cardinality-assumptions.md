@@ -1,7 +1,7 @@
 ---
 id: DEF-0004
 type: defect
-status: specified
+status: implementing
 priority: P1
 area: temporality
 baseline: 2026-09-22-corpus-audit
