@@ -19,10 +19,19 @@ CONSTITUCION_POLITICA = "CONSTITUCION_POLITICA"
 JURISPRUDENCIA = "JURISPRUDENCIA"
 UNKNOWN = "UNKNOWN"
 
-ISSUER_SCOPED_TYPES = {"RESOLUCION", "CIRCULAR"}
+ISSUER_SCOPED_TYPES = {
+    "RESOLUCION",
+    "CIRCULAR",
+    "CONCEPTO",
+    "OFICIO",
+    "SENTENCIA_C",
+    "CONPES",
+    "CONSTITUCION_POLITICA",
+}
 ISSUER_KEYS = {
     "CONGRESO", "PRESIDENCIA", "DIAN", "BANREP", "BANREP_JD",
     "MINCIT", "MINTIC", "SGCAN", "DAPR",
+    "CORTE_CONSTITUCIONAL", "CONPES", "ASAMBLEA_CONSTITUYENTE",
 }
 
 DOCUMENT_HEADING_RE = re.compile(
@@ -33,6 +42,15 @@ DOCUMENT_HEADING_RE = re.compile(
 )
 NORMATIVE_PREFIX_RE = re.compile(r"^(ley|decreto|resolucion|circular)_", re.I)
 URL_NUMBER_YEAR_RE = re.compile(r"(?:_|-)(?P<number>0*\d+[a-z]?)[_](?P<year>\d{4})\.html?$", re.I)
+DIAN_OFICIO_RE = re.compile(
+    r"^oficio_dian_(?P<number>0*\d+[a-z]?)_(?P<year>\d{4})\.html?$",
+    re.I,
+)
+DIAN_CONCEPTO_RE = re.compile(
+    r"^concepto_(?:(?:[a-z0-9]+)_)*dian_"
+    r"(?P<number>c?0*\d+[a-z]?)(?:_(?P<year>\d{4}))?\.html?$",
+    re.I,
+)
 C_DECISION_RE = re.compile(r"^c-(?P<number>\d+[a-z]?)_(?P<year>\d{4})\.html?$", re.I)
 CONPES_RE = re.compile(r"^conpes_(?:[a-z0-9-]+_)*(?P<number>\d+)_(?P<year>\d{4})\.html?$", re.I)
 
@@ -176,9 +194,39 @@ def classify_source_url(source_url: str) -> IdentitySignal:
             issuer_from_normative_filename(name, doc_type),
         )
 
+    match = DIAN_OFICIO_RE.match(name)
+    if match:
+        return IdentitySignal(
+            DIAN_OFICIO,
+            source_url,
+            "OFICIO",
+            normalize_document_number(match.group("number")),
+            int(match.group("year")),
+            "DIAN",
+        )
     if name.startswith("oficio_dian_"):
+        # Keep malformed/partial source names in the correct family. The family
+        # parser can then record an explicit unresolved reason instead of
+        # allowing a quoted normative act to become the source identity.
         return IdentitySignal(DIAN_OFICIO, source_url, issuer_key="DIAN")
-    if name.startswith("concepto_") and ("_dian_" in name or name.startswith("concepto_dian_")):
+
+    match = DIAN_CONCEPTO_RE.match(name)
+    if match:
+        raw_number = match.group("number")
+        if raw_number.lower().startswith("c") and raw_number[1:].isdigit():
+            raw_number = raw_number[1:]
+        year = match.group("year")
+        return IdentitySignal(
+            DIAN_CONCEPTO,
+            source_url,
+            "CONCEPTO",
+            normalize_document_number(raw_number),
+            int(year) if year else None,
+            "DIAN",
+        )
+    if name.startswith("concepto_") and (
+        "_dian_" in name or name.startswith("concepto_dian_")
+    ):
         return IdentitySignal(DIAN_CONCEPTO, source_url, issuer_key="DIAN")
 
     match = C_DECISION_RE.match(name)
@@ -189,6 +237,7 @@ def classify_source_url(source_url: str) -> IdentitySignal:
             "SENTENCIA_C",
             normalize_document_number(match.group("number")),
             int(match.group("year")),
+            "CORTE_CONSTITUCIONAL",
         )
 
     match = CONPES_RE.match(name)
@@ -199,16 +248,19 @@ def classify_source_url(source_url: str) -> IdentitySignal:
             "CONPES",
             normalize_document_number(match.group("number")),
             int(match.group("year")),
+            "CONPES",
         )
 
     if name.startswith("constitucion_politica_"):
         year_match = re.search(r"_(\d{4})\.html?$", name)
+        year = int(year_match.group(1)) if year_match else None
         return IdentitySignal(
             CONSTITUCION_POLITICA,
             source_url,
             "CONSTITUCION_POLITICA",
-            None,
-            int(year_match.group(1)) if year_match else None,
+            str(year) if year is not None else None,
+            year,
+            "ASAMBLEA_CONSTITUYENTE",
         )
 
     if name.startswith(("sentencia_", "auto_")) or re.match(r"^\d{5}-\d{2}-", name):
@@ -287,6 +339,7 @@ def equivalent_existing_canonical_key(
     *,
     document_id: str,
     signal: IdentitySignal,
+    allow_unqualified_scoped: bool = False,
 ) -> str | None:
     if not (signal.document_type and signal.number and signal.year):
         return None
@@ -309,7 +362,10 @@ def equivalent_existing_canonical_key(
                 continue
         elif len(parts) == 4 and parts[0] == "CO":
             _, doc_type, number, year = parts
-            if signal.document_type in ISSUER_SCOPED_TYPES:
+            if (
+                signal.document_type in ISSUER_SCOPED_TYPES
+                and not allow_unqualified_scoped
+            ):
                 continue
             if issuer is not None and signal.issuer_key is not None:
                 if issuer != signal.issuer_key:
