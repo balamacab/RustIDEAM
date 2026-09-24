@@ -1,0 +1,93 @@
+name: col-taxdata CI
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+  pull-requests: read
+  issues: read
+
+concurrency:
+  group: col-taxdata-ci-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  scope-policy:
+    name: scope-policy
+    runs-on: ubuntu-latest
+    outputs:
+      issue_number: ${{ steps.policy.outputs.issue_number }}
+      run_heavy: ${{ steps.policy.outputs.run_heavy }}
+    steps:
+      - name: Checkout proposed change
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Capture PR and selected issue
+        id: context
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          import pathlib
+          import re
+
+          event = json.loads(pathlib.Path(os.environ["GITHUB_EVENT_PATH"]).read_text())
+          pr = event["pull_request"]
+          pathlib.Path("/tmp/pr-body.txt").write_text(pr.get("body") or "", encoding="utf-8")
+          branch = pr["head"]["ref"]
+          match = re.fullmatch(r"agent/issue-(\d+)-[a-z0-9][a-z0-9-]*", branch)
+          if not match:
+              raise SystemExit("branch does not follow agent/issue-<number>-<slug>")
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
+              out.write(f"issue_number={match.group(1)}\n")
+          PY
+          gh api "repos/${GITHUB_REPOSITORY}/issues/${{ steps.context.outputs.issue_number }}" \
+            --jq '.body // ""' > /tmp/issue-body.txt
+
+      - name: Enforce scope and durable invariants
+        id: policy
+        run: |
+          set -euo pipefail
+          python3 col-taxdata/ci/policy.py \
+            --repo-root . \
+            --base "${{ github.event.pull_request.base.sha }}" \
+            --head "${{ github.event.pull_request.head.sha }}" \
+            --branch "${{ github.event.pull_request.head.ref }}" \
+            --pr-body-file /tmp/pr-body.txt \
+            --issue-body-file /tmp/issue-body.txt \
+            --github-output "$GITHUB_OUTPUT"
+
+  project-invariants:
+    name: project-invariants
+    needs: scope-policy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout proposed change
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Run automation policy regression tests
+        run: python3 -m unittest discover -s col-taxdata/tests -p 'test_ci_*.py'
+
+  project-tests:
+    name: project-tests
+    needs: scope-policy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout proposed change
+        uses: actions/checkout@v4
+      - name: Run complete col-taxdata suite when project code changes
+        if: needs.scope-policy.outputs.run_heavy == 'true'
+        run: python3 -m unittest discover -s col-taxdata/tests -p 'test_*.py'
+      - name: Preserve stable required context for unrelated changes
+        if: needs.scope-policy.outputs.run_heavy != 'true'
+        run: echo "No col-taxdata project changes; heavy suite intentionally skipped."
