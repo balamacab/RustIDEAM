@@ -71,12 +71,16 @@ specs/
 
 Stable application-facing contracts live under [`application/`](application/). They define consumer/domain boundaries downstream of canonical corpus evidence without claiming that deferred transports or orchestrators are already implemented.
 
-The current natural-language case boundary is:
+The current natural-language case-contract line is:
 
-- [`application/case-contracts-v1.md`](application/case-contracts-v1.md) — authoritative ownership, trust, lifecycle, validation, versioning and CASE-0001 mapping.
-- [`application/schemas/case-contracts-v1.schema.json`](application/schemas/case-contracts-v1.schema.json) — machine-readable JSON Schema for the v1 serialized contracts.
+- [`application/case-contracts-v2.md`](application/case-contracts-v2.md) — current contract for new implementations, including required provider-neutral structuring metadata in both CaseDraft and CaseResult.
+- [`application/schemas/case-contracts-v2.schema.json`](application/schemas/case-contracts-v2.schema.json) — machine-readable JSON Schema for the v2 serialized contracts.
+- [`application/case-contracts-v1.md`](application/case-contracts-v1.md) — retained v1.0.0 compatibility contract for consumers that explicitly support the previous major version.
+- [`application/schemas/case-contracts-v1.schema.json`](application/schemas/case-contracts-v1.schema.json) — retained machine-readable v1 schema.
 
-CLI, API and future MCP adapters are expected to preserve these application semantics rather than embedding their own case logic.
+Issue #24 intentionally makes the result-metadata requirement a v2 breaking change rather than weakening v1 compatibility semantics. Consumers that support only v1 must reject v2 explicitly instead of silently dropping required traceability metadata.
+
+CLI, API and future MCP adapters are expected to preserve the applicable application-contract semantics rather than embedding their own case logic.
 
 ## Source-of-truth order for issue work
 

@@ -1,0 +1,804 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/balamacab/RustIDEAM/blob/main/col-taxdata/specs/application/schemas/case-contracts-v2.schema.json",
+  "title": "col-taxdata case application contracts v2",
+  "description": "Provider-neutral serialized contracts for natural-language case intake, candidate structuring, required structuring-execution traceability, unresolved state, canonical evidence exposure, and case results.",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/CaseInput"
+    },
+    {
+      "$ref": "#/$defs/CaseDraft"
+    },
+    {
+      "$ref": "#/$defs/CaseResult"
+    }
+  ],
+  "$defs": {
+    "CaseInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "contract_version",
+        "problem_text"
+      ],
+      "properties": {
+        "kind": {
+          "const": "case_input"
+        },
+        "contract_version": {
+          "const": "2.0.0"
+        },
+        "problem_text": {
+          "type": "string",
+          "minLength": 1
+        },
+        "as_of_date": {
+          "type": "string",
+          "format": "date"
+        },
+        "client_reference": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        }
+      }
+    },
+    "CaseFact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "contract_version",
+        "fact_ref",
+        "label",
+        "state",
+        "requires_confirmation"
+      ],
+      "properties": {
+        "kind": {
+          "const": "case_fact"
+        },
+        "contract_version": {
+          "const": "2.0.0"
+        },
+        "fact_ref": {
+          "type": "string",
+          "pattern": "^fact:[A-Za-z0-9._-]+$"
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1
+        },
+        "value": {
+          "type": [
+            "string",
+            "number",
+            "boolean",
+            "null"
+          ]
+        },
+        "state": {
+          "enum": [
+            "user_provided",
+            "llm_normalized",
+            "llm_inferred",
+            "missing",
+            "ambiguous"
+          ]
+        },
+        "source_quote": {
+          "type": "string",
+          "minLength": 1
+        },
+        "requires_confirmation": {
+          "type": "boolean"
+        },
+        "needed_information": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "state": {
+                "const": "user_provided"
+              }
+            },
+            "required": [
+              "state"
+            ]
+          },
+          "then": {
+            "required": [
+              "source_quote"
+            ],
+            "properties": {
+              "requires_confirmation": {
+                "const": false
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "state": {
+                "enum": [
+                  "llm_normalized",
+                  "llm_inferred"
+                ]
+              }
+            },
+            "required": [
+              "state"
+            ]
+          },
+          "then": {
+            "properties": {
+              "requires_confirmation": {
+                "const": true
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "state": {
+                "enum": [
+                  "missing",
+                  "ambiguous"
+                ]
+              }
+            },
+            "required": [
+              "state"
+            ]
+          },
+          "then": {
+            "required": [
+              "needed_information"
+            ],
+            "properties": {
+              "requires_confirmation": {
+                "const": true
+              }
+            }
+          }
+        }
+      ]
+    },
+    "CaseQuestion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "contract_version",
+        "question_ref",
+        "text",
+        "category",
+        "status"
+      ],
+      "properties": {
+        "kind": {
+          "const": "case_question"
+        },
+        "contract_version": {
+          "const": "2.0.0"
+        },
+        "question_ref": {
+          "type": "string",
+          "pattern": "^question:[A-Za-z0-9._-]+$"
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1
+        },
+        "category": {
+          "enum": [
+            "legal",
+            "factual",
+            "procedural",
+            "temporal",
+            "evidentiary",
+            "other"
+          ]
+        },
+        "status": {
+          "enum": [
+            "open",
+            "blocked"
+          ]
+        },
+        "depends_on_fact_refs": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^fact:[A-Za-z0-9._-]+$"
+          }
+        }
+      }
+    },
+    "CandidateClaim": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "contract_version",
+        "claim_ref",
+        "text",
+        "status",
+        "requires_canonical_validation"
+      ],
+      "properties": {
+        "kind": {
+          "const": "candidate_claim"
+        },
+        "contract_version": {
+          "const": "2.0.0"
+        },
+        "claim_ref": {
+          "type": "string",
+          "pattern": "^claim:[A-Za-z0-9._-]+$"
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1
+        },
+        "status": {
+          "const": "candidate"
+        },
+        "requires_canonical_validation": {
+          "const": true
+        },
+        "target_hints": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "model_confidence": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "related_question_refs": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^question:[A-Za-z0-9._-]+$"
+          }
+        }
+      }
+    },
+    "CaseUnresolved": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "contract_version",
+        "unresolved_ref",
+        "category",
+        "description",
+        "next_action"
+      ],
+      "properties": {
+        "kind": {
+          "const": "case_unresolved"
+        },
+        "contract_version": {
+          "const": "2.0.0"
+        },
+        "unresolved_ref": {
+          "type": "string",
+          "pattern": "^unresolved:[A-Za-z0-9._-]+$"
+        },
+        "category": {
+          "enum": [
+            "missing_fact",
+            "ambiguous_fact",
+            "unresolved_legal_target",
+            "ambiguous_evidence",
+            "corpus_gap",
+            "temporal_uncertainty",
+            "conflicting_evidence",
+            "unsupported_claim",
+            "other"
+          ]
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1
+        },
+        "related_fact_refs": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^fact:[A-Za-z0-9._-]+$"
+          }
+        },
+        "related_question_refs": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^question:[A-Za-z0-9._-]+$"
+          }
+        },
+        "related_claim_refs": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^claim:[A-Za-z0-9._-]+$"
+          }
+        },
+        "needed_information": {
+          "type": "string",
+          "minLength": 1
+        },
+        "next_action": {
+          "enum": [
+            "ask_client",
+            "human_review",
+            "corpus_expansion",
+            "deterministic_resolution",
+            "none"
+          ]
+        }
+      }
+    },
+    "StructuringModelMetadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "adapter",
+        "provider",
+        "model",
+        "schema_version",
+        "prompt_template_id",
+        "prompt_template_version",
+        "run_reference",
+        "generated_at",
+        "routing_role"
+      ],
+      "properties": {
+        "adapter": {
+          "type": "string",
+          "minLength": 1
+        },
+        "provider": {
+          "type": "string",
+          "minLength": 1
+        },
+        "model": {
+          "type": "string",
+          "minLength": 1
+        },
+        "schema_version": {
+          "const": "2.0.0"
+        },
+        "prompt_template_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "prompt_template_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "run_reference": {
+          "type": "string",
+          "minLength": 1
+        },
+        "generated_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "routing_role": {
+          "type": "string",
+          "minLength": 1
+        },
+        "revision": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "CaseDraft": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "contract_version",
+        "problem_text",
+        "facts",
+        "questions",
+        "candidate_claims",
+        "unresolved",
+        "model_metadata"
+      ],
+      "properties": {
+        "kind": {
+          "const": "case_draft"
+        },
+        "contract_version": {
+          "const": "2.0.0"
+        },
+        "problem_text": {
+          "type": "string",
+          "minLength": 1
+        },
+        "as_of_date": {
+          "type": "string",
+          "format": "date"
+        },
+        "client_reference": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "facts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/CaseFact"
+          }
+        },
+        "questions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/CaseQuestion"
+          }
+        },
+        "candidate_claims": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/CandidateClaim"
+          }
+        },
+        "unresolved": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/CaseUnresolved"
+          }
+        },
+        "model_metadata": {
+          "$ref": "#/$defs/StructuringModelMetadata"
+        }
+      }
+    },
+    "PublicSourceRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_ref",
+        "authority",
+        "source_url"
+      ],
+      "properties": {
+        "source_ref": {
+          "type": "string",
+          "pattern": "^source:[A-Za-z0-9._-]+$"
+        },
+        "authority": {
+          "type": "string",
+          "minLength": 1
+        },
+        "source_url": {
+          "type": "string",
+          "format": "uri"
+        },
+        "source_kind": {
+          "type": "string",
+          "minLength": 1
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "PublicDocumentRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "document_ref",
+        "display_name"
+      ],
+      "properties": {
+        "document_ref": {
+          "type": "string",
+          "pattern": "^document:[A-Za-z0-9._-]+$"
+        },
+        "display_name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "document_type": {
+          "type": "string",
+          "minLength": 1
+        },
+        "number": {
+          "type": "string",
+          "minLength": 1
+        },
+        "year": {
+          "type": "integer",
+          "minimum": 1800,
+          "maximum": 3000
+        },
+        "issuer": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "PublicProvisionRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "provision_ref",
+        "document_ref",
+        "display_name"
+      ],
+      "properties": {
+        "provision_ref": {
+          "type": "string",
+          "pattern": "^provision:[A-Za-z0-9._-]+$"
+        },
+        "document_ref": {
+          "type": "string",
+          "pattern": "^document:[A-Za-z0-9._-]+$"
+        },
+        "display_name": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "DebugProvenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "readOnly": true,
+      "properties": {
+        "evidence_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "manifestation_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "extracted_segment_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "document_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "relationship_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "source_sha256": {
+          "type": "string",
+          "pattern": "^[A-Fa-f0-9]{64}$"
+        },
+        "sequence_no": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "CaseEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "contract_version",
+        "evidence_ref",
+        "source_ref",
+        "exact_quote",
+        "support_status",
+        "provenance_ref"
+      ],
+      "properties": {
+        "kind": {
+          "const": "case_evidence"
+        },
+        "contract_version": {
+          "const": "2.0.0"
+        },
+        "evidence_ref": {
+          "type": "string",
+          "pattern": "^evidence:[A-Za-z0-9._-]+$"
+        },
+        "source_ref": {
+          "type": "string",
+          "pattern": "^source:[A-Za-z0-9._-]+$"
+        },
+        "document_ref": {
+          "type": "string",
+          "pattern": "^document:[A-Za-z0-9._-]+$"
+        },
+        "provision_ref": {
+          "type": "string",
+          "pattern": "^provision:[A-Za-z0-9._-]+$"
+        },
+        "exact_quote": {
+          "type": "string",
+          "minLength": 1
+        },
+        "source_url": {
+          "type": "string",
+          "format": "uri"
+        },
+        "retrieved_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "support_status": {
+          "enum": [
+            "validated",
+            "human_verified"
+          ]
+        },
+        "provenance_ref": {
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9_-]*:[A-Za-z0-9._-]+$"
+        },
+        "debug_provenance": {
+          "$ref": "#/$defs/DebugProvenance",
+          "readOnly": true
+        }
+      }
+    },
+    "SupportedClaim": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "claim_ref",
+        "text",
+        "status",
+        "evidence_refs"
+      ],
+      "properties": {
+        "claim_ref": {
+          "type": "string",
+          "pattern": "^claim:[A-Za-z0-9._-]+$"
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1
+        },
+        "status": {
+          "enum": [
+            "validated",
+            "human_verified"
+          ]
+        },
+        "evidence_refs": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^evidence:[A-Za-z0-9._-]+$"
+          }
+        },
+        "related_question_refs": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^question:[A-Za-z0-9._-]+$"
+          }
+        }
+      }
+    },
+    "CaseResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "contract_version",
+        "case_ref",
+        "analysis_status",
+        "supported_claims",
+        "remaining_candidate_claims",
+        "unresolved",
+        "evidence",
+        "sources",
+        "documents",
+        "provisions",
+        "model_metadata",
+        "generated_at"
+      ],
+      "properties": {
+        "kind": {
+          "const": "case_result"
+        },
+        "contract_version": {
+          "const": "2.0.0"
+        },
+        "case_ref": {
+          "type": "string",
+          "pattern": "^case:[A-Za-z0-9._-]+$"
+        },
+        "client_reference": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "as_of_date": {
+          "type": "string",
+          "format": "date"
+        },
+        "analysis_status": {
+          "enum": [
+            "complete",
+            "partial",
+            "blocked"
+          ]
+        },
+        "supported_claims": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/SupportedClaim"
+          }
+        },
+        "remaining_candidate_claims": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/CandidateClaim"
+          }
+        },
+        "unresolved": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/CaseUnresolved"
+          }
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/CaseEvidence"
+          }
+        },
+        "sources": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/PublicSourceRef"
+          }
+        },
+        "documents": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/PublicDocumentRef"
+          }
+        },
+        "provisions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/PublicProvisionRef"
+          }
+        },
+        "generated_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "model_metadata": {
+          "$ref": "#/$defs/StructuringModelMetadata"
+        }
+      }
+    }
+  }
+}
