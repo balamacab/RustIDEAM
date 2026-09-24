@@ -20,7 +20,7 @@ class WorkflowStructureTests(unittest.TestCase):
         self.assertIn("run_heavy", text)
         self.assertIn("if: needs.policy.outputs.applicable == 'true' && needs.policy.outputs.run_heavy == 'true'", text)
         self.assertIn("workflow_dispatch:", text)
-        self.assertNotIn("  pull_request:\n", text)
+        self.assertIn("  pull_request:\n", text)
 
     def test_dispatched_revalidation_reenters_lifecycle_from_trusted_main(self):
         text = self.read("col-taxdata-ci.yml")
@@ -38,7 +38,7 @@ class WorkflowStructureTests(unittest.TestCase):
         self.assertIn("python3 trusted/col-taxdata/ci/policy.py", text)
         self.assertIn("CI_HEAD_SHA: ${{ needs.policy.outputs.head_sha }}", text)
         self.assertIn("workflow_dispatch:", text)
-        self.assertNotIn("  pull_request:\n", text)
+        self.assertIn("  pull_request:\n", text)
         self.assertIn("--ci-conclusion success", text)
         self.assertIn("--ci-head-sha \"$CI_HEAD_SHA\"", text)
         self.assertIn("contents: write", text)
