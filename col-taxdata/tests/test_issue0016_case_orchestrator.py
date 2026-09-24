@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from dataclasses import replace
 import hashlib
 import json
 from pathlib import Path
@@ -19,6 +20,7 @@ from case_application import analyze_case
 from case_contract_validation import (
     CaseContractError,
     INVALID_CASE_DRAFT,
+    case_draft_response_schema,
     INVALID_CASE_RESULT,
     validate_case_result,
 )
@@ -363,6 +365,38 @@ class Issue0016ContractAndRoutingTests(unittest.TestCase):
                 make_config(), FakeLLMClient([bad])
             ).structure(case_input())
 
+    def test_model_schema_expands_case_fact_state_constraints(self):
+        schema = case_draft_response_schema()
+        variants = schema["$defs"]["CaseFact"]["oneOf"]
+        states = {
+            item["properties"]["state"]["const"]: item
+            for item in variants
+        }
+        self.assertEqual(
+            set(states),
+            {
+                "user_provided",
+                "llm_normalized",
+                "llm_inferred",
+                "missing",
+                "ambiguous",
+            },
+        )
+        self.assertFalse(
+            states["user_provided"]["properties"][
+                "requires_confirmation"
+            ]["const"]
+        )
+        self.assertIn("source_quote", states["user_provided"]["required"])
+        for state in ("llm_normalized", "llm_inferred", "missing", "ambiguous"):
+            self.assertTrue(
+                states[state]["properties"][
+                    "requires_confirmation"
+                ]["const"]
+            )
+        self.assertIn("needed_information", states["missing"]["required"])
+        self.assertIn("needed_information", states["ambiguous"]["required"])
+
     def test_hallucinated_canonical_hint_is_rejected(self):
         payload = model_payload()
         payload["candidate_claims"][0]["target_hints"] = [
@@ -452,7 +486,12 @@ class Issue0016ContractAndRoutingTests(unittest.TestCase):
         )
 
     def test_openai_compatible_adapter_parses_structured_response(self):
-        config = make_config()
+        config = replace(
+            make_config(),
+            request_options={
+                "chat_template_kwargs": {"enable_thinking": False}
+            },
+        )
         client = OpenAICompatibleLLMClient(config)
         envelope = {
             "choices": [
@@ -477,13 +516,33 @@ class Issue0016ContractAndRoutingTests(unittest.TestCase):
         with mock.patch(
             "llm_client.urlrequest.urlopen",
             return_value=Response(),
-        ):
+        ) as mocked:
             payload = client.complete_case_draft(
                 case_input=case_input(),
                 route=config.primary,
             )
+        sent = json.loads(mocked.call_args.args[0].data)
+        self.assertFalse(
+            sent["chat_template_kwargs"]["enable_thinking"]
+        )
         self.assertEqual(payload["kind"], "case_draft")
         self.assertNotIn("model_metadata", payload)
+
+    def test_adapter_request_options_cannot_override_owned_fields(self):
+        config = replace(
+            make_config(),
+            request_options={"model": "forged-model"},
+        )
+        client = OpenAICompatibleLLMClient(config)
+        with self.assertRaises(LLMClientError) as raised:
+            client.complete_case_draft(
+                case_input=case_input(),
+                route=config.primary,
+            )
+        self.assertEqual(
+            raised.exception.code,
+            CASE_STRUCTURING_UNAVAILABLE,
+        )
 
 
 class Issue0016SemanticResultTests(unittest.TestCase):
