@@ -1,0 +1,107 @@
+name: col-taxdata convergence
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'col-taxdata/**'
+      - '.github/workflows/col-taxdata-*.yml'
+      - '.github/actions/col-taxdata/**'
+  repository_dispatch:
+    types: [col-taxdata-convergence]
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: read
+  statuses: write
+
+concurrency:
+  group: col-taxdata-convergence-main
+  cancel-in-progress: false
+
+jobs:
+  resolve:
+    name: Resolve merged change
+    runs-on: ubuntu-latest
+    outputs:
+      sha: ${{ steps.context.outputs.sha }}
+      pr_number: ${{ steps.context.outputs.pr_number }}
+      issue_number: ${{ steps.context.outputs.issue_number }}
+      semantic_domains: ${{ steps.context.outputs.semantic_domains }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - name: Resolve merge context
+        id: context
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          DISPATCH_SHA: ${{ github.event.client_payload.sha }}
+          DISPATCH_PR: ${{ github.event.client_payload.pr_number }}
+          DISPATCH_ISSUE: ${{ github.event.client_payload.issue_number }}
+          DISPATCH_DOMAINS: ${{ toJson(github.event.client_payload.semantic_domains) }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = "repository_dispatch" ]; then
+            SHA="$DISPATCH_SHA"; PR_NUMBER="$DISPATCH_PR"; ISSUE_NUMBER="$DISPATCH_ISSUE"; DOMAINS="$DISPATCH_DOMAINS"
+          else
+            SHA="$GITHUB_SHA"
+            PR_NUMBER="$(gh api -H 'Accept: application/vnd.github+json' "repos/$GITHUB_REPOSITORY/commits/$SHA/pulls" --jq '[.[] | select(.merged_at != null)][0].number // empty')"
+            test -n "$PR_NUMBER"
+            gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" > /tmp/pr.json
+            ISSUE_NUMBER="$(python3 col-taxdata/ci/policy.py issue-number --pr-json /tmp/pr.json | tail -1)"
+            DOMAINS="$(python3 col-taxdata/ci/policy.py metadata-domains --pr-json /tmp/pr.json)"
+          fi
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          echo "pr_number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
+          echo "issue_number=$ISSUE_NUMBER" >> "$GITHUB_OUTPUT"
+          echo "semantic_domains=$DOMAINS" >> "$GITHUB_OUTPUT"
+      - name: Mark convergence pending and detect semantic overlap
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          SHA: ${{ steps.context.outputs.sha }}
+          PR_NUMBER: ${{ steps.context.outputs.pr_number }}
+          DOMAINS: ${{ steps.context.outputs.semantic_domains }}
+        run: >-
+          python3 col-taxdata/ci/convergence.py prepare
+          --repo "$REPOSITORY" --sha "$SHA" --pr "$PR_NUMBER"
+          --semantic-domains "$DOMAINS"
+
+  integration:
+    name: Main integration invariants
+    needs: resolve
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.resolve.outputs.sha }}
+      - name: Run complete col-taxdata suite on resulting main
+        working-directory: col-taxdata
+        run: python3 -m unittest discover -s tests -p 'test_*.py' -v
+
+  finalize:
+    name: Convergence Gate
+    needs: [resolve, integration]
+    if: always() && needs.resolve.result == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: Publish durable convergence result
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          SHA: ${{ needs.resolve.outputs.sha }}
+          PR_NUMBER: ${{ needs.resolve.outputs.pr_number }}
+          ISSUE_NUMBER: ${{ needs.resolve.outputs.issue_number }}
+          INTEGRATION_RESULT: ${{ needs.integration.result }}
+        run: |
+          set -euo pipefail
+          RESULT=failure
+          if [ "$INTEGRATION_RESULT" = "success" ]; then RESULT=success; fi
+          python3 col-taxdata/ci/convergence.py finalize --repo "$REPOSITORY" --sha "$SHA" --pr "$PR_NUMBER" --issue "$ISSUE_NUMBER" --result "$RESULT"

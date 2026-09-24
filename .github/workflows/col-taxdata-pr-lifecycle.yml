@@ -1,0 +1,76 @@
+name: col-taxdata PR lifecycle
+
+on:
+  pull_request_target:
+    branches: [main]
+    types: [opened, reopened, synchronize, ready_for_review, edited]
+  workflow_run:
+    workflows: ["col-taxdata CI"]
+    types: [completed]
+
+permissions:
+  actions: write
+  contents: write
+  issues: write
+  pull-requests: write
+
+concurrency:
+  group: col-taxdata-pr-lifecycle-${{ github.event.pull_request.number || github.event.workflow_run.head_branch || github.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  inspect-pr-event:
+    name: Inspect PR lifecycle
+    if: github.event_name == 'pull_request_target' && contains(github.event.pull_request.body || '', 'col-taxdata-agent-metadata:')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+      - name: Inspect mergeability without checking out PR code
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: python3 col-taxdata/ci/agent_control.py lifecycle --repo "$REPOSITORY" --pr "$PR_NUMBER"
+
+  handle-ci-result:
+    name: Handle CI result
+    if: github.event_name == 'workflow_run'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+      - name: Resolve owning PR
+        id: resolve
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          EVENT_PR: ${{ github.event.workflow_run.pull_requests[0].number }}
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          set -euo pipefail
+          PR_NUMBER="$EVENT_PR"
+          if [ -z "$PR_NUMBER" ] || [ "$PR_NUMBER" = "null" ]; then
+            PR_NUMBER="$(gh api "repos/$GITHUB_REPOSITORY/pulls?state=open&head=$OWNER:$HEAD_BRANCH" --jq '.[0].number // empty')"
+          fi
+          if [ -z "$PR_NUMBER" ]; then echo "applicable=false" >> "$GITHUB_OUTPUT"; exit 0; fi
+          BODY="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" --jq '.body // ""')"
+          if ! grep -q 'col-taxdata-agent-metadata:' <<< "$BODY"; then echo "applicable=false" >> "$GITHUB_OUTPUT"; exit 0; fi
+          echo "applicable=true" >> "$GITHUB_OUTPUT"
+          echo "pr_number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
+      - name: Resume, reconcile or merge autonomously
+        if: steps.resolve.outputs.applicable == 'true'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ steps.resolve.outputs.pr_number }}
+          CI_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          CI_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: >-
+          python3 col-taxdata/ci/agent_control.py lifecycle
+          --repo "$REPOSITORY"
+          --pr "$PR_NUMBER"
+          --ci-conclusion "$CI_CONCLUSION"
+          --ci-head-sha "$CI_HEAD_SHA"

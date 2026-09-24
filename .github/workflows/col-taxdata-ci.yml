@@ -1,0 +1,99 @@
+name: col-taxdata CI
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: Pull request number to revalidate
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  issues: read
+  pull-requests: read
+
+jobs:
+  policy:
+    name: Scope & Policy
+    runs-on: ubuntu-latest
+    outputs:
+      applicable: ${{ steps.scope.outputs.applicable }}
+      run_heavy: ${{ steps.scope.outputs.run_heavy }}
+      issue_number: ${{ steps.validate.outputs.issue_number }}
+      semantic_domains: ${{ steps.validate.outputs.semantic_domains }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Fetch current main
+        run: git fetch --no-tags origin main:refs/remotes/origin/main
+      - name: Classify changed paths
+        id: scope
+        run: python3 col-taxdata/ci/policy.py classify --base origin/main
+      - name: Resolve PR and selected issue
+        id: resolve
+        if: steps.scope.outputs.applicable == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_PR: ${{ github.event.pull_request.number }}
+          INPUT_PR: ${{ inputs.pr_number }}
+        run: |
+          set -euo pipefail
+          PR_NUMBER="$EVENT_PR"
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then PR_NUMBER="$INPUT_PR"; fi
+          gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" > /tmp/pr.json
+          ISSUE_NUMBER="$(python3 col-taxdata/ci/policy.py issue-number --pr-json /tmp/pr.json | tail -1)"
+          gh api "repos/$GITHUB_REPOSITORY/issues/$ISSUE_NUMBER" > /tmp/issue.json
+          echo "pr_number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
+      - name: Enforce issue, branch, scope and durable invariants
+        id: validate
+        if: steps.scope.outputs.applicable == 'true'
+        run: >-
+          python3 col-taxdata/ci/policy.py validate
+          --base origin/main
+          --pr-json /tmp/pr.json
+          --issue-json /tmp/issue.json
+
+  policy-tests:
+    name: CI Policy Tests
+    needs: policy
+    if: needs.policy.outputs.applicable == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run repository-control regression tests
+        run: python3 -m unittest discover -s col-taxdata/tests -p 'test_issue0028_*.py' -v
+
+  project-tests:
+    name: col-taxdata Tests
+    needs: policy
+    if: needs.policy.outputs.applicable == 'true' && needs.policy.outputs.run_heavy == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run full project unit and invariant suite
+        working-directory: col-taxdata
+        run: python3 -m unittest discover -s tests -p 'test_*.py' -v
+
+  gate:
+    name: CI Gate
+    needs: [policy, policy-tests, project-tests]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Enforce required outcomes
+        env:
+          POLICY: ${{ needs.policy.result }}
+          APPLICABLE: ${{ needs.policy.outputs.applicable }}
+          POLICY_TESTS: ${{ needs.policy-tests.result }}
+          RUN_HEAVY: ${{ needs.policy.outputs.run_heavy }}
+          PROJECT_TESTS: ${{ needs.project-tests.result }}
+        run: |
+          set -euo pipefail
+          test "$POLICY" = "success"
+          if [ "$APPLICABLE" = "true" ]; then test "$POLICY_TESTS" = "success"; fi
+          if [ "$RUN_HEAVY" = "true" ]; then test "$PROJECT_TESTS" = "success"; fi
