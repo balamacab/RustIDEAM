@@ -26,6 +26,7 @@ MERGE_STATE_RECHECKS = 4
 MERGE_STATE_RECHECK_SECONDS = 2
 RESUME_EVENT = "col-taxdata-agent-resume"
 CONVERGENCE_EVENT = "col-taxdata-convergence"
+CI_WORKFLOW_REF = "main"
 
 class ApiError(RuntimeError):
     pass
@@ -243,8 +244,10 @@ def pr_context(pr: dict[str, Any]) -> tuple[int, dict[str, Any], str, str, str]:
 
 
 def dispatch_ci(token: str, repo: str, branch: str, pr_number: int) -> None:
+    # The workflow definition must come from the trusted integration branch.
+    # The workflow resolves and checks out the exact PR head itself.
     request_json(token, "POST", f"/repos/{repo}/actions/workflows/col-taxdata-ci.yml/dispatches", {
-        "ref": branch,
+        "ref": CI_WORKFLOW_REF,
         "inputs": {"pr_number": str(pr_number)},
     })
 
@@ -351,6 +354,22 @@ def handle_lifecycle(token: str, repo: str, pr_number: int, ci_conclusion: str |
             except ApiError:
                 pass
         return {"merged": True, "merge_sha": merge_sha, "issue_number": issue}
+
+    if ci_conclusion is None:
+        post_issue_comment(
+            token,
+            repo,
+            issue,
+            state_comment("CI_VALIDATING", pr_number=pr_number, head_sha=head_sha),
+        )
+        dispatch_ci(token, repo, branch, pr_number)
+        return {
+            "merged": False,
+            "ci_dispatched": True,
+            "head_sha": head_sha,
+            "mergeable": mergeable,
+            "mergeable_state": state,
+        }
 
     return {"merged": False, "waiting": True, "mergeable": mergeable, "mergeable_state": state}
 
