@@ -2,92 +2,100 @@ name: col-taxdata CI
 
 on:
   pull_request:
-    branches:
-      - main
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: Pull request number to revalidate
+        required: true
+        type: string
 
 permissions:
   contents: read
-  pull-requests: read
   issues: read
-
-concurrency:
-  group: col-taxdata-ci-${{ github.event.pull_request.number }}
-  cancel-in-progress: true
+  pull-requests: read
 
 jobs:
-  scope-policy:
-    name: scope-policy
+  policy:
+    name: Scope & Policy
     runs-on: ubuntu-latest
     outputs:
-      issue_number: ${{ steps.policy.outputs.issue_number }}
-      run_heavy: ${{ steps.policy.outputs.run_heavy }}
+      applicable: ${{ steps.scope.outputs.applicable }}
+      run_heavy: ${{ steps.scope.outputs.run_heavy }}
+      issue_number: ${{ steps.validate.outputs.issue_number }}
+      semantic_domains: ${{ steps.validate.outputs.semantic_domains }}
     steps:
-      - name: Checkout proposed change
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-
-      - name: Capture PR and selected issue
-        id: context
+      - name: Fetch current main
+        run: git fetch --no-tags origin main:refs/remotes/origin/main
+      - name: Classify changed paths
+        id: scope
+        run: python3 col-taxdata/ci/policy.py classify --base origin/main
+      - name: Resolve PR and selected issue
+        id: resolve
+        if: steps.scope.outputs.applicable == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
-        shell: bash
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_PR: ${{ github.event.pull_request.number }}
+          INPUT_PR: ${{ inputs.pr_number }}
         run: |
           set -euo pipefail
-          python3 - <<'PY'
-          import json
-          import os
-          import pathlib
-          import re
+          PR_NUMBER="$EVENT_PR"
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then PR_NUMBER="$INPUT_PR"; fi
+          gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" > /tmp/pr.json
+          ISSUE_NUMBER="$(python3 col-taxdata/ci/policy.py issue-number --pr-json /tmp/pr.json | tail -1)"
+          gh api "repos/$GITHUB_REPOSITORY/issues/$ISSUE_NUMBER" > /tmp/issue.json
+          echo "pr_number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
+      - name: Enforce issue, branch, scope and durable invariants
+        id: validate
+        if: steps.scope.outputs.applicable == 'true'
+        run: >-
+          python3 col-taxdata/ci/policy.py validate
+          --base origin/main
+          --pr-json /tmp/pr.json
+          --issue-json /tmp/issue.json
 
-          event = json.loads(pathlib.Path(os.environ["GITHUB_EVENT_PATH"]).read_text())
-          pr = event["pull_request"]
-          pathlib.Path("/tmp/pr-body.txt").write_text(pr.get("body") or "", encoding="utf-8")
-          branch = pr["head"]["ref"]
-          match = re.fullmatch(r"agent/issue-(\d+)-[a-z0-9][a-z0-9-]*", branch)
-          if not match:
-              raise SystemExit("branch does not follow agent/issue-<number>-<slug>")
-          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
-              out.write(f"issue_number={match.group(1)}\n")
-          PY
-          gh api "repos/${GITHUB_REPOSITORY}/issues/${{ steps.context.outputs.issue_number }}" \
-            --jq '.body // ""' > /tmp/issue-body.txt
-
-      - name: Enforce scope and durable invariants
-        id: policy
-        run: |
-          set -euo pipefail
-          python3 col-taxdata/ci/policy.py \
-            --repo-root . \
-            --base "${{ github.event.pull_request.base.sha }}" \
-            --head "${{ github.event.pull_request.head.sha }}" \
-            --branch "${{ github.event.pull_request.head.ref }}" \
-            --pr-body-file /tmp/pr-body.txt \
-            --issue-body-file /tmp/issue-body.txt \
-            --github-output "$GITHUB_OUTPUT"
-
-  project-invariants:
-    name: project-invariants
-    needs: scope-policy
+  policy-tests:
+    name: CI Policy Tests
+    needs: policy
+    if: needs.policy.outputs.applicable == 'true'
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout proposed change
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - name: Run automation policy regression tests
-        run: python3 -m unittest discover -s col-taxdata/tests -p 'test_ci_*.py'
+      - uses: actions/checkout@v4
+      - name: Run repository-control regression tests
+        run: python3 -m unittest discover -s col-taxdata/tests -p 'test_issue0028_*.py' -v
 
   project-tests:
-    name: project-tests
-    needs: scope-policy
+    name: col-taxdata Tests
+    needs: policy
+    if: needs.policy.outputs.applicable == 'true' && needs.policy.outputs.run_heavy == 'true'
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout proposed change
-        uses: actions/checkout@v4
-      - name: Run complete col-taxdata suite when project code changes
-        if: needs.scope-policy.outputs.run_heavy == 'true'
-        run: python3 -m unittest discover -s col-taxdata/tests -p 'test_*.py'
-      - name: Preserve stable required context for unrelated changes
-        if: needs.scope-policy.outputs.run_heavy != 'true'
-        run: echo "No col-taxdata project changes; heavy suite intentionally skipped."
+      - uses: actions/checkout@v4
+      - name: Run full project unit and invariant suite
+        working-directory: col-taxdata
+        run: python3 -m unittest discover -s tests -p 'test_*.py' -v
+
+  gate:
+    name: CI Gate
+    needs: [policy, policy-tests, project-tests]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Enforce required outcomes
+        env:
+          POLICY: ${{ needs.policy.result }}
+          APPLICABLE: ${{ needs.policy.outputs.applicable }}
+          POLICY_TESTS: ${{ needs.policy-tests.result }}
+          RUN_HEAVY: ${{ needs.policy.outputs.run_heavy }}
+          PROJECT_TESTS: ${{ needs.project-tests.result }}
+        run: |
+          set -euo pipefail
+          test "$POLICY" = "success"
+          if [ "$APPLICABLE" = "true" ]; then test "$POLICY_TESTS" = "success"; fi
+          if [ "$RUN_HEAVY" = "true" ]; then test "$PROJECT_TESTS" = "success"; fi
+
+[executed on device: morichalserver (2bfaa62f-23ff-40e5-9fc7-7c1a7d28b1fc)]
