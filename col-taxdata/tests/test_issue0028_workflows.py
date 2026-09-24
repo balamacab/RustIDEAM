@@ -17,6 +17,21 @@ class WorkflowStructureTests(unittest.TestCase):
         self.assertIn("run_heavy", text)
         self.assertIn("if: needs.policy.outputs.applicable == 'true' && needs.policy.outputs.run_heavy == 'true'", text)
 
+    def test_dispatched_revalidation_reenters_lifecycle_from_trusted_main(self):
+        text = self.read("col-taxdata-ci.yml")
+        self.assertIn("name: Complete dispatched lifecycle", text)
+        self.assertIn(
+            "if: github.event_name == 'workflow_dispatch' && needs.gate.result == 'success' && needs.policy.outputs.applicable == 'true'",
+            text,
+        )
+        self.assertIn("pr_number: ${{ steps.resolve.outputs.pr_number }}", text)
+        self.assertIn("ref: ${{ github.event.repository.default_branch }}", text)
+        self.assertIn("--ci-conclusion success", text)
+        self.assertIn("--ci-head-sha \"$CI_HEAD_SHA\"", text)
+        self.assertIn("contents: write", text)
+        self.assertIn("issues: write", text)
+        self.assertIn("pull-requests: write", text)
+
     def test_pull_request_target_never_checks_out_pr_code(self):
         text = self.read("col-taxdata-pr-lifecycle.yml")
         self.assertIn("pull_request_target:", text)
