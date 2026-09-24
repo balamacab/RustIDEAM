@@ -34,7 +34,9 @@ The durable gate also rejects modification/deletion/renaming of already-present 
 
 `col-taxdata CI` is started explicitly by the trusted PR-lifecycle controller through `workflow_dispatch`; it does not listen directly to `pull_request`. The workflow definition comes from the default branch, resolves the exact PR head through the GitHub API, checks that candidate SHA out separately, and runs trusted default-branch policy code against the candidate checkout. For applicable changes it always runs repository-control regression tests. It runs the complete col-taxdata suite when product, schema, test, configuration, or CI-control code changes; documentation-only changes can skip the heavy suite.
 
-The required `CI Gate` job is stable and is the branch-rule status context. The main ruleset requires strict/current-base status checks, PR integration, zero approving reviews, and non-fast-forward protection. No bypass actor is configured; automation merges through a validated PR rather than bypassing the PR requirement.
+Because a default-branch `workflow_dispatch` run is itself attached to the default-branch commit, the trusted gate explicitly publishes a GitHub Actions check run named `CI Gate` on the exact candidate head SHA after validation. The check is emitted with `checks: write` only by trusted workflow code; candidate jobs remain read-only. The required `CI Gate` context on the PR head is therefore tied to the exact candidate SHA that was validated.
+
+The required `CI Gate` check is stable and is the branch-rule status context. The main ruleset requires strict/current-base status checks, PR integration, zero approving reviews, and non-fast-forward protection. No bypass actor is configured; automation merges through a validated PR rather than bypassing the PR requirement.
 
 ## Stale branch, conflict, and CI recovery
 
