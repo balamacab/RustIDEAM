@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       pr_number:
-        description: Pull request number to revalidate
+        description: Pull request number to validate
         required: true
         type: string
 
@@ -25,18 +25,15 @@ jobs:
       issue_number: ${{ steps.validate.outputs.issue_number }}
       semantic_domains: ${{ steps.validate.outputs.semantic_domains }}
       pr_number: ${{ steps.resolve.outputs.pr_number }}
+      head_sha: ${{ steps.resolve.outputs.head_sha }}
     steps:
-      - uses: actions/checkout@v4
+      - name: Check out trusted controller
+        uses: actions/checkout@v4
         with:
-          fetch-depth: 0
-      - name: Fetch current main
-        run: git fetch --no-tags origin main:refs/remotes/origin/main
-      - name: Classify changed paths
-        id: scope
-        run: python3 col-taxdata/ci/policy.py classify --base origin/main
-      - name: Resolve PR and selected issue
+          ref: ${{ github.event.repository.default_branch }}
+          path: trusted
+      - name: Resolve PR, candidate head and selected issue
         id: resolve
-        if: steps.scope.outputs.applicable == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           EVENT_NAME: ${{ github.event_name }}
@@ -46,15 +43,35 @@ jobs:
           set -euo pipefail
           PR_NUMBER="$EVENT_PR"
           if [ "$EVENT_NAME" = "workflow_dispatch" ]; then PR_NUMBER="$INPUT_PR"; fi
+          test -n "$PR_NUMBER"
           gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" > /tmp/pr.json
-          ISSUE_NUMBER="$(python3 col-taxdata/ci/policy.py issue-number --pr-json /tmp/pr.json | tail -1)"
+          ISSUE_NUMBER="$(python3 trusted/col-taxdata/ci/policy.py issue-number --pr-json /tmp/pr.json | tail -1)"
           gh api "repos/$GITHUB_REPOSITORY/issues/$ISSUE_NUMBER" > /tmp/issue.json
+          HEAD_SHA="$(jq -r '.head.sha' /tmp/pr.json)"
+          test "$HEAD_SHA" != "null"
           echo "pr_number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
+          echo "head_sha=$HEAD_SHA" >> "$GITHUB_OUTPUT"
+      - name: Check out exact candidate head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.resolve.outputs.head_sha }}
+          fetch-depth: 0
+          path: candidate
+      - name: Fetch current main in candidate checkout
+        working-directory: candidate
+        run: git fetch --no-tags origin main:refs/remotes/origin/main
+      - name: Classify changed paths with trusted policy
+        id: scope
+        run: >-
+          python3 trusted/col-taxdata/ci/policy.py classify
+          --repo-root candidate
+          --base origin/main
       - name: Enforce issue, branch, scope and durable invariants
         id: validate
         if: steps.scope.outputs.applicable == 'true'
         run: >-
-          python3 col-taxdata/ci/policy.py validate
+          python3 trusted/col-taxdata/ci/policy.py validate
+          --repo-root candidate
           --base origin/main
           --pr-json /tmp/pr.json
           --issue-json /tmp/issue.json
@@ -66,6 +83,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.policy.outputs.head_sha }}
       - name: Run repository-control regression tests
         run: python3 -m unittest discover -s col-taxdata/tests -p 'test_issue0028_*.py' -v
 
@@ -76,6 +95,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.policy.outputs.head_sha }}
       - name: Run full project unit and invariant suite
         working-directory: col-taxdata
         run: python3 -m unittest discover -s tests -p 'test_*.py' -v
@@ -84,10 +105,16 @@ jobs:
     name: CI Gate
     needs: [policy, policy-tests, project-tests]
     if: always()
+    permissions:
+      checks: write
+      contents: read
     runs-on: ubuntu-latest
     steps:
-      - name: Enforce required outcomes
+      - name: Enforce outcomes and publish candidate gate when dispatched
         env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          HEAD_SHA: ${{ needs.policy.outputs.head_sha }}
           POLICY: ${{ needs.policy.result }}
           APPLICABLE: ${{ needs.policy.outputs.applicable }}
           POLICY_TESTS: ${{ needs.policy-tests.result }}
@@ -95,9 +122,21 @@ jobs:
           PROJECT_TESTS: ${{ needs.project-tests.result }}
         run: |
           set -euo pipefail
-          test "$POLICY" = "success"
-          if [ "$APPLICABLE" = "true" ]; then test "$POLICY_TESTS" = "success"; fi
-          if [ "$RUN_HEAVY" = "true" ]; then test "$PROJECT_TESTS" = "success"; fi
+          CONCLUSION=success
+          if [ "$POLICY" != "success" ]; then CONCLUSION=failure; fi
+          if [ "$APPLICABLE" = "true" ] && [ "$POLICY_TESTS" != "success" ]; then CONCLUSION=failure; fi
+          if [ "$RUN_HEAVY" = "true" ] && [ "$PROJECT_TESTS" != "success" ]; then CONCLUSION=failure; fi
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            test -n "$HEAD_SHA"
+            gh api -X POST "repos/$GITHUB_REPOSITORY/check-runs" \
+              -f name='CI Gate' \
+              -f head_sha="$HEAD_SHA" \
+              -f status=completed \
+              -f conclusion="$CONCLUSION" \
+              -f "output[title]=col-taxdata autonomous validation: $CONCLUSION" \
+              -f "output[summary]=Trusted default-branch workflow validated candidate $HEAD_SHA"
+          fi
+          test "$CONCLUSION" = "success"
 
   complete-dispatched-lifecycle:
     name: Complete dispatched lifecycle
@@ -118,7 +157,7 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
           PR_NUMBER: ${{ needs.policy.outputs.pr_number }}
-          CI_HEAD_SHA: ${{ github.sha }}
+          CI_HEAD_SHA: ${{ needs.policy.outputs.head_sha }}
         run: >-
           python3 col-taxdata/ci/agent_control.py lifecycle
           --repo "$REPOSITORY"
