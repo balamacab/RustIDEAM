@@ -29,10 +29,11 @@ PROMPT_TEMPLATE_VERSION = "1"
 
 SYSTEM_PROMPT = """You structure a Colombian legal/tax case into the supplied JSON schema.
 Preserve problem_text, as_of_date, and client_reference exactly, including absence.
-Facts explicitly stated by the client use state=user_provided and a verbatim source_quote.
-Normalization or inference must use llm_normalized/llm_inferred and require confirmation.
-Unknown required facts remain missing/ambiguous. Every legal conclusion is only a
-candidate_claim. Never emit canonical/persistence document, provision, evidence,
+Facts explicitly stated by the client use state=user_provided, a verbatim
+source_quote, and requires_confirmation=false. llm_normalized and llm_inferred
+facts always use requires_confirmation=true. missing and ambiguous facts always
+use requires_confirmation=true and needed_information. Unknown required facts
+remain missing/ambiguous. Every legal conclusion is only a candidate_claim. Never emit canonical/persistence document, provision, evidence,
 manifestation, segment, relationship, source, claim, or case identifiers. Target hints
 may contain ordinary human-readable legal references or search phrases only.
 Do not assert that a candidate is validated and do not invent evidence."""
