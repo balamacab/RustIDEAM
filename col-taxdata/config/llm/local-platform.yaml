@@ -1,0 +1,46 @@
+{
+  "version": 1,
+  "adapter": "openai-compatible",
+  "provider": "local-llama-cpp",
+  "base_url": "http://127.0.0.1:8080/v1",
+  "request_timeout_seconds": 120,
+  "api_key_env": null,
+  "models": {
+    "primary": {
+      "name": "Qwen3-1.7B-Q4_K_M",
+      "routing_role": "primary",
+      "context_tokens": 8192,
+      "max_output_tokens": 2048
+    },
+    "auxiliary": {
+      "name": "Qwen2.5-0.5B-Instruct-Q4_K_M",
+      "routing_role": "auxiliary",
+      "context_tokens": 8192,
+      "max_output_tokens": 1536
+    },
+    "review": {
+      "name": "gemma-4-E2B-it-Q4_K_M",
+      "routing_role": "review",
+      "context_tokens": 8192,
+      "max_output_tokens": 2048
+    }
+  },
+  "routing": {
+    "primary_attempts": 2,
+    "review_on_invalid_output": true,
+    "review_on_provider_error": false
+  },
+  "context": {
+    "chars_per_token_estimate": 4.0,
+    "silent_truncation": false
+  },
+  "residency": {
+    "strategy": "on_demand",
+    "simultaneous_large_models_required": false
+  },
+  "security": {
+    "raw_endpoint_scope": "loopback_or_private_authenticated_transport",
+    "model_shell_access": false,
+    "model_sql_access": false
+  }
+}
