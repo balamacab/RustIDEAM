@@ -147,6 +147,10 @@ class Def0007LegalBodyTests(unittest.TestCase):
         self.assertIn("VI. CONSIDERACIONES Y FUNDAMENTOS", extracted_text)
         self.assertIn("VII. DECISION", extracted_text)
         self.assertNotIn("ISBN 978-958-53111-6-9", extracted_text)
+        self.assertGreaterEqual(
+            applied["segment_types"].get("document_heading", 0),
+            1,
+        )
         self.assertEqual(hashlib.sha256(raw_path.read_bytes()).hexdigest(), raw_sha)
         self.assertEqual(raw_path.read_bytes(), before_raw)
 
@@ -206,9 +210,9 @@ class Def0007LegalBodyTests(unittest.TestCase):
         html = """
         <html><body>
         <h1>Índice temático</h1>
-        <a href="ley_1_2000.htm">Ley 1 de 2000</a>
-        <a href="decreto_2_2000.htm">Decreto 2 de 2000</a>
-        <a href="c-096_2001.htm">Sentencia C-096/01</a>
+        <a href="ley_1_2000.htm">Entrada 1</a>
+        <a href="decreto_2_2000.htm">Entrada 2</a>
+        <a href="c-096_2001.htm">Entrada 3</a>
         </body></html>
         """
         parser = extractor.VisibleBlockParser()
