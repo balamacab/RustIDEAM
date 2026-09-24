@@ -25,11 +25,12 @@ CASE_STRUCTURING_UNAVAILABLE = "CASE_STRUCTURING_UNAVAILABLE"
 CASE_CONTEXT_LIMIT = "CASE_CONTEXT_LIMIT"
 
 PROMPT_TEMPLATE_ID = "case-structuring-v3"
-PROMPT_TEMPLATE_VERSION = "1"
+PROMPT_TEMPLATE_VERSION = "2"
 
 SYSTEM_PROMPT = """You structure a Colombian legal/tax case into the supplied JSON schema.
-Preserve problem_text, as_of_date, and client_reference exactly, including absence.
-Facts explicitly stated by the client use state=user_provided, a verbatim
+The application owns problem_text, as_of_date, and client_reference. They are
+present in the input context but are not model output fields; never emit or
+rewrite them. Facts explicitly stated by the client use state=user_provided, a verbatim
 source_quote, and requires_confirmation=false. llm_normalized and llm_inferred
 facts always use requires_confirmation=true. missing and ambiguous facts always
 use requires_confirmation=true and needed_information. Unknown required facts
@@ -90,7 +91,7 @@ class LLMClient(Protocol):
         case_input: dict[str, Any],
         route: ModelRoute,
     ) -> dict[str, Any]:
-        """Return model-owned CaseDraft fields, excluding model_metadata."""
+        """Return model-owned CaseDraft fields, excluding application-owned fields."""
 
 
 def utc_now() -> str:
@@ -276,6 +277,18 @@ class OpenAICompatibleLLMClient:
 
         try:
             envelope = json.loads(raw)
+            served_model = envelope["model"]
+            if not isinstance(served_model, str):
+                raise TypeError("response.model is not a string")
+            if served_model != route.name:
+                raise LLMClientError(
+                    CASE_STRUCTURING_UNAVAILABLE,
+                    (
+                        f"backend served model {served_model!r} for requested "
+                        f"route {route.name!r}"
+                    ),
+                    retryable=False,
+                )
             content = envelope["choices"][0]["message"]["content"]
             if not isinstance(content, str):
                 raise TypeError("message.content is not a string")
@@ -351,7 +364,24 @@ class CaseStructuringService:
                 "model must not supply app-owned model_metadata",
             )
 
+        client_fields = ("problem_text", "as_of_date", "client_reference")
+        for name in client_fields:
+            if name not in payload:
+                continue
+            if name not in case_input or payload[name] != case_input[name]:
+                raise CaseContractError(
+                    INVALID_CASE_DRAFT,
+                    f"model attempted to modify app-owned client field {name!r}",
+                )
+
         draft = deepcopy(payload)
+        for name in client_fields:
+            draft.pop(name, None)
+        draft["problem_text"] = case_input["problem_text"]
+        for name in ("as_of_date", "client_reference"):
+            if name in case_input:
+                draft[name] = case_input[name]
+
         draft["model_metadata"] = {
             "adapter": self.client.adapter_id,
             "provider": self.client.provider_id,
