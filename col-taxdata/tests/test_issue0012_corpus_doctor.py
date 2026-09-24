@@ -492,9 +492,19 @@ class CorpusDoctorTests(unittest.TestCase):
         self.assertEqual(self._check(report, "CASE-001").status, "PASS")
 
     def test_read_failure_becomes_finding_instead_of_aborting_full_run(self) -> None:
+        real_sha256_file = doctor._sha256_file
+        data_root = self.data_root.resolve()
+
+        def fail_only_corpus_artifacts(path: Path) -> str:
+            try:
+                path.resolve().relative_to(data_root)
+            except ValueError:
+                return real_sha256_file(path)
+            raise PermissionError("fixture permission denied")
+
         with mock.patch(
             "doctor._sha256_file",
-            side_effect=PermissionError("fixture permission denied"),
+            side_effect=fail_only_corpus_artifacts,
         ):
             report = self._run(mode="full")
 
