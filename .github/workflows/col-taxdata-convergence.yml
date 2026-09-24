@@ -46,7 +46,8 @@ jobs:
         run: |
           set -euo pipefail
           if [ "$EVENT_NAME" = "repository_dispatch" ]; then
-            SHA="$DISPATCH_SHA"; PR_NUMBER="$DISPATCH_PR"; ISSUE_NUMBER="$DISPATCH_ISSUE"; DOMAINS="$DISPATCH_DOMAINS"
+            SHA="$DISPATCH_SHA"; PR_NUMBER="$DISPATCH_PR"; ISSUE_NUMBER="$DISPATCH_ISSUE"
+            DOMAINS="$(python3 col-taxdata/ci/convergence.py normalize-domains --semantic-domains "$DISPATCH_DOMAINS")"
           else
             SHA="$GITHUB_SHA"
             PR_NUMBER="$(gh api -H 'Accept: application/vnd.github+json' "repos/$GITHUB_REPOSITORY/commits/$SHA/pulls" --jq '[.[] | select(.merged_at != null)][0].number // empty')"
