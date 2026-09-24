@@ -120,14 +120,38 @@ Absence of as_of_date MUST remain absence. The application MUST NOT silently sub
 
 CaseInput contains no canonical or persistence identifiers.
 
+### 4.1 Immutable client payload across structuring
+
+The client-owned payload is immutable across the `CaseInput -> CaseDraft` structuring boundary. For the specific `CaseInput` used to produce a draft, the application MUST enforce all of the following as semantic invariants:
+
+```text
+CaseDraft.problem_text     == CaseInput.problem_text
+CaseDraft.as_of_date       == CaseInput.as_of_date       when present
+CaseDraft.client_reference == CaseInput.client_reference when present
+```
+
+Equality means the exact parsed string value supplied by the client. Structuring MUST NOT trim, rewrite, translate, redact, Unicode-normalize, date-substitute, or otherwise replace these fields. Interpretive or normalized values belong in `CaseFact` or other candidate structures, not in the immutable client payload.
+
+Presence is part of the invariant:
+
+- `problem_text` is required in both objects and MUST be identical;
+- if `as_of_date` is present in `CaseInput`, it MUST be present with the identical value in `CaseDraft`;
+- if `as_of_date` is absent from `CaseInput`, it MUST also be absent from `CaseDraft`;
+- if `client_reference` is present in `CaseInput`, it MUST be present with the identical value in `CaseDraft`;
+- if `client_reference` is absent from `CaseInput`, it MUST also be absent from `CaseDraft`.
+
+A model may return those fields as part of the serialized `CaseDraft`, but it has no authority to choose or modify their values. The application retains the original `CaseInput` and validates the returned draft against that specific input.
+
+This is a cross-object semantic invariant. The companion JSON Schema can validate each object independently, but it cannot prove equality or presence preservation between a separately validated `CaseInput` and `CaseDraft`. Conformance therefore requires application-level semantic validation in addition to JSON Schema validation.
+
 ## 5. CaseDraft
 
 CaseDraft is the structured interpretation returned by the case-structuring model and accepted by schema/application validation.
 
 It contains:
 
-- the original problem_text;
-- optional as_of_date and client_reference copied from CaseInput;
+- the immutable original `problem_text` from `CaseInput`;
+- optional `as_of_date` and `client_reference` preserved exactly, including presence/absence, from `CaseInput`;
 - facts: CaseFact objects;
 - questions: CaseQuestion objects;
 - candidate_claims: CandidateClaim objects;
@@ -141,11 +165,16 @@ CaseDraft is **never canonical state**. A syntactically valid CaseDraft means on
 Before deterministic corpus work, the application MUST:
 
 1. validate the output against the supported schema version;
-2. reject unknown required semantics rather than silently dropping them;
-3. verify that every fact marked user_provided and carrying a source_quote is traceable to the CaseInput text;
-4. preserve missing/ambiguous information as unresolved state;
-5. verify every CandidateClaim still has status candidate;
-6. reject attempts by model output to inject canonical IDs, evidence IDs, hashes, sequence numbers, or a "validated" claim state into candidate structures.
+2. compare the returned `CaseDraft` with the exact `CaseInput` used for that model execution and enforce the immutable-client-payload rules in §4.1;
+3. reject unknown required semantics rather than silently dropping them;
+4. verify that every fact marked `user_provided` and carrying a `source_quote` is traceable to the `CaseInput` text;
+5. preserve missing/ambiguous information as unresolved state;
+6. verify every `CandidateClaim` still has status `candidate`;
+7. reject attempts by model output to inject canonical IDs, evidence IDs, hashes, sequence numbers, or a `validated` claim state into candidate structures.
+
+A mismatch in `problem_text`, `as_of_date`, or `client_reference` — including a missing optional field that was supplied or a manufactured optional field that was absent — is a semantic validation failure and MUST produce `INVALID_CASE_DRAFT`. The application MUST reject the draft before deterministic corpus work or case/canonical mutation. It MUST NOT repair the mismatch by accepting the model's value as a replacement for the client payload.
+
+Issue #16 MUST implement this validation outside JSON Schema. Its acceptance tests MUST cover, at minimum: exact `problem_text` preservation; exact supplied `as_of_date`; exact supplied `client_reference`; optional-field absence remaining absence; rejection of modified `problem_text`; rejection of modified `as_of_date`; rejection of a manufactured missing `as_of_date`; and rejection of modified `client_reference`.
 
 Malformed or semantically invalid model output does not mutate canonical/case state.
 
@@ -313,7 +342,7 @@ The domain contract does not name or require any LLM provider.
 
 ### 12.1 Failure handling
 
-If model output is malformed, incomplete, uses an unsupported contract version, violates source-quote traceability, attempts to promote a claim, or injects forbidden canonical internals:
+If model output is malformed, incomplete, uses an unsupported contract version, changes/manufactures immutable client-payload fields, violates source-quote traceability, attempts to promote a claim, or injects forbidden canonical internals:
 
 - the draft is invalid;
 - no canonical promotion is performed from that draft;
@@ -347,6 +376,7 @@ Transport-neutral symbolic error semantics are:
 | Invalid/missing CaseInput fields | INVALID_CASE_INPUT |
 | Structuring provider unavailable | CASE_STRUCTURING_UNAVAILABLE |
 | Model output fails schema/semantic validation | INVALID_CASE_DRAFT |
+| CaseDraft changes, omits, or manufactures immutable CaseInput payload fields | INVALID_CASE_DRAFT |
 | user_provided quote does not match CaseInput | INVALID_CASE_DRAFT |
 | Missing/ambiguous required fact | CaseUnresolved |
 | Legal target cannot be resolved uniquely | CaseUnresolved |
@@ -457,18 +487,19 @@ This specification does not:
 
 An implementation conforming to v1 must preserve all of these:
 
-1. A client can begin with natural-language problem_text and optional explicit metadata, without internal IDs/hashes.
-2. The required case concepts have stable versioned serialized contracts.
-3. User-provided facts remain distinguishable from model normalization/inference.
-4. Every model-generated legal conclusion begins as CandidateClaim.
-5. CandidateClaim cannot be treated as validated solely by model output.
-6. Canonical evidence/provenance and legal identity/state remain controlled by deterministic corpus logic.
-7. Internal persistence/provenance identifiers are not mandatory client inputs.
-8. CASE-0001's current bundle/tools have an explicit mapping to the application boundary.
-9. CLI/API/future MCP transports can share the same Case Application Service contract.
-10. Missing or ambiguous information remains explicit unresolved state.
-11. Contract use does not require runtime/corpus mutation.
-12. Persistence changes are not implied by this specification.
+1. A client can begin with natural-language `problem_text` and optional explicit metadata, without internal IDs/hashes.
+2. `CaseDraft` preserves the exact client-owned `problem_text`, `as_of_date`, and `client_reference` values and optional-field presence/absence from its originating `CaseInput`; any mismatch is `INVALID_CASE_DRAFT`.
+3. The required case concepts have stable versioned serialized contracts.
+4. User-provided facts remain distinguishable from model normalization/inference and cannot rewrite the immutable client payload.
+5. Every model-generated legal conclusion begins as `CandidateClaim`.
+6. `CandidateClaim` cannot be treated as validated solely by model output.
+7. Canonical evidence/provenance and legal identity/state remain controlled by deterministic corpus logic.
+8. Internal persistence/provenance identifiers are not mandatory client inputs.
+9. CASE-0001's current bundle/tools have an explicit mapping to the application boundary.
+10. CLI/API/future MCP transports can share the same Case Application Service contract.
+11. Missing or ambiguous information remains explicit unresolved state.
+12. Contract use does not require runtime/corpus mutation.
+13. Persistence changes are not implied by this specification.
 
 ## 20. Related authoritative contracts
 
