@@ -178,3 +178,162 @@ class CorpusDoctorTests(unittest.TestCase):
 
     def _run(self, *, mode: str = "quick") -> doctor.DoctorReport:
         return doctor.run_doctor(
+            db_path=self.db_path,
+            data_root=self.data_root,
+            schema_dir=self.schema_dir,
+            mode=mode,
+        )
+
+    @staticmethod
+    def _check(report: doctor.DoctorReport, check_id: str) -> doctor.CheckResult:
+        return next(check for check in report.checks if check.check_id == check_id)
+
+    def _mutate_db(self, sql: str, params: tuple[object, ...] = ()) -> None:
+        con = sqlite3.connect(self.db_path)
+        con.execute("PRAGMA foreign_keys = OFF")
+        with con:
+            con.execute(sql, params)
+        con.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        con.close()
+
+    def test_healthy_fixture_passes_and_doctor_does_not_mutate_database(self) -> None:
+        before = hashlib.sha256(self.db_path.read_bytes()).hexdigest()
+        report = self._run()
+        after = hashlib.sha256(self.db_path.read_bytes()).hexdigest()
+
+        self.assertFalse(report.has_errors)
+        self.assertEqual(before, after)
+        self.assertEqual(self._check(report, "RAW-004").status, "INFO")
+        self.assertEqual(self._check(report, "ARTIFACT-002").status, "INFO")
+
+    def test_orphan_manifestation_source_is_detected(self) -> None:
+        self._mutate_db(
+            "UPDATE manifestations SET source_id = 'SRC-missing' WHERE manifestation_id = 'MAN-healthy'"
+        )
+        report = self._run()
+        self.assertEqual(self._check(report, "DB-002").status, "ERROR")
+
+    def test_full_mode_detects_raw_hash_mismatch(self) -> None:
+        raw_path = self.fixture["raw_path"]
+        raw = self.fixture["raw"]
+        assert isinstance(raw_path, Path)
+        assert isinstance(raw, bytes)
+        raw_path.write_bytes(bytes([raw[0] ^ 1]) + raw[1:])
+        report = self._run(mode="full")
+        self.assertEqual(self._check(report, "RAW-004").status, "ERROR")
+
+    def test_missing_raw_file_is_detected(self) -> None:
+        raw_path = self.fixture["raw_path"]
+        assert isinstance(raw_path, Path)
+        raw_path.unlink()
+        report = self._run()
+        self.assertEqual(self._check(report, "RAW-001").status, "ERROR")
+
+    def test_invalid_provenance_chain_is_detected(self) -> None:
+        self._mutate_db(
+            "UPDATE evidence SET source_sha256 = ? WHERE evidence_id = 'EVD-healthy'",
+            ("0" * 64,),
+        )
+        report = self._run()
+        self.assertEqual(self._check(report, "PROV-001").status, "ERROR")
+
+    def test_duplicate_canonical_identity_is_detected(self) -> None:
+        now = "2026-09-24T00:00:00+00:00"
+        con = sqlite3.connect(self.db_path)
+        with con:
+            con.execute(
+                "INSERT INTO documents(document_id, entity, document_type, title, created_at, updated_at) VALUES ('DOC-collision', 'CONGRESO', 'LEY', 'collision', ?, ?)",
+                (now, now),
+            )
+            con.execute(
+                "INSERT INTO document_identifiers(identifier_id, document_id, identifier_type, identifier_value, issuer, is_primary) VALUES ('ID-collision', 'DOC-collision', 'canonical_key', 'CO:LEY:1:2020', 'CONGRESO', 1)"
+            )
+        con.close()
+        report = self._run()
+        self.assertEqual(self._check(report, "IDENTITY-001").status, "ERROR")
+
+    def test_broken_relationship_target_is_detected(self) -> None:
+        self._mutate_db(
+            """
+            INSERT INTO relationships(
+                relationship_id, source_type, source_id, relation_type,
+                target_type, target_id, status
+            ) VALUES ('REL-broken', 'document', 'DOC-healthy', 'cites', 'document', 'DOC-missing', 'candidate')
+            """
+        )
+        report = self._run()
+        self.assertEqual(self._check(report, "REL-001").status, "ERROR")
+
+    def test_broken_evidence_segment_reference_is_detected(self) -> None:
+        self._mutate_db(
+            "UPDATE evidence SET extracted_segment_id = 'SEG-missing' WHERE evidence_id = 'EVD-healthy'"
+        )
+        report = self._run()
+        self.assertEqual(self._check(report, "PROV-002").status, "ERROR")
+
+    def test_migration_hash_drift_is_detected(self) -> None:
+        first = sorted(self.schema_dir.glob("*.sql"))[0].name
+        self._mutate_db(
+            "UPDATE schema_metadata SET schema_sha256 = ? WHERE schema_name = ?",
+            ("0" * 64, first),
+        )
+        report = self._run()
+        self.assertEqual(self._check(report, "DB-003").status, "ERROR")
+
+    def test_stale_orphan_fts_state_is_detected(self) -> None:
+        orphan_rowid = int(self.fixture["rowid"]) + 1000
+        self._mutate_db(
+            "INSERT INTO extracted_segments_fts(rowid, extracted_segment_id, text, section_path) VALUES (?, 'SEG-orphan', 'orphan', NULL)",
+            (orphan_rowid,),
+        )
+        report = self._run()
+        self.assertEqual(self._check(report, "FTS-001").status, "ERROR")
+
+    def test_json_output_and_exit_semantics_are_deterministic(self) -> None:
+        command = [
+            sys.executable,
+            str(TOOLS_DIR / "doctor.py"),
+            "--db",
+            str(self.db_path),
+            "--data-root",
+            str(self.data_root),
+            "--schema-dir",
+            str(self.schema_dir),
+            "--format",
+            "json",
+        ]
+        healthy = subprocess.run(command, cwd=PROJECT_ROOT, capture_output=True, text=True)
+        self.assertEqual(healthy.returncode, 0, healthy.stderr)
+        parsed = json.loads(healthy.stdout)
+        self.assertEqual(parsed["summary"]["ERROR"], 0)
+        self.assertTrue(any(item["check_id"] == "DB-003" for item in parsed["checks"]))
+
+        self._mutate_db(
+            "UPDATE evidence SET source_sha256 = ? WHERE evidence_id = 'EVD-healthy'",
+            ("f" * 64,),
+        )
+        broken = subprocess.run(command, cwd=PROJECT_ROOT, capture_output=True, text=True)
+        self.assertEqual(broken.returncode, 1, broken.stderr)
+        parsed = json.loads(broken.stdout)
+        self.assertGreater(parsed["summary"]["ERROR"], 0)
+
+    def test_validator_execution_failure_returns_exit_two(self) -> None:
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(TOOLS_DIR / "doctor.py"),
+                "--db",
+                str(self.root / "missing.sqlite"),
+                "--format",
+                "json",
+            ],
+            cwd=PROJECT_ROOT,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(result.returncode, 2)
+        self.assertEqual(json.loads(result.stdout)["status"], "validator_error")
+
+
+if __name__ == "__main__":
+    unittest.main()
