@@ -1,7 +1,7 @@
 ---
 id: DEF-0007
 type: defect
-status: specified
+status: verified
 priority: P2
 area: html-extraction
 baseline: 2026-09-22-corpus-audit
