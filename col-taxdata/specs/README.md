@@ -84,6 +84,8 @@ Issue #24 introduced required result structuring metadata as the v2 breaking cha
 
 CLI, API and future MCP adapters are expected to preserve the applicable application-contract semantics rather than embedding their own case logic.
 
+Case report/source materialization freshness is governed by [`architecture/data-lifecycle.md` §14](architecture/data-lifecycle.md#14-case-analysis-and-materialization). The 2026-09-23 post-P1 audit remains the historical record of the CASE-0001 six-line drift; DEF-0008 / issue #18 subsequently refreshed CASE-0001 through the canonical `tools/rematerialize_case.py` path. Canonical case/corpus state remains authoritative over these generated materializations.
+
 ## Source-of-truth order for issue work
 
 When sources appear to disagree:

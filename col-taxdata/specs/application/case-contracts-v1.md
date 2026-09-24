@@ -532,6 +532,7 @@ The existing bundle is a valid internal/audit representation but does not define
 | tools/case_support_graph.py | Current deterministic support graph used to derive canonical case sources |
 | tools/materialize_case_sources.py | Internal source/provenance materializer |
 | tools/materialize_case_report.py | Presentation materializer over canonical case state |
+| tools/rematerialize_case.py | Canonical preview/write path for deterministic report and source-manifest freshness |
 | tools/validate_case_bundle.py | Internal structural/materialization validator; distinct from CaseInput/CaseDraft schema validation |
 
 Current SQLite concepts map as follows:
@@ -548,11 +549,13 @@ Current SQLite concepts map as follows:
 
 No new persistence mapping is required by this issue.
 
-### 15.1 Existing materialization drift
+### 15.1 Materialization drift history and current freshness contract
 
-The 2026-09-23 post-P1 audit reports that CASE-0001's canonical support graph is structurally valid while the checked-in report.md differs from the current deterministic materializer on six lines.
+The 2026-09-23 post-P1 audit recorded that CASE-0001's canonical support graph was structurally valid while the checked-in `report.md` differed from the deterministic materializer on six generated lines. That remains a historical audit observation and MUST NOT be rewritten to match later system state.
 
-Issue #15 does not repair or rematerialize that report. The condition demonstrates why a presentation artifact cannot be the client/domain contract. A dedicated materialization lifecycle/refresh change owns that concern.
+At issue #15 completion, that drift was intentionally left to dedicated lifecycle work. DEF-0008 / issue #18 subsequently established deterministic materialization freshness/rematerialization behavior and refreshed CASE-0001's `report.md` and `sources/manifest.json` from canonical state. The six-line drift is therefore historical, not current unresolved operational state.
+
+Canonical case/corpus state remains authoritative. `report.md` and source manifests are derived deterministic materializations and never become canonical truth. Current/stale detection and refresh are governed by [the case-analysis/materialization freshness contract](../architecture/data-lifecycle.md#14-case-analysis-and-materialization): exact canonical render-and-compare, non-mutating preview by default, and explicit refresh through `tools/rematerialize_case.py --write`. Historical audit observations remain preserved even after the generated artifacts are refreshed.
 
 ## 16. Client/internal exposure policy
 
@@ -607,7 +610,7 @@ This specification does not:
 - add PostgreSQL, Redis, or another database;
 - add or change database migrations;
 - modify CASE-0001 data;
-- resolve its report materialization drift;
+- perform case-materialization remediation itself (the historical CASE-0001 drift was subsequently resolved by DEF-0008 / issue #18);
 - implement CASE-0002;
 - mutate or reprocess the production corpus;
 - redefine canonical identity, evidence, relationships, or temporality.
@@ -650,4 +653,4 @@ This specification must be read consistently with:
 - ../architecture/adr/ADR-0009-defer-ports-and-adapters.md
 - ../audits/2026-09-23-post-p1-corpus-audit.md
 
-Where a future implementation needs a new persistence abstraction, protocol transport, execution-provenance model, or materialization-refresh lifecycle, that work belongs to its owning issue rather than being inferred from this application contract.
+Where a future implementation needs a new persistence abstraction, protocol transport, or execution-provenance model, that work belongs to its owning issue rather than being inferred from this application contract. Existing case-materialization freshness/rematerialization behavior is governed by `../architecture/data-lifecycle.md` §14 and must be reused rather than redefined here.
