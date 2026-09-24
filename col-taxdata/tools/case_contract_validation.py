@@ -519,10 +519,17 @@ def case_draft_response_schema() -> dict[str, Any]:
     root = load_contract_schema()
     definitions = deepcopy(root["$defs"])
     draft = definitions["CaseDraft"]
+    app_owned_fields = {
+        "problem_text",
+        "as_of_date",
+        "client_reference",
+        "model_metadata",
+    }
     draft["required"] = [
-        name for name in draft["required"] if name != "model_metadata"
+        name for name in draft["required"] if name not in app_owned_fields
     ]
-    draft["properties"].pop("model_metadata", None)
+    for name in app_owned_fields:
+        draft["properties"].pop(name, None)
 
     # llama.cpp constrained generation does not reliably enforce JSON-Schema
     # conditional if/then branches. Preserve the authoritative CaseFact
