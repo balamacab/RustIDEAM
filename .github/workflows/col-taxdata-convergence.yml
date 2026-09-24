@@ -1,0 +1,79 @@
+name: col-taxdata Convergence
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - col-taxdata/**
+      - .github/workflows/col-taxdata-*.yml
+      - .github/actions/**
+
+permissions:
+  actions: read
+  contents: read
+  issues: write
+  statuses: write
+
+concurrency:
+  group: col-taxdata-convergence-main
+  cancel-in-progress: false
+
+jobs:
+  convergence:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Mark combined main pending
+        env:
+          GH_TOKEN: \${{ github.token }}
+        run: |
+          gh api -X POST "repos/\${GITHUB_REPOSITORY}/statuses/\${GITHUB_SHA}" \
+            -f state=pending -f context=col-taxdata-convergence \
+            -f description="Combined-main invariant suite is running" >/dev/null
+
+      - name: Checkout resulting main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Run complete integration and invariant suite
+        id: tests
+        continue-on-error: true
+        run: python3 -m unittest discover -s col-taxdata/tests -p 'test_*.py'
+
+      - name: Publish convergence result and corrective work
+        env:
+          GH_TOKEN: \${{ github.token }}
+          TEST_OUTCOME: \${{ steps.tests.outcome }}
+        run: |
+          set -euo pipefail
+          if [[ "$TEST_OUTCOME" == "success" ]]; then
+            gh api -X POST "repos/\${GITHUB_REPOSITORY}/statuses/\${GITHUB_SHA}" \
+              -f state=success -f context=col-taxdata-convergence \
+              -f description="Combined-main invariants passed" >/dev/null
+            exit 0
+          fi
+
+          gh api -X POST "repos/\${GITHUB_REPOSITORY}/statuses/\${GITHUB_SHA}" \
+            -f state=failure -f context=col-taxdata-convergence \
+            -f description="Combined-main invariants failed; downstream merge blocked" >/dev/null
+
+          MARKER="convergence:\${GITHUB_SHA}"
+          EXISTING="$(gh api -X GET "search/issues" \
+            -f q="repo:\${GITHUB_REPOSITORY} in:body \"\${MARKER}\" is:issue is:open" \
+            --jq '.items[0].number // empty')"
+          if [[ -z "$EXISTING" ]]; then
+            ISSUE="$(gh api -X POST "repos/\${GITHUB_REPOSITORY}/issues" \
+              -f title="[CONVERGENCE] Correct combined-main invariant failure" \
+              -f body="Automated convergence validation failed on main commit \${GITHUB_SHA}. \${MARKER}. Downstream autonomous merge remains blocked until a later main convergence run succeeds." \
+              --jq '.number')"
+          else
+            ISSUE="$EXISTING"
+          fi
+
+          gh api -X POST "repos/\${GITHUB_REPOSITORY}/dispatches" \
+            -f event_type=integration.validation.required \
+            -f "client_payload[schema_version]=1" \
+            -f "client_payload[main_sha]=\${GITHUB_SHA}" \
+            -f "client_payload[corrective_issue]=\${ISSUE}" >/dev/null
+          exit 1
