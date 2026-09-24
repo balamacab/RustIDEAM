@@ -518,3 +518,263 @@ def check_issuer_aware_identity(ctx: DoctorContext) -> CheckResult:
         JOIN document_identifiers di ON di.document_id = d.document_id
         WHERE di.identifier_type = 'canonical_key' AND di.is_primary = 1
         ORDER BY d.document_id
+        """
+    ).fetchall()
+    for document_id, document_type, key, issuer in rows:
+        key_issuer, key_type, _number, _year = _parse_primary_key(str(key))
+        if key_type is None:
+            problems.append(f"{document_id}: malformed canonical key {key}")
+            continue
+        if str(document_type) != key_type:
+            problems.append(f"{document_id}: document_type={document_type} key_type={key_type}")
+        if str(document_type) in ISSUER_SCOPED_TYPES:
+            if key_issuer is None:
+                problems.append(f"{document_id}: issuer-scoped key is unqualified: {key}")
+            if not issuer:
+                problems.append(f"{document_id}: issuer-scoped primary identifier has no issuer")
+            elif key_issuer is not None and str(issuer) != key_issuer:
+                problems.append(f"{document_id}: issuer={issuer} key_issuer={key_issuer}")
+    if problems:
+        return _error("IDENTITY-002", "identity", "issuer-aware canonical-key invariants are violated", len(problems), problems, spec="ADR-0006")
+    return _pass("IDENTITY-002", "identity", "issuer-scoped canonical identities are issuer-qualified and internally consistent", spec="ADR-0006")
+
+
+def check_source_family_bindings(ctx: DoctorContext) -> CheckResult:
+    missing = _require_tables(ctx, "IDENTITY-003", "identity", ["manifestations", "sources", "documents", "document_identifiers"], spec="DEF-0001/DEF-0003")
+    if missing:
+        return missing
+
+    primary_keys = {
+        str(document_id): str(identifier_value)
+        for document_id, identifier_value in ctx.con.execute(
+            """
+            SELECT document_id, identifier_value
+            FROM document_identifiers
+            WHERE identifier_type = 'canonical_key' AND is_primary = 1
+            """
+        )
+    }
+    problems: list[str] = []
+    rows = ctx.con.execute(
+        """
+        SELECT m.manifestation_id, s.source_url, d.document_id, d.document_type
+        FROM manifestations m
+        JOIN sources s ON s.source_id = m.source_id
+        JOIN documents d ON d.document_id = m.document_id
+        WHERE m.document_id IS NOT NULL
+        ORDER BY m.manifestation_id
+        """
+    ).fetchall()
+    family_types = {
+        DIAN_CONCEPTO: {"CONCEPTO"},
+        DIAN_OFICIO: {"OFICIO", "CONCEPTO"},
+        CORTE_CONSTITUCIONAL_SENTENCIA_C: {"SENTENCIA_C"},
+        CONPES: {"CONPES"},
+        CONSTITUCION_POLITICA: {"CONSTITUCION_POLITICA"},
+    }
+    for manifestation_id, source_url, document_id, document_type in rows:
+        signal = classify_source_url(str(source_url))
+        if signal.family in {UNKNOWN, JURISPRUDENCIA}:
+            continue
+        allowed = family_types.get(signal.family)
+        if signal.family == NORMATIVE_ACT and signal.document_type:
+            allowed = {signal.document_type}
+        if allowed is not None and str(document_type) not in allowed:
+            problems.append(f"{manifestation_id}: source_family={signal.family} document_type={document_type}")
+            continue
+        if signal.canonical_key and signal.family != DIAN_OFICIO:
+            primary = primary_keys.get(str(document_id))
+            if primary is not None and primary != signal.canonical_key:
+                problems.append(f"{manifestation_id}: source_key={signal.canonical_key} primary_key={primary}")
+    if problems:
+        return _error("IDENTITY-003", "identity", "bound Document identity conflicts with deterministic source-family identity", len(problems), problems, spec="DEF-0001/DEF-0003")
+    return _pass("IDENTITY-003", "identity", "bound Documents are compatible with deterministic source-family identity", spec="DEF-0001/DEF-0003")
+
+
+def check_provision_observations(ctx: DoctorContext) -> CheckResult:
+    missing = _require_tables(ctx, "PROVISION-001", "provision", ["provision_observations", "extracted_segments"], spec="architecture/domain-model.md")
+    if missing:
+        return missing
+    rows = ctx.con.execute(
+        """
+        SELECT po.provision_observation_id, po.extraction_id, es.extraction_id
+        FROM provision_observations po
+        JOIN extracted_segments es ON es.extracted_segment_id = po.extracted_segment_id
+        WHERE po.extraction_id <> es.extraction_id
+        ORDER BY po.provision_observation_id
+        """
+    ).fetchall()
+    if rows:
+        return _error("PROVISION-001", "provision", "provision observation segment belongs to a different extraction", len(rows), _examples(rows, 0), spec="architecture/domain-model.md")
+    return _pass("PROVISION-001", "provision", "provision observations and segment extraction identities agree", spec="architecture/domain-model.md")
+
+
+def check_reference_chains(ctx: DoctorContext) -> CheckResult:
+    missing = _require_tables(ctx, "REF-001", "reference", ["reference_mentions", "reference_detection_runs", "extracted_segments"], spec="architecture/domain-model.md")
+    if missing:
+        return missing
+    rows = ctx.con.execute(
+        """
+        SELECT rm.reference_mention_id
+        FROM reference_mentions rm
+        LEFT JOIN reference_detection_runs rdr ON rdr.detection_run_id = rm.detection_run_id
+        LEFT JOIN extracted_segments es ON es.extracted_segment_id = rm.extracted_segment_id
+        WHERE rdr.detection_run_id IS NULL OR es.extracted_segment_id IS NULL
+           OR rm.extraction_id <> rdr.extraction_id OR rm.extraction_id <> es.extraction_id
+        ORDER BY rm.reference_mention_id
+        """
+    ).fetchall()
+    if rows:
+        return _error("REF-001", "reference", "reference mention detector/extraction/segment chains are inconsistent", len(rows), _examples(rows, 0), spec="architecture/domain-model.md")
+    return _pass("REF-001", "reference", "reference mention detector/extraction/segment chains are consistent", spec="architecture/domain-model.md")
+
+
+def check_reference_resolutions(ctx: DoctorContext) -> CheckResult:
+    missing = _require_tables(ctx, "REF-002", "reference", ["reference_resolutions", "reference_mentions", "provisions"], spec="architecture/domain-model.md")
+    if missing:
+        return missing
+    problems: list[str] = []
+    rows = ctx.con.execute(
+        """
+        SELECT rr.reference_resolution_id, rm.mention_type, rr.status,
+               rr.target_document_id, rr.target_provision_id, p.document_id
+        FROM reference_resolutions rr
+        JOIN reference_mentions rm ON rm.reference_mention_id = rr.reference_mention_id
+        LEFT JOIN provisions p ON p.provision_id = rr.target_provision_id
+        ORDER BY rr.reference_resolution_id
+        """
+    ).fetchall()
+    for resolution_id, mention_type, status, target_document, target_provision, provision_document in rows:
+        if status == "resolved":
+            if target_document is None:
+                problems.append(f"{resolution_id}: resolved without target_document_id")
+            if mention_type == "article" and target_provision is None:
+                problems.append(f"{resolution_id}: resolved article without target_provision_id")
+            if target_provision is not None and provision_document != target_document:
+                problems.append(f"{resolution_id}: target provision/document mismatch")
+        elif target_document is not None or target_provision is not None:
+            problems.append(f"{resolution_id}: {status} resolution retains target binding")
+    if problems:
+        return _error("REF-002", "reference", "reference resolution status/target invariants are violated", len(problems), problems, spec="architecture/domain-model.md")
+    return _pass("REF-002", "reference", "reference resolution status and target bindings are consistent", spec="architecture/domain-model.md")
+
+
+def _entity_table(entity_type: str) -> tuple[str, str] | None:
+    return {
+        "document": ("documents", "document_id"),
+        "provision": ("provisions", "provision_id"),
+        "manifestation": ("manifestations", "manifestation_id"),
+        "evidence": ("evidence", "evidence_id"),
+        "claim": ("claims", "claim_id"),
+        "relationship": ("relationships", "relationship_id"),
+        "temporal_event": ("temporal_events", "temporal_event_id"),
+        "reference_mention": ("reference_mentions", "reference_mention_id"),
+        "reference_resolution": ("reference_resolutions", "reference_resolution_id"),
+        "temporal_resolution": ("temporal_role_resolutions", "temporal_resolution_id"),
+        "extraction": ("text_extractions", "extraction_id"),
+        "extracted_segment": ("extracted_segments", "extracted_segment_id"),
+    }.get(entity_type)
+
+
+def _exists(ctx: DoctorContext, entity_type: str, entity_id: str) -> bool | None:
+    target = _entity_table(entity_type)
+    if target is None:
+        return None
+    table, column = target
+    if not _table_exists(ctx.con, table):
+        return False
+    return ctx.con.execute(f"SELECT 1 FROM {table} WHERE {column} = ?", (entity_id,)).fetchone() is not None
+
+
+def check_relationship_endpoints(ctx: DoctorContext) -> CheckResult:
+    missing = _require_tables(ctx, "REL-001", "relationship", ["relationships", "documents", "provisions"], spec="architecture/domain-model.md")
+    if missing:
+        return missing
+    problems: list[str] = []
+    unknown: list[str] = []
+    for relationship_id, source_type, source_id, target_type, target_id in ctx.con.execute(
+        "SELECT relationship_id, source_type, source_id, target_type, target_id FROM relationships ORDER BY relationship_id"
+    ):
+        source_exists = _exists(ctx, str(source_type), str(source_id))
+        target_exists = _exists(ctx, str(target_type), str(target_id))
+        if source_exists is False:
+            problems.append(f"{relationship_id}: missing source {source_type}:{source_id}")
+        elif source_exists is None:
+            unknown.append(f"{relationship_id}: unknown source_type={source_type}")
+        if target_exists is False:
+            problems.append(f"{relationship_id}: missing target {target_type}:{target_id}")
+        elif target_exists is None:
+            unknown.append(f"{relationship_id}: unknown target_type={target_type}")
+    if problems:
+        return _error("REL-001", "relationship", "relationship endpoints reference missing canonical entities", len(problems), problems, spec="architecture/domain-model.md")
+    if unknown:
+        return _warn("REL-001", "relationship", "relationship endpoint types are not recognized by the current doctor contract", len(unknown), unknown, spec="architecture/domain-model.md")
+    return _pass("REL-001", "relationship", "relationship endpoints resolve to existing canonical entities", spec="architecture/domain-model.md")
+
+
+def check_relationship_provenance(ctx: DoctorContext) -> CheckResult:
+    missing = _require_tables(ctx, "REL-002", "relationship", ["relationships", "relationship_provenance", "reference_resolutions", "explicit_relation_mentions"], spec="architecture/domain-model.md")
+    if missing:
+        return missing
+    problems: list[str] = []
+    rows = ctx.con.execute(
+        """
+        SELECT r.relationship_id, r.status, r.evidence_id,
+               rp.relationship_id, rr.status,
+               erm.target_reference_mention_id, rr.reference_mention_id
+        FROM relationships r
+        LEFT JOIN relationship_provenance rp ON rp.relationship_id = r.relationship_id
+        LEFT JOIN reference_resolutions rr ON rr.reference_resolution_id = rp.reference_resolution_id
+        LEFT JOIN explicit_relation_mentions erm ON erm.relation_mention_id = rp.relation_mention_id
+        ORDER BY r.relationship_id
+        """
+    ).fetchall()
+    for relationship_id, status, evidence_id, provenance_id, resolution_status, relation_ref, resolution_ref in rows:
+        if status == "validated":
+            if evidence_id is None:
+                problems.append(f"{relationship_id}: validated without evidence")
+            if provenance_id is None:
+                problems.append(f"{relationship_id}: validated without relationship_provenance")
+            elif resolution_status != "resolved":
+                problems.append(f"{relationship_id}: provenance resolution status={resolution_status}")
+            elif relation_ref != resolution_ref:
+                problems.append(f"{relationship_id}: provenance relation mention and resolution reference differ")
+    if problems:
+        return _error("REL-002", "relationship", "validated relationship provenance is incomplete or inconsistent", len(problems), problems, spec="architecture/domain-model.md")
+    return _pass("REL-002", "relationship", "validated relationships retain consistent evidence/provenance", spec="architecture/domain-model.md")
+
+
+def check_temporal_candidates(ctx: DoctorContext) -> CheckResult:
+    missing = _require_tables(ctx, "TEMP-001", "temporal", ["temporal_candidates", "text_extractions", "extracted_segments", "evidence"], spec="DEF-0004")
+    if missing:
+        return missing
+    rows = ctx.con.execute(
+        """
+        SELECT tc.temporal_candidate_id
+        FROM temporal_candidates tc
+        LEFT JOIN text_extractions te ON te.extraction_id = tc.extraction_id
+        LEFT JOIN extracted_segments es ON es.extracted_segment_id = tc.extracted_segment_id
+        LEFT JOIN evidence e ON e.evidence_id = tc.evidence_id
+        WHERE te.extraction_id IS NULL OR es.extracted_segment_id IS NULL OR e.evidence_id IS NULL
+           OR te.manifestation_id <> tc.manifestation_id
+           OR es.extraction_id <> tc.extraction_id
+           OR e.manifestation_id <> tc.manifestation_id
+           OR (e.extracted_segment_id IS NOT NULL AND e.extracted_segment_id <> tc.extracted_segment_id)
+        ORDER BY tc.temporal_candidate_id
+        """
+    ).fetchall()
+    if rows:
+        return _error("TEMP-001", "temporal", "temporal candidate provenance chains are inconsistent", len(rows), _examples(rows, 0), spec="DEF-0004")
+    return _pass("TEMP-001", "temporal", "temporal candidate provenance chains are internally consistent", spec="DEF-0004")
+
+
+def check_temporal_resolutions(ctx: DoctorContext) -> CheckResult:
+    missing = _require_tables(ctx, "TEMP-002", "temporal", ["temporal_role_resolutions", "temporal_candidates"], spec="DEF-0004")
+    if missing:
+        return missing
+    problems: list[str] = []
+    rows = ctx.con.execute(
+        """
+        SELECT tr.temporal_resolution_id, tr.extraction_id, tr.document_id, tr.role,
+               tr.status, tr.candidate_count, tr.trusted_candidate_count,
+               tr.promoted_candidate_id, tr.processor_name, tr.processor_version
