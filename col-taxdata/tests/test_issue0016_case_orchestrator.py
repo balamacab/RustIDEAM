@@ -252,16 +252,10 @@ class Issue0016ContractAndRoutingTests(unittest.TestCase):
             as_of_date="2026-09-24",
             client_reference="matter-16",
         )
-        fake = FakeLLMClient(
-            [
-                model_payload(
-                    as_of_date="2026-09-24",
-                    client_reference="matter-16",
-                )
-            ]
-        )
+        model_owned = model_payload()
+        model_owned.pop("problem_text")
         outcome = CaseStructuringService(
-            make_config(), fake
+            make_config(), FakeLLMClient([model_owned])
         ).structure(original)
         self.assertEqual(outcome.draft["problem_text"], original["problem_text"])
         self.assertEqual(outcome.draft["as_of_date"], original["as_of_date"])
@@ -270,11 +264,44 @@ class Issue0016ContractAndRoutingTests(unittest.TestCase):
             original["client_reference"],
         )
 
+        absent_payload = model_payload()
+        absent_payload.pop("problem_text")
         absent = CaseStructuringService(
-            make_config(), FakeLLMClient([model_payload()])
+            make_config(), FakeLLMClient([absent_payload])
         ).structure(case_input()).draft
+        self.assertEqual(absent["problem_text"], PROBLEM)
         self.assertNotIn("as_of_date", absent)
         self.assertNotIn("client_reference", absent)
+
+        echoed = CaseStructuringService(
+            make_config(),
+            FakeLLMClient(
+                [
+                    model_payload(
+                        as_of_date="2026-09-24",
+                        client_reference="matter-16",
+                    )
+                ]
+            ),
+        ).structure(original).draft
+        self.assertEqual(echoed["problem_text"], original["problem_text"])
+        self.assertEqual(echoed["as_of_date"], original["as_of_date"])
+        self.assertEqual(
+            echoed["client_reference"],
+            original["client_reference"],
+        )
+
+    def test_model_facing_schema_excludes_application_owned_fields(self):
+        schema = case_draft_response_schema()
+        draft = schema["$defs"]["CaseDraft"]
+        for name in (
+            "problem_text",
+            "as_of_date",
+            "client_reference",
+            "model_metadata",
+        ):
+            self.assertNotIn(name, draft["properties"])
+            self.assertNotIn(name, draft["required"])
 
     def test_modified_or_manufactured_client_fields_are_invalid(self):
         cases = [
@@ -291,16 +318,12 @@ class Issue0016ContractAndRoutingTests(unittest.TestCase):
                 model_payload(as_of_date="2026-09-24"),
             ),
             (
-                case_input(as_of_date="2026-09-24"),
-                model_payload(),
-            ),
-            (
                 case_input(client_reference="matter-16"),
                 model_payload(client_reference="matter-17"),
             ),
             (
-                case_input(client_reference="matter-16"),
-                model_payload(),
+                case_input(),
+                model_payload(client_reference="matter-16"),
             ),
         ]
         for original, payload in cases:
@@ -493,14 +516,17 @@ class Issue0016ContractAndRoutingTests(unittest.TestCase):
             },
         )
         client = OpenAICompatibleLLMClient(config)
+        model_owned = model_payload()
+        model_owned.pop("problem_text")
         envelope = {
+            "model": "primary-model",
             "choices": [
                 {
                     "message": {
-                        "content": json.dumps(model_payload())
+                        "content": json.dumps(model_owned)
                     }
                 }
-            ]
+            ],
         }
 
         class Response:
@@ -526,7 +552,48 @@ class Issue0016ContractAndRoutingTests(unittest.TestCase):
             sent["chat_template_kwargs"]["enable_thinking"]
         )
         self.assertEqual(payload["kind"], "case_draft")
+        self.assertNotIn("problem_text", payload)
         self.assertNotIn("model_metadata", payload)
+
+    def test_adapter_rejects_backend_model_mismatch(self):
+        config = make_config()
+        client = OpenAICompatibleLLMClient(config)
+        model_owned = model_payload()
+        model_owned.pop("problem_text")
+        envelope = {
+            "model": "unexpected-model",
+            "choices": [
+                {
+                    "message": {
+                        "content": json.dumps(model_owned)
+                    }
+                }
+            ],
+        }
+
+        class Response:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return False
+
+            def read(self):
+                return json.dumps(envelope).encode("utf-8")
+
+        with mock.patch(
+            "llm_client.urlrequest.urlopen",
+            return_value=Response(),
+        ):
+            with self.assertRaises(LLMClientError) as raised:
+                client.complete_case_draft(
+                    case_input=case_input(),
+                    route=config.primary,
+                )
+        self.assertEqual(
+            raised.exception.code,
+            CASE_STRUCTURING_UNAVAILABLE,
+        )
 
     def test_adapter_request_options_cannot_override_owned_fields(self):
         config = replace(
