@@ -27,10 +27,15 @@ class AgentControlTests(unittest.TestCase):
 
     def test_resume_payload_contract_is_stable(self):
         payload = agent_control.build_resume_payload(self.request(attempt=2))
-        self.assertEqual(payload["schema_version"], 1)
+        self.assertEqual(payload["schema_version"], 2)
         self.assertEqual(payload["reason"], "CI_FAILED")
-        self.assertEqual(payload["attempt"], 2)
-        self.assertEqual(payload["max_attempts"], 3)
+        self.assertEqual(payload["retry"]["attempt"], 2)
+        self.assertEqual(payload["retry"]["max_attempts"], 3)
+        self.assertFalse(payload["retry"]["automatic_update"])
+        self.assertLessEqual(
+            len(payload),
+            agent_control.GITHUB_REPOSITORY_DISPATCH_MAX_PROPERTIES,
+        )
 
     def test_retry_count_is_scoped_to_reason_and_head(self):
         payload = agent_control.build_resume_payload(self.request(attempt=1))
@@ -48,6 +53,14 @@ class AgentControlTests(unittest.TestCase):
         dispatch = [call for call in request_json.call_args_list if call.args[1] == "POST" and call.args[2].endswith("/dispatches")]
         self.assertEqual(len(dispatch), 1)
         self.assertEqual(dispatch[0].args[3]["event_type"], agent_control.RESUME_EVENT)
+        client_payload = dispatch[0].args[3]["client_payload"]
+        self.assertLessEqual(
+            len(client_payload),
+            agent_control.GITHUB_REPOSITORY_DISPATCH_MAX_PROPERTIES,
+        )
+        self.assertEqual(client_payload["retry"]["attempt"], 1)
+        self.assertEqual(client_payload["retry"]["max_attempts"], agent_control.MAX_RETRIES)
+        self.assertFalse(client_payload["retry"]["automatic_update"])
 
     @mock.patch.object(agent_control, "create_blocker", return_value={"html_url": "https://example/blocker"})
     @mock.patch.object(agent_control, "post_issue_comment")

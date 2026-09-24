@@ -19,6 +19,8 @@ RESUME_MARKER = "<!-- col-taxdata-agent-resume:"
 STATE_MARKER = "<!-- col-taxdata-agent-state:"
 BLOCKER_MARKER = "<!-- col-taxdata-agent-blocker:"
 MAX_RETRIES = 3
+RESUME_SCHEMA_VERSION = 2
+GITHUB_REPOSITORY_DISPATCH_MAX_PROPERTIES = 10
 RESUME_EVENT = "col-taxdata-agent-resume"
 CONVERGENCE_EVENT = "col-taxdata-convergence"
 
@@ -65,8 +67,8 @@ def request_json(token: str, method: str, path: str, payload: Any | None = None)
 
 
 def build_resume_payload(req: ResumeRequest) -> dict[str, Any]:
-    return {
-        "schema_version": 1,
+    payload = {
+        "schema_version": RESUME_SCHEMA_VERSION,
         "repository": req.repository,
         "issue_number": req.issue_number,
         "pr_number": req.pr_number,
@@ -75,10 +77,19 @@ def build_resume_payload(req: ResumeRequest) -> dict[str, Any]:
         "base_sha": req.base_sha,
         "reason": req.reason,
         "semantic_domains": req.semantic_domains,
-        "attempt": req.attempt,
-        "max_attempts": req.max_attempts,
-        "automatic_update": req.automatic_update,
+        "retry": {
+            "attempt": req.attempt,
+            "max_attempts": req.max_attempts,
+            "automatic_update": req.automatic_update,
+        },
     }
+    if len(payload) > GITHUB_REPOSITORY_DISPATCH_MAX_PROPERTIES:
+        raise PolicyError(
+            "resume client_payload exceeds GitHub repository_dispatch "
+            f"top-level property limit: {len(payload)} > "
+            f"{GITHUB_REPOSITORY_DISPATCH_MAX_PROPERTIES}"
+        )
+    return payload
 
 
 def marker_payload(body: str, marker: str) -> dict[str, Any] | None:
@@ -112,10 +123,13 @@ def state_comment(state: str, **details: Any) -> str:
 
 def resume_comment(payload: dict[str, Any]) -> str:
     marker = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+    retry = payload.get("retry")
+    if not isinstance(retry, dict):
+        retry = payload
     return (
         f"{RESUME_MARKER} {marker} -->\n"
         f"Autonomous resume requested: `{payload['reason']}` "
-        f"(attempt {payload['attempt']}/{payload['max_attempts']}, head `{payload['head_sha'][:12]}`)."
+        f"(attempt {retry['attempt']}/{retry['max_attempts']}, head `{payload['head_sha'][:12]}`)."
     )
 
 

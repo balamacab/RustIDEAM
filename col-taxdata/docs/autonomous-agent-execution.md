@@ -44,7 +44,7 @@ When reconciliation requires implementation judgment, the controller emits `repo
 
 ```json
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "repository": "owner/repository",
   "issue_number": 123,
   "pr_number": 456,
@@ -53,11 +53,15 @@ When reconciliation requires implementation judgment, the controller emits `repo
   "base_sha": "<sha>",
   "reason": "NEEDS_REBASE | MERGE_CONFLICT | CI_FAILED | SEMANTIC_REVALIDATION_REQUIRED",
   "semantic_domains": ["domain"],
-  "attempt": 1,
-  "max_attempts": 3,
-  "automatic_update": false
+  "retry": {
+    "attempt": 1,
+    "max_attempts": 3,
+    "automatic_update": false
+  }
 }
 ```
+
+GitHub repository-dispatch accepts at most 10 top-level `client_payload` properties. Resume schema v2 therefore keeps retry/update metadata under the nested `retry` object without dropping any recovery/audit fields. Durable v1 issue markers remain valid historical retry evidence because retry counting is scoped by `reason` and `head_sha`.
 
 An authorized external agent orchestrator may consume that event directly. It must resume the same issue and PR, inspect current `main`, preserve unrelated merged work, re-read changed contracts in relevant semantic domains, resolve conflicts semantically rather than choosing blanket ours/theirs, rerun applicable checks, and update the same branch/PR.
 
