@@ -26,5 +26,4 @@ Machine-verifiable required checks determine merge eligibility; normal work requ
 
 Production/runtime mutation is separate from repository integration and requires explicit authorization, preview/recovery controls, and the project's production-safety invariants.
 
-[executed on device: morichalserver (2bfaa62f-23ff-40e5-9fc7-7c1a7d28b1fc)]
 Repository automation exceptions must be explicitly authorized by the selected issue and remain limited to the minimum required automation paths.
