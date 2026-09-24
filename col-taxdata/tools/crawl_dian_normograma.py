@@ -24,6 +24,13 @@ from source_identity import (
     DIAN_OFICIO,
     classify_source_url,
 )
+from crawl_page_classification import (
+    AMBIGUOUS,
+    CONFIRMED_INDEX,
+    LEGAL_DOCUMENT,
+    LEGAL_EXTRACTION_FAILURE,
+    classify_heading_failure,
+)
 
 
 USER_AGENT = (
@@ -79,6 +86,17 @@ def utc_after(seconds: int | float) -> str:
 
 def tool(name: str) -> str:
     return str(Path(__file__).resolve().parent / name)
+
+
+class CrawlClassificationError(RuntimeError):
+    """A fetched document page could not be safely classified as navigation."""
+
+    def __init__(self, result: dict[str, Any]) -> None:
+        self.result = result
+        classification = result["classification"]
+        super().__init__(
+            f"{classification['state']}: {classification['reason_code']}"
+        )
 
 
 class LinkParser(HTMLParser):
@@ -624,43 +642,71 @@ def process_document(
             encoding="utf-8",
             errors="replace",
         )
-        discovered = discover_links(
-            con,
-            parent_url=url,
+        decision = classify_heading_failure(
+            source_url=url,
             html=html,
-            scope=scope,
-            depth=depth,
-            max_depth=max_depth,
-            documents_only=False,
         )
-        with con:
-            con.execute(
-                """
-                UPDATE dian_crawl_queue
-                SET item_type = 'index'
-                WHERE url = ?
-                """,
-                (url,),
-            )
-
+        classification = decision.as_dict()
         stages.append(
             {
-                "stage": "reclassify_navigation_page",
-                "result": {
-                    "reason": "legal_document_heading_not_detected",
-                    "discovery": discovered,
-                },
+                "stage": "classify_heading_failure",
+                "result": classification,
             }
         )
-        return {
+
+        if decision.state == CONFIRMED_INDEX:
+            discovered = discover_links(
+                con,
+                parent_url=url,
+                html=html,
+                scope=scope,
+                depth=depth,
+                max_depth=max_depth,
+                documents_only=False,
+            )
+            with con:
+                con.execute(
+                    """
+                    UPDATE dian_crawl_queue
+                    SET item_type = 'index'
+                    WHERE url = ?
+                    """,
+                    (url,),
+                )
+
+            stages.append(
+                {
+                    "stage": "reclassify_navigation_page",
+                    "result": {
+                        "reason": decision.reason_code,
+                        "discovery": discovered,
+                    },
+                }
+            )
+            return {
+                "source_id": source_id,
+                "manifestation_id": manifestation_id,
+                "extraction_id": None,
+                "sha256": sha256,
+                "reclassified_item_type": "index",
+                "classification_state": CONFIRMED_INDEX,
+                "classification": classification,
+                "stages": stages,
+                "warnings": [],
+            }
+
+        failure_result = {
             "source_id": source_id,
             "manifestation_id": manifestation_id,
             "extraction_id": None,
             "sha256": sha256,
-            "reclassified_item_type": "index",
+            "classification_state": decision.state,
+            "classification": classification,
             "stages": stages,
             "warnings": [],
+            "extractor_error": error,
         }
+        raise CrawlClassificationError(failure_result)
 
     assert extracted is not None
     extraction_id = str(extracted["extraction_id"])
@@ -848,6 +894,12 @@ def process_document(
         "manifestation_id": manifestation_id,
         "extraction_id": extraction_id,
         "sha256": sha256,
+        "classification_state": LEGAL_DOCUMENT,
+        "classification": {
+            "state": LEGAL_DOCUMENT,
+            "reason_code": "LEGAL_EXTRACTION_SUCCEEDED",
+            "source_family": source_family,
+        },
         "stages": stages,
         "warnings": warnings,
     }
@@ -989,6 +1041,8 @@ def finish_item(
                 manifestation_id = COALESCE(?, manifestation_id),
                 extraction_id = COALESCE(?, extraction_id),
                 content_sha256 = COALESCE(?, content_sha256),
+                classification_state = COALESCE(?, classification_state),
+                classification_json = COALESCE(?, classification_json),
                 processing_json = ?,
                 completed_at = ?,
                 next_attempt_at = ?,
@@ -1000,9 +1054,47 @@ def finish_item(
                 result.get("manifestation_id"),
                 result.get("extraction_id"),
                 result.get("sha256"),
+                result.get("classification_state"),
+                (
+                    json.dumps(result["classification"], ensure_ascii=False)
+                    if result.get("classification")
+                    else None
+                ),
                 json.dumps(result, ensure_ascii=False),
                 utc_now(),
                 utc_after(refresh_seconds),
+                url,
+            ),
+        )
+
+
+def record_classification_failure(
+    con: sqlite3.Connection,
+    *,
+    url: str,
+    result: dict[str, Any],
+) -> None:
+    """Persist failure evidence before normal retry/backoff handling."""
+
+    with con:
+        con.execute(
+            """
+            UPDATE dian_crawl_queue
+            SET source_id = COALESCE(?, source_id),
+                manifestation_id = COALESCE(?, manifestation_id),
+                content_sha256 = COALESCE(?, content_sha256),
+                classification_state = ?,
+                classification_json = ?,
+                processing_json = ?
+            WHERE url = ?
+            """,
+            (
+                result.get("source_id"),
+                result.get("manifestation_id"),
+                result.get("sha256"),
+                result["classification_state"],
+                json.dumps(result["classification"], ensure_ascii=False),
+                json.dumps(result, ensure_ascii=False),
                 url,
             ),
         )
@@ -1070,6 +1162,17 @@ def status_payload(con: sqlite3.Connection) -> dict[str, Any]:
             """
         )
     }
+    classification_counts = {
+        state: count
+        for state, count in con.execute(
+            """
+            SELECT classification_state, COUNT(*)
+            FROM dian_crawl_queue
+            GROUP BY classification_state
+            ORDER BY classification_state
+            """
+        )
+    }
 
     errors = [
         {
@@ -1077,10 +1180,12 @@ def status_payload(con: sqlite3.Connection) -> dict[str, Any]:
             "attempts": row[1],
             "next_attempt_at": row[2],
             "error": row[3],
+            "classification_state": row[4],
         }
         for row in con.execute(
             """
-            SELECT url, attempts, next_attempt_at, last_error
+            SELECT url, attempts, next_attempt_at, last_error,
+                   classification_state
             FROM dian_crawl_queue
             WHERE status = 'error'
             ORDER BY last_attempt_at DESC
@@ -1088,6 +1193,36 @@ def status_payload(con: sqlite3.Connection) -> dict[str, Any]:
             """
         )
     ]
+
+    hidden_review_items: list[dict[str, Any]] = []
+    rows = con.execute(
+        """
+        SELECT url, scope, item_type, status, extraction_id,
+               classification_state, manifestation_id
+        FROM dian_crawl_queue
+        WHERE item_type = 'index'
+          AND status = 'done'
+          AND extraction_id IS NULL
+          AND classification_state != ?
+        ORDER BY completed_at DESC, url
+        """,
+        (CONFIRMED_INDEX,),
+    ).fetchall()
+    for row in rows:
+        url, scope = str(row[0]), str(row[1])
+        if classify_url(url, scope=scope) != "document":
+            continue
+        hidden_review_items.append(
+            {
+                "url": url,
+                "item_type": row[2],
+                "status": row[3],
+                "extraction_id": row[4],
+                "classification_state": row[5],
+                "manifestation_id": row[6],
+                "reason": "DOCUMENT_ROUTE_STORED_AS_UNCONFIRMED_INDEX",
+            }
+        )
 
     source_count = con.execute(
         """
@@ -1108,13 +1243,23 @@ def status_payload(con: sqlite3.Connection) -> dict[str, Any]:
         """
     ).fetchone()[0]
 
+    error_count = sum(
+        count
+        for key, count in counts.items()
+        if key.endswith(":error")
+    )
     return {
         "queue": counts,
+        "classification": classification_counts,
         "normograma_sources": source_count,
         "normograma_manifestations": manifestation_count,
         "recent_errors": errors,
+        "review_required": {
+            "count": len(hidden_review_items),
+            "items": hidden_review_items[:10],
+        },
+        "meaningful_failure_count": error_count + len(hidden_review_items),
     }
-
 
 def main() -> int:
     parser = argparse.ArgumentParser(
@@ -1273,6 +1418,17 @@ def main() -> int:
                         "byte_size": byte_size,
                         "discovery": discovery,
                     }
+                    if classify_url(url, scope=scope) == "index":
+                        result["classification_state"] = CONFIRMED_INDEX
+                        result["classification"] = {
+                            "state": CONFIRMED_INDEX,
+                            "reason_code": "INDEX_ROUTE_CONFIRMED",
+                            "source_family": classify_source_url(url).family,
+                        }
+                    else:
+                        result["warnings"] = [
+                            "legacy index route is not confirmed by URL routing"
+                        ]
                     finish_item(
                         con,
                         url=url,
@@ -1317,6 +1473,34 @@ def main() -> int:
                             ),
                             "processed_this_run": processed,
                             "warnings": result.get("warnings", []),
+                        },
+                        ensure_ascii=False,
+                    ),
+                    flush=True,
+                )
+
+            except CrawlClassificationError as exc:
+                record_classification_failure(
+                    con,
+                    url=url,
+                    result=exc.result,
+                )
+                fail_item(
+                    con,
+                    url=url,
+                    attempts_before=attempts_before,
+                    error=exc,
+                    base_backoff=args.base_backoff,
+                    max_backoff=args.max_backoff,
+                )
+                print(
+                    json.dumps(
+                        {
+                            "event": "classification_error",
+                            "at": utc_now(),
+                            "item_type": item_type,
+                            "url": url,
+                            "classification": exc.result["classification"],
                         },
                         ensure_ascii=False,
                     ),
