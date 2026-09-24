@@ -423,5 +423,3 @@ Impacto: Determina si puede aplicarse la exclusión de información establecida 
 ## Regla de trazabilidad
 
 Este informe es una materialización determinística del estado registrado del caso. Las conclusiones jurídicas se leen de `claims`; su soporte se lee de `evidence`; las relaciones normativas se leen de `relationships`; las fuentes se derivan del grafo canónico de soporte; y los hechos pendientes se leen de `unresolved.json`. El informe no crea autoridad jurídica ni convierte hechos no confirmados en hechos probados.
-
-[executed on device: morichalserver (2bfaa62f-23ff-40e5-9fc7-7c1a7d28b1fc)]
