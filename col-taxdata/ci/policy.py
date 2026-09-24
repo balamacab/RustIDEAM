@@ -1,286 +1,335 @@
 #!/usr/bin/env python3
-"""Deterministic PR policy checks for the col-taxdata autonomous lifecycle."""
-
 from __future__ import annotations
 
 import argparse
 import fnmatch
 import json
-from pathlib import Path
+import os
 import re
 import subprocess
 import sys
-from typing import Iterable
+from pathlib import Path
+from typing import Any, Iterable
 
-METADATA_RE = re.compile(r"<!--\s*agent-execution:\s*(\{.*?\})\s*-->", re.IGNORECASE | re.DOTALL)
-BRANCH_RE = re.compile(r"^agent/issue-(\d+)-[a-z0-9][a-z0-9-]*$")
-CLOSING_RE = re.compile(r"(?im)\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s+#(\d+)\b")
-MIGRATION_RE = re.compile(r"^col-taxdata/schema/(\d{3})_[A-Za-z0-9_.-]+\.sql$")
-AUTHORIZED_GLOBAL_PREFIXES = (".github/workflows/", ".github/actions/")
-RUNTIME_ARTIFACT_RE = re.compile(
-    r"(^|/)(?:data|raw|corpus)(?:/|$)|\.(?:db|sqlite|sqlite3)(?:[-.]|$)", re.IGNORECASE
-)
+METADATA_MARKER = "col-taxdata-agent-metadata:"
+BRANCH_RE = re.compile(r"^agent/issue-(?P<issue>[1-9][0-9]*)-(?P<slug>[a-z0-9][a-z0-9-]*)$")
+CLOSING_RE = re.compile(r"(?im)\b(?:fixes|closes|resolves)\s+#([1-9][0-9]*)\b")
+SCHEMA_RE = re.compile(r"^col-taxdata/schema/[^/]+\.sql$")
+GLOBAL_WORKFLOW_RE = re.compile(r"^\.github/workflows/col-taxdata-[A-Za-z0-9_.-]+\.ya?ml$")
+GLOBAL_ACTION_RE = re.compile(r"^\.github/actions/col-taxdata(?:/|$)")
+FORBIDDEN_SUFFIXES = (".sqlite", ".sqlite3", ".db", ".db-wal", ".db-shm")
 SECRET_PATTERNS = (
-    ("private-key", re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----")),
-    ("github-token", re.compile(r"\bgh[opusr]_[A-Za-z0-9]{30,}\b")),
-    ("aws-access-key", re.compile(r"\bAKIA[0-9A-Z]{16}\b")),
-    ("generic-bearer", re.compile(r"(?i)\bBearer\s+[A-Za-z0-9._~+/=-]{32,}\b")),
+    ("private-key", re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----")),
+    ("github-token", re.compile(r"\b(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{30,}\b|\bgithub_pat_[A-Za-z0-9_]{40,}\b")),
+    ("aws-access-key", re.compile(r"\b(?:AKIA|ASIA)[A-Z0-9]{16}\b")),
+    ("openai-key", re.compile(r"\bsk-[A-Za-z0-9_-]{32,}\b")),
 )
-
 
 class PolicyError(ValueError):
-    """Raised when an autonomous PR violates a durable repository policy."""
+    pass
 
 
-def _git(repo_root: Path, *args: str) -> str:
-    result = subprocess.run(
-        ["git", *args],
-        cwd=repo_root,
-        check=False,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-    if result.returncode:
-        raise PolicyError(
-            f"git {' '.join(args)} failed ({result.returncode}): {result.stderr.strip()}"
-        )
-    return result.stdout
-
-
-def parse_metadata(pr_body: str) -> dict:
-    """Return validated machine-readable execution metadata from a PR body."""
-    match = METADATA_RE.search(pr_body or "")
-    if not match:
-        raise PolicyError("missing agent-execution JSON metadata comment")
+def parse_metadata(body: str) -> dict[str, Any]:
+    start = body.find(f"<!-- {METADATA_MARKER}")
+    if start < 0:
+        raise PolicyError("missing machine-readable col-taxdata agent metadata")
+    payload_start = start + len(f"<!-- {METADATA_MARKER}")
+    end = body.find("-->", payload_start)
+    if end < 0:
+        raise PolicyError("unterminated col-taxdata agent metadata marker")
+    raw = body[payload_start:end].strip()
     try:
-        value = json.loads(match.group(1))
+        data = json.loads(raw)
     except json.JSONDecodeError as exc:
-        raise PolicyError(f"invalid agent-execution JSON: {exc}") from exc
-    if not isinstance(value, dict):
-        raise PolicyError("agent-execution metadata must be a JSON object")
-
+        raise PolicyError(f"invalid agent metadata JSON: {exc}") from exc
+    if not isinstance(data, dict):
+        raise PolicyError("agent metadata must be a JSON object")
     required = {"base_sha", "parallel_safe", "semantic_domains", "likely_touched", "depends_on"}
-    missing = sorted(required - set(value))
+    missing = sorted(required - data.keys())
     if missing:
-        raise PolicyError(f"agent-execution metadata missing: {', '.join(missing)}")
-    if not re.fullmatch(r"[0-9a-f]{40}", str(value["base_sha"])):
-        raise PolicyError("base_sha must be a 40-character lowercase commit SHA")
-    if not isinstance(value["parallel_safe"], bool):
-        raise PolicyError("parallel_safe must be boolean")
-    for name in ("semantic_domains", "likely_touched", "depends_on"):
-        if not isinstance(value[name], list):
-            raise PolicyError(f"{name} must be an array")
-    if not value["semantic_domains"] or not all(
-        isinstance(item, str) and item.strip() for item in value["semantic_domains"]
-    ):
-        raise PolicyError("semantic_domains must contain at least one non-empty string")
-    if not value["likely_touched"] or not all(
-        isinstance(item, str) and item.strip() for item in value["likely_touched"]
-    ):
-        raise PolicyError("likely_touched must contain at least one non-empty path/glob")
-    if not all(isinstance(item, int) and item > 0 for item in value["depends_on"]):
-        raise PolicyError("depends_on entries must be positive issue numbers")
-    return value
+        raise PolicyError(f"agent metadata missing keys: {', '.join(missing)}")
+    if not isinstance(data["base_sha"], str) or not re.fullmatch(r"[0-9a-f]{40}", data["base_sha"]):
+        raise PolicyError("metadata base_sha must be a 40-character lowercase commit SHA")
+    if not isinstance(data["parallel_safe"], bool):
+        raise PolicyError("metadata parallel_safe must be boolean")
+    for key in ("semantic_domains", "likely_touched"):
+        if not isinstance(data[key], list) or not data[key] or not all(isinstance(v, str) and v.strip() for v in data[key]):
+            raise PolicyError(f"metadata {key} must be a non-empty string list")
+    if not isinstance(data["depends_on"], list) or not all(isinstance(v, int) and v > 0 for v in data["depends_on"]):
+        raise PolicyError("metadata depends_on must be a list of positive issue numbers")
+    return data
 
 
-def issue_number_from_branch(branch: str) -> int:
-    """Extract the owning issue number from the mandatory issue branch name."""
-    match = BRANCH_RE.fullmatch(branch or "")
+def closing_issue_number(body: str) -> int:
+    numbers = {int(v) for v in CLOSING_RE.findall(body)}
+    if len(numbers) != 1:
+        raise PolicyError("PR body must contain exactly one unique Fixes/Closes/Resolves #<issue> target")
+    return next(iter(numbers))
+
+
+def validate_branch(branch: str, issue_number: int) -> None:
+    match = BRANCH_RE.fullmatch(branch)
     if not match:
-        raise PolicyError("branch must match agent/issue-<number>-<lowercase-slug>")
-    return int(match.group(1))
+        raise PolicyError("implementation branch must match agent/issue-<number>-<slug>")
+    if int(match.group("issue")) != issue_number:
+        raise PolicyError("implementation branch issue number does not match PR closing target")
 
 
-def validate_issue_linkage(branch: str, pr_body: str) -> int:
-    """Ensure one issue owns the branch and closes only through merged PR syntax."""
-    issue_number = issue_number_from_branch(branch)
-    closing = [int(value) for value in CLOSING_RE.findall(pr_body or "")]
-    if closing != [issue_number]:
-        raise PolicyError(f"PR must contain exactly one closing reference: Fixes #{issue_number}")
-    return issue_number
+def is_col_taxdata_path(path: str) -> bool:
+    return path.startswith("col-taxdata/")
 
 
-def issue_authorizes_global_automation(issue_body: str) -> bool:
-    """Recognize explicit authority for repository automation paths conservatively."""
-    text = (issue_body or "").lower()
-    has_authority = any(term in text for term in ("authoriz", "writable scope", "may modify", "allowed"))
-    has_paths = ".github/workflows" in text or ".github/actions" in text
-    return has_authority and has_paths
+def is_dedicated_global_path(path: str) -> bool:
+    return bool(GLOBAL_WORKFLOW_RE.fullmatch(path) or GLOBAL_ACTION_RE.match(path))
 
 
-def changed_paths(repo_root: Path, base: str, head: str) -> list[str]:
-    output = _git(repo_root, "diff", "--name-only", "-M", f"{base}...{head}")
-    return sorted({line.strip() for line in output.splitlines() if line.strip()})
+def classify_paths(paths: Iterable[str]) -> tuple[bool, bool]:
+    paths = list(paths)
+    applicable = any(is_col_taxdata_path(p) or is_dedicated_global_path(p) for p in paths)
+    run_heavy = any(is_col_taxdata_path(p) and not p.startswith("col-taxdata/docs/") for p in paths)
+    return applicable, run_heavy
 
 
-def changed_name_status(repo_root: Path, base: str, head: str) -> list[tuple[str, str]]:
-    output = _git(repo_root, "diff", "--name-status", "-M", f"{base}...{head}")
-    rows: list[tuple[str, str]] = []
-    for line in output.splitlines():
+def issue_authorizes_global(issue_body: str, path: str) -> bool:
+    body = issue_body.lower()
+    if "writable-scope exception" not in body and "repository-global" not in body:
+        return False
+    if path.startswith(".github/workflows/"):
+        return ".github/workflows/" in body
+    if path.startswith(".github/actions/"):
+        return ".github/actions/" in body
+    return False
+
+
+def validate_scope(paths: Iterable[str], issue_body: str) -> list[str]:
+    violations: list[str] = []
+    for path in paths:
+        if is_col_taxdata_path(path):
+            continue
+        if is_dedicated_global_path(path) and issue_authorizes_global(issue_body, path):
+            continue
+        violations.append(path)
+    return violations
+
+
+def undeclared_paths(paths: Iterable[str], likely_touched: Iterable[str]) -> list[str]:
+    patterns = list(likely_touched)
+    return [path for path in paths if not any(fnmatch.fnmatchcase(path, pattern) for pattern in patterns)]
+
+
+def parse_name_status(text: str) -> list[tuple[str, list[str]]]:
+    changes: list[tuple[str, list[str]]] = []
+    for line in text.splitlines():
         if not line.strip():
             continue
         fields = line.split("\t")
-        rows.append((fields[0], fields[-1]))
-    return rows
+        changes.append((fields[0], fields[1:]))
+    return changes
 
 
-def _covered_by_declared_scope(path: str, declared: Iterable[str]) -> bool:
-    return any(fnmatch.fnmatch(path, pattern) for pattern in declared)
-
-
-def validate_scope(paths: Iterable[str], metadata: dict, issue_body: str) -> None:
-    """Reject changed paths outside selected-issue authority and declared scope."""
-    global_ok = issue_authorizes_global_automation(issue_body)
+def validate_migration_immutability(changes: Iterable[tuple[str, list[str]]]) -> list[str]:
     violations: list[str] = []
-    undeclared: list[str] = []
+    for status, paths in changes:
+        migration_paths = [p for p in paths if SCHEMA_RE.fullmatch(p)]
+        if not migration_paths:
+            continue
+        if not status.startswith("A"):
+            violations.extend(f"{status}:{p}" for p in migration_paths)
+    return violations
+
+
+def forbidden_artifacts(paths: Iterable[str]) -> list[str]:
+    bad: list[str] = []
     for path in paths:
-        if path.startswith("col-taxdata/"):
-            allowed = True
-        elif path.startswith(AUTHORIZED_GLOBAL_PREFIXES):
-            allowed = global_ok
-        else:
-            allowed = False
-        if not allowed:
-            violations.append(path)
-        if not _covered_by_declared_scope(path, metadata["likely_touched"]):
-            undeclared.append(path)
-    if violations:
-        raise PolicyError("unauthorized changed paths: " + ", ".join(sorted(violations)))
-    if undeclared:
-        raise PolicyError(
-            "changed paths not covered by likely_touched metadata: " + ", ".join(sorted(undeclared))
-        )
+        lower = path.lower()
+        if (
+            lower.startswith("col-taxdata/data/")
+            or lower.startswith("col-taxdata/raw/")
+            or lower.endswith(FORBIDDEN_SUFFIXES)
+        ):
+            bad.append(path)
+    return bad
 
 
-def validate_migration_immutability(
-    repo_root: Path,
-    base: str,
-    head: str,
-    name_status: Iterable[tuple[str, str]] | None = None,
-) -> None:
-    """Reject edits/deletes/renames of migrations and non-contiguous additions."""
-    rows = list(name_status or changed_name_status(repo_root, base, head))
-    schema_rows = [(status, path) for status, path in rows if path.startswith("col-taxdata/schema/")]
-    if not schema_rows:
-        return
-
-    base_listing = _git(repo_root, "ls-tree", "-r", "--name-only", base, "--", "col-taxdata/schema")
-    base_numbers: list[int] = []
-    for path in base_listing.splitlines():
-        match = MIGRATION_RE.fullmatch(path)
-        if match:
-            base_numbers.append(int(match.group(1)))
-    max_existing = max(base_numbers, default=0)
-
-    additions: list[int] = []
-    for status, path in schema_rows:
-        if status != "A":
-            raise PolicyError(f"applied migration history is immutable; {status} forbidden for {path}")
-        match = MIGRATION_RE.fullmatch(path)
-        if not match:
-            raise PolicyError(f"new migration has invalid ordered filename: {path}")
-        additions.append(int(match.group(1)))
-
-    expected = list(range(max_existing + 1, max_existing + 1 + len(additions)))
-    if sorted(additions) != expected:
-        raise PolicyError(
-            f"new migrations must be contiguous after {max_existing:03d}; got {sorted(additions)}"
-        )
+def migration_sequence_violations(repo_root: Path, base: str, changes: Iterable[tuple[str, list[str]]]) -> list[str]:
+    added: list[str] = []
+    for status, paths in changes:
+        if status.startswith("A"):
+            added.extend(path for path in paths if SCHEMA_RE.fullmatch(path))
+    if not added:
+        return []
+    base_paths = git_output(["ls-tree", "-r", "--name-only", base, "--", "col-taxdata/schema"], repo_root).splitlines()
+    def number(path: str) -> int | None:
+        match = re.search(r"/(\d+)_", path)
+        return int(match.group(1)) if match else None
+    existing = [n for path in base_paths if (n := number(path)) is not None]
+    new_numbers = sorted(n for path in added if (n := number(path)) is not None)
+    if len(new_numbers) != len(added):
+        return ["new migration filename must begin with an integer sequence"]
+    expected_start = (max(existing) + 1) if existing else 1
+    expected = list(range(expected_start, expected_start + len(new_numbers)))
+    if new_numbers != expected:
+        return [f"new migration numbers {new_numbers} are not contiguous; expected {expected}"]
+    return []
 
 
-def validate_runtime_artifacts(paths: Iterable[str]) -> None:
-    bad = sorted(path for path in paths if RUNTIME_ARTIFACT_RE.search(path))
-    if bad:
-        raise PolicyError("runtime/raw corpus artifacts must not be committed: " + ", ".join(bad))
-
-
-def validate_added_secrets(repo_root: Path, base: str, head: str) -> None:
-    """Scan only added diff lines for high-confidence credential signatures."""
-    diff = _git(repo_root, "diff", "--unified=0", "--no-color", f"{base}...{head}")
+def scan_secrets(repo_root: Path, paths: Iterable[str]) -> list[str]:
     findings: list[str] = []
-    current_path = ""
-    for line in diff.splitlines():
-        if line.startswith("+++ b/"):
-            current_path = line[6:]
+    for rel in paths:
+        path = repo_root / rel
+        if not path.is_file() or path.stat().st_size > 2_000_000:
             continue
-        if not line.startswith("+") or line.startswith("+++"):
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (UnicodeDecodeError, OSError):
             continue
-        added = line[1:]
         for name, pattern in SECRET_PATTERNS:
-            if pattern.search(added):
-                findings.append(f"{current_path}:{name}")
-    if findings:
-        raise PolicyError("possible committed secrets detected: " + ", ".join(findings))
+            if pattern.search(text):
+                findings.append(f"{rel}:{name}")
+    return findings
 
 
-def validate_pr(
-    repo_root: Path,
-    base: str,
-    head: str,
-    branch: str,
-    pr_body: str,
-    issue_body: str,
-) -> dict:
-    """Run all deterministic PR gates and return workflow-friendly results."""
-    issue_number = validate_issue_linkage(branch, pr_body)
-    metadata = parse_metadata(pr_body)
-    paths = changed_paths(repo_root, base, head)
-    statuses = changed_name_status(repo_root, base, head)
-    if not paths:
-        raise PolicyError("PR contains no changed files")
-    validate_scope(paths, metadata, issue_body)
-    validate_runtime_artifacts(paths)
-    validate_migration_immutability(repo_root, base, head, statuses)
-    validate_added_secrets(repo_root, base, head)
-    return {
+def git_output(args: list[str], cwd: Path) -> str:
+    proc = subprocess.run(["git", *args], cwd=cwd, check=True, text=True, stdout=subprocess.PIPE)
+    return proc.stdout
+
+
+def changed_state(repo_root: Path, base: str) -> tuple[list[str], list[tuple[str, list[str]]]]:
+    status_text = git_output(["diff", "--name-status", f"{base}...HEAD"], repo_root)
+    changes = parse_name_status(status_text)
+    paths: list[str] = []
+    for _, changed_paths in changes:
+        paths.extend(changed_paths)
+    return sorted(set(paths)), changes
+
+
+def write_output(name: str, value: str) -> None:
+    output = os.environ.get("GITHUB_OUTPUT")
+    if output:
+        with open(output, "a", encoding="utf-8") as fh:
+            fh.write(f"{name}={value}\n")
+
+
+def load_json(path: str) -> dict[str, Any]:
+    data = json.loads(Path(path).read_text(encoding="utf-8"))
+    if not isinstance(data, dict):
+        raise PolicyError(f"expected JSON object in {path}")
+    return data
+
+
+def pr_fields(pr_json: dict[str, Any]) -> tuple[str, str, str]:
+    body = pr_json.get("body") or ""
+    head = pr_json.get("head") or {}
+    base = pr_json.get("base") or {}
+    return body, str(head.get("ref") or ""), str(base.get("sha") or "")
+
+
+def cmd_classify(args: argparse.Namespace) -> int:
+    root = Path(args.repo_root).resolve()
+    paths, _ = changed_state(root, args.base)
+    applicable, heavy = classify_paths(paths)
+    write_output("applicable", str(applicable).lower())
+    write_output("run_heavy", str(heavy).lower())
+    print(json.dumps({"applicable": applicable, "run_heavy": heavy, "changed_paths": paths}, indent=2))
+    return 0
+
+
+def cmd_issue_number(args: argparse.Namespace) -> int:
+    pr = load_json(args.pr_json)
+    body, _, _ = pr_fields(pr)
+    number = closing_issue_number(body)
+    write_output("issue_number", str(number))
+    print(number)
+    return 0
+
+
+def cmd_metadata_domains(args: argparse.Namespace) -> int:
+    pr = load_json(args.pr_json)
+    body, _, _ = pr_fields(pr)
+    metadata = parse_metadata(body)
+    print(json.dumps(metadata["semantic_domains"], separators=(",", ":")))
+    return 0
+
+
+def cmd_validate(args: argparse.Namespace) -> int:
+    root = Path(args.repo_root).resolve()
+    pr = load_json(args.pr_json)
+    issue = load_json(args.issue_json)
+    body, branch, _ = pr_fields(pr)
+    issue_body = issue.get("body") or ""
+    paths, changes = changed_state(root, args.base)
+    applicable, heavy = classify_paths(paths)
+    write_output("applicable", str(applicable).lower())
+    write_output("run_heavy", str(heavy).lower())
+    if not applicable:
+        print("col-taxdata policy: not applicable to this PR")
+        return 0
+
+    issue_number = closing_issue_number(body)
+    validate_branch(branch, issue_number)
+    metadata = parse_metadata(body)
+    if int(issue.get("number") or 0) != issue_number:
+        raise PolicyError("fetched issue does not match PR closing target")
+    violations = validate_scope(paths, issue_body)
+    if violations:
+        raise PolicyError("unauthorized changed paths: " + ", ".join(violations))
+    undeclared = undeclared_paths(paths, metadata["likely_touched"])
+    if undeclared:
+        raise PolicyError("changed paths not declared by likely_touched metadata: " + ", ".join(undeclared))
+    migrations = validate_migration_immutability(changes)
+    if migrations:
+        raise PolicyError("applied migration mutation detected: " + ", ".join(migrations))
+    sequence = migration_sequence_violations(root, args.base, changes)
+    if sequence:
+        raise PolicyError("; ".join(sequence))
+    artifacts = forbidden_artifacts(paths)
+    if artifacts:
+        raise PolicyError("runtime/database artifact committed: " + ", ".join(artifacts))
+    secrets = scan_secrets(root, paths)
+    if secrets:
+        raise PolicyError("high-confidence secret material detected: " + ", ".join(secrets))
+
+    write_output("issue_number", str(issue_number))
+    write_output("semantic_domains", json.dumps(metadata["semantic_domains"], separators=(",", ":")))
+    print(json.dumps({
         "issue_number": issue_number,
+        "branch": branch,
         "metadata": metadata,
         "changed_paths": paths,
-        "run_heavy": any(path.startswith("col-taxdata/") for path in paths),
-        "repository_automation_changed": any(path.startswith(".github/") for path in paths),
-    }
+        "run_heavy": heavy,
+        "result": "PASS",
+    }, indent=2))
+    return 0
 
 
-def _write_github_output(path: str | None, result: dict) -> None:
-    if not path:
-        return
-    with Path(path).open("a", encoding="utf-8") as handle:
-        handle.write(f"issue_number={result['issue_number']}\n")
-        handle.write(f"run_heavy={'true' if result['run_heavy'] else 'false'}\n")
-        handle.write(
-            "repository_automation_changed="
-            + ("true" if result["repository_automation_changed"] else "false")
-            + "\n"
-        )
-
-
-def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--repo-root", default=".")
-    parser.add_argument("--base", required=True)
-    parser.add_argument("--head", required=True)
-    parser.add_argument("--branch", required=True)
-    parser.add_argument("--pr-body-file", required=True)
-    parser.add_argument("--issue-body-file", required=True)
-    parser.add_argument("--github-output")
-    args = parser.parse_args(argv)
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Deterministic CI policy for col-taxdata autonomous PRs")
+    sub = parser.add_subparsers(dest="command", required=True)
+    p = sub.add_parser("classify")
+    p.add_argument("--repo-root", default=".")
+    p.add_argument("--base", required=True)
+    p.set_defaults(func=cmd_classify)
+    p = sub.add_parser("issue-number")
+    p.add_argument("--pr-json", required=True)
+    p.set_defaults(func=cmd_issue_number)
+    p = sub.add_parser("metadata-domains")
+    p.add_argument("--pr-json", required=True)
+    p.set_defaults(func=cmd_metadata_domains)
+    p = sub.add_parser("validate")
+    p.add_argument("--repo-root", default=".")
+    p.add_argument("--base", required=True)
+    p.add_argument("--pr-json", required=True)
+    p.add_argument("--issue-json", required=True)
+    p.set_defaults(func=cmd_validate)
+    args = parser.parse_args()
     try:
-        result = validate_pr(
-            repo_root=Path(args.repo_root).resolve(),
-            base=args.base,
-            head=args.head,
-            branch=args.branch,
-            pr_body=Path(args.pr_body_file).read_text(encoding="utf-8"),
-            issue_body=Path(args.issue_body_file).read_text(encoding="utf-8"),
-        )
-    except (OSError, PolicyError) as exc:
+        return args.func(args)
+    except (PolicyError, subprocess.CalledProcessError) as exc:
         print(f"POLICY FAIL: {exc}", file=sys.stderr)
         return 2
-    _write_github_output(args.github_output, result)
-    print(json.dumps(result, indent=2, sort_keys=True))
-    return 0
 
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
+[executed on device: morichalserver (2bfaa62f-23ff-40e5-9fc7-7c1a7d28b1fc)]
