@@ -97,13 +97,18 @@ jobs:
         run: python3 -m unittest discover -s tests -p 'test_*.py' -v
 
   gate:
-    name: CI Gate
+    name: Trusted CI Gate
     needs: [policy, policy-tests, project-tests]
     if: always()
+    permissions:
+      checks: write
+      contents: read
     runs-on: ubuntu-latest
     steps:
-      - name: Enforce required outcomes
+      - name: Publish required CI Gate on exact candidate head
         env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ needs.policy.outputs.head_sha }}
           POLICY: ${{ needs.policy.result }}
           APPLICABLE: ${{ needs.policy.outputs.applicable }}
           POLICY_TESTS: ${{ needs.policy-tests.result }}
@@ -111,9 +116,19 @@ jobs:
           PROJECT_TESTS: ${{ needs.project-tests.result }}
         run: |
           set -euo pipefail
-          test "$POLICY" = "success"
-          if [ "$APPLICABLE" = "true" ]; then test "$POLICY_TESTS" = "success"; fi
-          if [ "$RUN_HEAVY" = "true" ]; then test "$PROJECT_TESTS" = "success"; fi
+          CONCLUSION=success
+          if [ "$POLICY" != "success" ]; then CONCLUSION=failure; fi
+          if [ "$APPLICABLE" = "true" ] && [ "$POLICY_TESTS" != "success" ]; then CONCLUSION=failure; fi
+          if [ "$RUN_HEAVY" = "true" ] && [ "$PROJECT_TESTS" != "success" ]; then CONCLUSION=failure; fi
+          test -n "$HEAD_SHA"
+          gh api -X POST "repos/$GITHUB_REPOSITORY/check-runs" \
+            -f name='CI Gate' \
+            -f head_sha="$HEAD_SHA" \
+            -f status=completed \
+            -f conclusion="$CONCLUSION" \
+            -f output[title]="col-taxdata autonomous validation: $CONCLUSION" \
+            -f output[summary]="Trusted default-branch workflow validated candidate $HEAD_SHA"
+          test "$CONCLUSION" = "success"
 
   complete-dispatched-lifecycle:
     name: Complete dispatched lifecycle
