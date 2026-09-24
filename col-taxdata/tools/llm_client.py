@@ -25,19 +25,26 @@ CASE_STRUCTURING_UNAVAILABLE = "CASE_STRUCTURING_UNAVAILABLE"
 CASE_CONTEXT_LIMIT = "CASE_CONTEXT_LIMIT"
 
 PROMPT_TEMPLATE_ID = "case-structuring-v3"
-PROMPT_TEMPLATE_VERSION = "2"
+PROMPT_TEMPLATE_VERSION = "3"
 
 SYSTEM_PROMPT = """You structure a Colombian legal/tax case into the supplied JSON schema.
-The application owns problem_text, as_of_date, and client_reference. They are
-present in the input context but are not model output fields; never emit or
-rewrite them. Facts explicitly stated by the client use state=user_provided, a verbatim
-source_quote, and requires_confirmation=false. llm_normalized and llm_inferred
-facts always use requires_confirmation=true. missing and ambiguous facts always
-use requires_confirmation=true and needed_information. Unknown required facts
-remain missing/ambiguous. Every legal conclusion is only a candidate_claim. Never emit canonical/persistence document, provision, evidence,
-manifestation, segment, relationship, source, claim, or case identifiers. Target hints
-may contain ordinary human-readable legal references or search phrases only.
-Do not assert that a candidate is validated and do not invent evidence."""
+The response schema pins problem_text, as_of_date, and client_reference to the
+exact client-owned values and presence/absence. Emit them exactly as constrained;
+never rewrite, normalize, omit, or manufacture them.
+Only problem_text is client fact source text. analysis_context.as_of_date is a
+temporal analysis parameter, not a user-provided fact or source quote.
+client_reference is correlation metadata and is intentionally not model context.
+Never create a CaseFact from either metadata field unless the same information is
+also stated verbatim inside problem_text. Every user_provided fact must use a
+source_quote copied verbatim from problem_text and requires_confirmation=false.
+llm_normalized and llm_inferred facts always use requires_confirmation=true.
+missing and ambiguous facts always use requires_confirmation=true and
+needed_information. Unknown required facts remain missing/ambiguous. Every legal
+conclusion is only a candidate_claim. Never emit canonical/persistence document,
+provision, evidence, manifestation, segment, relationship, source, claim, or case
+identifiers. Target hints may contain ordinary human-readable legal references or
+search phrases only. Do not assert that a candidate is validated and do not
+invent evidence."""
 
 
 class LLMClientError(RuntimeError):
@@ -91,7 +98,7 @@ class LLMClient(Protocol):
         case_input: dict[str, Any],
         route: ModelRoute,
     ) -> dict[str, Any]:
-        """Return model-owned CaseDraft fields, excluding application-owned fields."""
+        """Return model-produced CaseDraft fields; app adds only model_metadata."""
 
 
 def utc_now() -> str:
@@ -150,14 +157,22 @@ def _compact_json(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
 
 
+def _model_input_context(case_input: dict[str, Any]) -> dict[str, Any]:
+    """Expose analytical input while keeping correlation metadata out of model facts."""
+    context: dict[str, Any] = {"problem_text": case_input["problem_text"]}
+    if "as_of_date" in case_input:
+        context["analysis_context"] = {"as_of_date": case_input["as_of_date"]}
+    return context
+
+
 def _estimate_request_tokens(
     *,
-    case_input: dict[str, Any],
+    model_input: dict[str, Any],
     response_schema: dict[str, Any],
     chars_per_token: float,
 ) -> tuple[int, int]:
     serialized_chars = len(SYSTEM_PROMPT)
-    serialized_chars += len(_compact_json(case_input))
+    serialized_chars += len(_compact_json(model_input))
     serialized_chars += len(_compact_json(response_schema))
     estimated_tokens = math.ceil(serialized_chars / max(chars_per_token, 1.0))
     return serialized_chars, estimated_tokens
@@ -189,9 +204,10 @@ class OpenAICompatibleLLMClient:
         case_input: dict[str, Any],
         route: ModelRoute,
     ) -> dict[str, Any]:
-        response_schema = case_draft_response_schema()
+        response_schema = case_draft_response_schema(case_input)
+        model_input = _model_input_context(case_input)
         char_count, estimated_tokens = _estimate_request_tokens(
-            case_input=case_input,
+            model_input=model_input,
             response_schema=response_schema,
             chars_per_token=self.config.chars_per_token_estimate,
         )
@@ -237,7 +253,7 @@ class OpenAICompatibleLLMClient:
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {
                     "role": "user",
-                    "content": _compact_json(case_input),
+                    "content": _compact_json(model_input),
                 },
             ],
             "response_format": {
@@ -364,24 +380,7 @@ class CaseStructuringService:
                 "model must not supply app-owned model_metadata",
             )
 
-        client_fields = ("problem_text", "as_of_date", "client_reference")
-        for name in client_fields:
-            if name not in payload:
-                continue
-            if name not in case_input or payload[name] != case_input[name]:
-                raise CaseContractError(
-                    INVALID_CASE_DRAFT,
-                    f"model attempted to modify app-owned client field {name!r}",
-                )
-
         draft = deepcopy(payload)
-        for name in client_fields:
-            draft.pop(name, None)
-        draft["problem_text"] = case_input["problem_text"]
-        for name in ("as_of_date", "client_reference"):
-            if name in case_input:
-                draft[name] = case_input[name]
-
         draft["model_metadata"] = {
             "adapter": self.client.adapter_id,
             "provider": self.client.provider_id,
