@@ -120,6 +120,29 @@ python3 tools/init_db.py
 
 The initializer applies ordered SQL migrations once and records each migration SHA-256 in `schema_metadata`. If an already-applied migration changes on disk, initialization stops rather than silently accepting schema drift.
 
+## Corpus doctor / invariant validator
+
+Run routine read-only validation from `col-taxdata/`:
+
+```bash
+python3 tools/doctor.py
+```
+
+The default quick mode checks structural/database invariants without hashing every corpus file. Use full mode for complete registered raw and normalized/extracted artifact SHA-256 verification:
+
+```bash
+python3 tools/doctor.py --full
+```
+
+Machine-readable output and focused invariant families are available without changing validation semantics:
+
+```bash
+python3 tools/doctor.py --format json
+python3 tools/doctor.py --scope provenance --scope identity
+```
+
+The doctor opens SQLite in read-only/query-only mode and has no repair path. Stable check IDs are grouped by invariant family; each result is `PASS`, `WARN`, `INFO`, or `ERROR`. Exit status is `0` when no ERROR exists, `1` when one or more invariant checks report ERROR, and `2` when the validator itself cannot execute safely. Full hashing is intentionally explicit because it can be expensive on a large corpus.
+
 ## Evidence preservation
 
 `tools/fetch_source.py`:
@@ -155,7 +178,6 @@ These are **not current implementation**:
 
 - Ports and Adapters / persistence decoupling — GitHub issue #10;
 - complete code/config/runtime execution-provenance manifests — issue #11;
-- corpus doctor/invariant validator — issue #12;
 - PostgreSQL/Redis persistence adapters;
 - a graph database;
 - an MCP/RAG layer with authority to overwrite canonical/evidence state.
