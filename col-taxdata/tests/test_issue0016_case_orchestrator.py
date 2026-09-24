@@ -20,6 +20,7 @@ from case_application import analyze_case
 from case_contract_validation import (
     CaseContractError,
     INVALID_CASE_DRAFT,
+    case_draft_response_schema,
     INVALID_CASE_RESULT,
     validate_case_result,
 )
@@ -363,6 +364,38 @@ class Issue0016ContractAndRoutingTests(unittest.TestCase):
             CaseStructuringService(
                 make_config(), FakeLLMClient([bad])
             ).structure(case_input())
+
+    def test_model_schema_expands_case_fact_state_constraints(self):
+        schema = case_draft_response_schema()
+        variants = schema["$defs"]["CaseFact"]["oneOf"]
+        states = {
+            item["properties"]["state"]["const"]: item
+            for item in variants
+        }
+        self.assertEqual(
+            set(states),
+            {
+                "user_provided",
+                "llm_normalized",
+                "llm_inferred",
+                "missing",
+                "ambiguous",
+            },
+        )
+        self.assertFalse(
+            states["user_provided"]["properties"][
+                "requires_confirmation"
+            ]["const"]
+        )
+        self.assertIn("source_quote", states["user_provided"]["required"])
+        for state in ("llm_normalized", "llm_inferred", "missing", "ambiguous"):
+            self.assertTrue(
+                states[state]["properties"][
+                    "requires_confirmation"
+                ]["const"]
+            )
+        self.assertIn("needed_information", states["missing"]["required"])
+        self.assertIn("needed_information", states["ambiguous"]["required"])
 
     def test_hallucinated_canonical_hint_is_rejected(self):
         payload = model_payload()
