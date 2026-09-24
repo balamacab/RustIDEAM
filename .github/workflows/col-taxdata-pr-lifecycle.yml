@@ -1,0 +1,133 @@
+name: col-taxdata PR Lifecycle
+
+on:
+  workflow_run:
+    workflows: [col-taxdata CI]
+    types: [completed]
+
+permissions:
+  actions: read
+  contents: write
+  issues: write
+  pull-requests: write
+  statuses: read
+
+concurrency:
+  group: col-taxdata-finalize-\${{ github.event.workflow_run.head_branch }}
+  cancel-in-progress: false
+
+jobs:
+  finalize:
+    if: github.event.workflow_run.event == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout trusted main control scripts
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Resolve PR context
+        id: pr
+        env:
+          GH_TOKEN: \${{ github.token }}
+        run: |
+          set -euo pipefail
+          PR_NUMBER="$(gh api "repos/\${GITHUB_REPOSITORY}/actions/runs/\${{ github.event.workflow_run.id }}" --jq '.pull_requests[0].number // empty')"
+          if [[ -z "$PR_NUMBER" ]]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          gh api "repos/\${GITHUB_REPOSITORY}/pulls/\${PR_NUMBER}" > /tmp/pr.json
+          python3 - <<'PY'
+          import json, os, pathlib, re
+          pr = json.loads(pathlib.Path("/tmp/pr.json").read_text())
+          branch = pr["head"]["ref"]
+          match = re.fullmatch(r"agent/issue-(\d+)-[a-z0-9][a-z0-9-]*", branch)
+          if not match:
+              raise SystemExit("autonomous lifecycle only accepts issue-owned branches")
+          meta = re.search(r"<!--\s*agent-execution:\s*(\{.*?\})\s*-->", pr.get("body") or "", re.S)
+          if not meta:
+              raise SystemExit("missing agent execution metadata")
+          metadata = json.loads(meta.group(1))
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
+              out.write("skip=false\n")
+              out.write(f"number={pr['number']}\n")
+              out.write(f"issue={match.group(1)}\n")
+              out.write(f"head_sha={pr['head']['sha']}\n")
+              out.write("domains=" + json.dumps(metadata["semantic_domains"], separators=(",", ":")) + "\n")
+          PY
+
+      - name: Reactivate after CI failure
+        if: steps.pr.outputs.skip != 'true' && github.event.workflow_run.conclusion != 'success'
+        env:
+          GITHUB_TOKEN: \${{ github.token }}
+        run: |
+          python3 col-taxdata/ci/agent_control.py \
+            --repo "$GITHUB_REPOSITORY" \
+            --issue "\${{ steps.pr.outputs.issue }}" \
+            --pr "\${{ steps.pr.outputs.number }}" \
+            --head-sha "\${{ steps.pr.outputs.head_sha }}" \
+            --reason CI_FAILED \
+            --semantic-domains-json '\${{ steps.pr.outputs.domains }}'
+
+      - name: Inspect current mergeability and convergence
+        if: steps.pr.outputs.skip != 'true' && github.event.workflow_run.conclusion == 'success'
+        id: gate
+        env:
+          GH_TOKEN: \${{ github.token }}
+        run: |
+          set -euo pipefail
+          PR="\${{ steps.pr.outputs.number }}"
+          STATE="unknown"
+          for attempt in 1 2 3; do
+            STATE="$(gh api "repos/\${GITHUB_REPOSITORY}/pulls/\${PR}" --jq '.mergeable_state // "unknown"')"
+            [[ "$STATE" != "unknown" ]] && break
+            sleep 2
+          done
+          MAIN_SHA="$(gh api "repos/\${GITHUB_REPOSITORY}/git/ref/heads/main" --jq '.object.sha')"
+          CONVERGENCE="$(gh api "repos/\${GITHUB_REPOSITORY}/commits/\${MAIN_SHA}/status" --jq '[.statuses[] | select(.context=="col-taxdata-convergence")][0].state // "absent"')"
+          echo "mergeable_state=\${STATE}" >> "$GITHUB_OUTPUT"
+          echo "convergence=\${CONVERGENCE}" >> "$GITHUB_OUTPUT"
+
+      - name: Resume stale branch
+        if: steps.gate.outputs.mergeable_state == 'behind'
+        env:
+          GITHUB_TOKEN: \${{ github.token }}
+        run: |
+          python3 col-taxdata/ci/agent_control.py --repo "$GITHUB_REPOSITORY" \
+            --issue "\${{ steps.pr.outputs.issue }}" --pr "\${{ steps.pr.outputs.number }}" \
+            --head-sha "\${{ steps.pr.outputs.head_sha }}" --reason NEEDS_REBASE \
+            --semantic-domains-json '\${{ steps.pr.outputs.domains }}'
+
+      - name: Resume textual conflict
+        if: steps.gate.outputs.mergeable_state == 'dirty'
+        env:
+          GITHUB_TOKEN: \${{ github.token }}
+        run: |
+          python3 col-taxdata/ci/agent_control.py --repo "$GITHUB_REPOSITORY" \
+            --issue "\${{ steps.pr.outputs.issue }}" --pr "\${{ steps.pr.outputs.number }}" \
+            --head-sha "\${{ steps.pr.outputs.head_sha }}" --reason MERGE_CONFLICT \
+            --semantic-domains-json '\${{ steps.pr.outputs.domains }}'
+
+      - name: Block failed convergence
+        if: steps.gate.outputs.convergence == 'failure' || steps.gate.outputs.convergence == 'pending'
+        env:
+          GITHUB_TOKEN: \${{ github.token }}
+        run: |
+          python3 col-taxdata/ci/agent_control.py --repo "$GITHUB_REPOSITORY" \
+            --issue "\${{ steps.pr.outputs.issue }}" --pr "\${{ steps.pr.outputs.number }}" \
+            --head-sha "\${{ steps.pr.outputs.head_sha }}" --reason SEMANTIC_REVALIDATION_REQUIRED \
+            --semantic-domains-json '\${{ steps.pr.outputs.domains }}'
+
+      - name: Squash merge validated current PR
+        if: >
+          steps.gate.outputs.mergeable_state == 'clean' &&
+          steps.gate.outputs.convergence != 'failure' &&
+          steps.gate.outputs.convergence != 'pending'
+        env:
+          GH_TOKEN: \${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api -X PUT "repos/\${GITHUB_REPOSITORY}/pulls/\${{ steps.pr.outputs.number }}/merge" \
+            -f merge_method=squash -f sha="\${{ steps.pr.outputs.head_sha }}" \
+            --jq '.merged' | grep -qx true
