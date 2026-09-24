@@ -523,6 +523,55 @@ def case_draft_response_schema() -> dict[str, Any]:
         name for name in draft["required"] if name != "model_metadata"
     ]
     draft["properties"].pop("model_metadata", None)
+
+    # llama.cpp constrained generation does not reliably enforce JSON-Schema
+    # conditional if/then branches. Preserve the authoritative CaseFact
+    # semantics while expressing them to the model as explicit oneOf variants.
+    fact = definitions["CaseFact"]
+    fact_properties = deepcopy(fact["properties"])
+    fact_required = list(fact["required"])
+
+    def fact_variant(
+        state: str,
+        *,
+        requires_confirmation: bool,
+        additional_required: list[str] | None = None,
+    ) -> dict[str, Any]:
+        properties = deepcopy(fact_properties)
+        properties["state"] = {"const": state}
+        properties["requires_confirmation"] = {"const": requires_confirmation}
+        required = list(fact_required)
+        for name in additional_required or []:
+            if name not in required:
+                required.append(name)
+        return {
+            "type": "object",
+            "additionalProperties": False,
+            "required": required,
+            "properties": properties,
+        }
+
+    definitions["CaseFact"] = {
+        "oneOf": [
+            fact_variant(
+                "user_provided",
+                requires_confirmation=False,
+                additional_required=["source_quote"],
+            ),
+            fact_variant("llm_normalized", requires_confirmation=True),
+            fact_variant("llm_inferred", requires_confirmation=True),
+            fact_variant(
+                "missing",
+                requires_confirmation=True,
+                additional_required=["needed_information"],
+            ),
+            fact_variant(
+                "ambiguous",
+                requires_confirmation=True,
+                additional_required=["needed_information"],
+            ),
+        ]
+    }
     return {
         "$schema": root["$schema"],
         "$defs": definitions,
