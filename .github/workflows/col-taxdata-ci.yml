@@ -24,6 +24,7 @@ jobs:
       run_heavy: ${{ steps.scope.outputs.run_heavy }}
       issue_number: ${{ steps.validate.outputs.issue_number }}
       semantic_domains: ${{ steps.validate.outputs.semantic_domains }}
+      pr_number: ${{ steps.resolve.outputs.pr_number }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -97,3 +98,30 @@ jobs:
           test "$POLICY" = "success"
           if [ "$APPLICABLE" = "true" ]; then test "$POLICY_TESTS" = "success"; fi
           if [ "$RUN_HEAVY" = "true" ]; then test "$PROJECT_TESTS" = "success"; fi
+
+  complete-dispatched-lifecycle:
+    name: Complete dispatched lifecycle
+    needs: [policy, gate]
+    if: github.event_name == 'workflow_dispatch' && needs.gate.result == 'success' && needs.policy.outputs.applicable == 'true'
+    permissions:
+      actions: write
+      contents: write
+      issues: write
+      pull-requests: write
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+      - name: Re-enter autonomous lifecycle
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ needs.policy.outputs.pr_number }}
+          CI_HEAD_SHA: ${{ github.sha }}
+        run: >-
+          python3 col-taxdata/ci/agent_control.py lifecycle
+          --repo "$REPOSITORY"
+          --pr "$PR_NUMBER"
+          --ci-conclusion success
+          --ci-head-sha "$CI_HEAD_SHA"
