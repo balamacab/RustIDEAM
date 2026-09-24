@@ -97,5 +97,3 @@ jobs:
           test "$POLICY" = "success"
           if [ "$APPLICABLE" = "true" ]; then test "$POLICY_TESTS" = "success"; fi
           if [ "$RUN_HEAVY" = "true" ]; then test "$PROJECT_TESTS" = "success"; fi
-
-[executed on device: morichalserver (2bfaa62f-23ff-40e5-9fc7-7c1a7d28b1fc)]
