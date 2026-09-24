@@ -88,7 +88,7 @@ items:
 
   - id: DEF-0009
     type: defect
-    status: implementing
+    status: verified
     area: document-lifecycle
     spec: specs/defects/DEF-0009-unreferenced-document-lifecycle.md
     github_issue: 19
