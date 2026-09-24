@@ -91,3 +91,33 @@ expands the same CaseFact conditions into explicit `oneOf` state variants so
 constrained generation has direct constants/required fields for each state.
 The system prompt states the same rules. Final CaseDraft validation continues
 to run against the untouched authoritative v3 schema.
+
+
+### Final merged-runtime acceptance failure and recovery
+
+A bounded validation of the final PR #40 merge
+`b7f40353776d6f44ad9afe17f2d04cf7489bb997` reached the real
+llama.cpp/Qwen3 backend with thinking disabled and the model-facing CaseFact
+constraints in place, but the accepted CaseDraft still failed because the model
+omitted an immutable client-owned optional field:
+
+```text
+INVALID_CASE_DRAFT: $.as_of_date: client field presence/absence was not preserved
+```
+
+This is an application-boundary defect, not a reason to weaken the v3 contract.
+The recovery makes `problem_text`, `as_of_date` and `client_reference`
+application-owned during model generation: they remain visible to the model as
+input context, are excluded from the model-facing output schema, and are copied
+exactly from the retained CaseInput into the final CaseDraft before authoritative
+v3 validation. A model that nevertheless echoes one of these fields with a
+different/manufactured value is rejected.
+
+The OpenAI-compatible adapter also verifies the backend response's `model`
+identifier against the requested route before the application records
+`model_metadata.model`. This prevents review/primary routing metadata from
+claiming a configured model that the selected backend did not actually serve.
+
+The historical failing observations above remain preserved. Final runtime PASS
+evidence must be appended only after the recovery branch passes repository CI
+and the merged-code-equivalent primary-model validation succeeds.
