@@ -74,5 +74,3 @@ jobs:
           --pr "$PR_NUMBER"
           --ci-conclusion "$CI_CONCLUSION"
           --ci-head-sha "$CI_HEAD_SHA"
-
-[executed on device: morichalserver (2bfaa62f-23ff-40e5-9fc7-7c1a7d28b1fc)]
