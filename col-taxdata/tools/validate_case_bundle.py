@@ -7,6 +7,7 @@ import sqlite3
 from pathlib import Path
 
 from materialize_case_report import render_report
+from materialize_case_sources import render_source_manifest
 
 
 def load_manifest(case_dir: Path) -> dict:
@@ -114,6 +115,16 @@ def validate_case(
         item["id"]
         for item in manifest.get("sources", [])
     }
+    stored_source_manifest = (
+        case_dir / "sources" / "manifest.json"
+    ).read_text(encoding="utf-8")
+    generated_source_manifest = render_source_manifest(
+        con,
+        case_id=case_id,
+    )
+    source_manifest_matches_materializer = (
+        stored_source_manifest == generated_source_manifest
+    )
 
     orphan_case_items = con.execute(
         """
@@ -238,6 +249,10 @@ def validate_case(
         errors.append("manifest_case_id_mismatch")
     if not manifest_matches_sqlite:
         errors.append("manifest_sources_do_not_match_sqlite")
+    if not source_manifest_matches_materializer:
+        errors.append(
+            "source_manifest_not_materialized_from_canonical_state"
+        )
     if orphan_case_items:
         errors.append("orphan_case_items")
     if unsupported_validated_claims:
@@ -264,6 +279,8 @@ def validate_case(
         "sqlite_sources": sorted(db_sources),
         "manifest_sources": sorted(manifest_sources),
         "manifest_matches_sqlite": manifest_matches_sqlite,
+        "source_manifest_matches_materializer":
+            source_manifest_matches_materializer,
         "report_matches_materializer": report_matches_materializer,
         "orphan_case_items": [
             {"item_type": row[0], "item_id": row[1]}

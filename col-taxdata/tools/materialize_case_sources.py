@@ -40,6 +40,47 @@ def canonical_case_sources(
     return result
 
 
+def source_manifest_payload(
+    con: sqlite3.Connection,
+    *,
+    case_id: str,
+) -> dict[str, object]:
+    """Build the canonical source-manifest payload for one registered case."""
+    case = con.execute(
+        """
+        SELECT case_id, as_of_date
+        FROM cases
+        WHERE case_id = ?
+        """,
+        (case_id,),
+    ).fetchone()
+    if case is None:
+        raise RuntimeError(f"case not found: {case_id}")
+
+    return {
+        "case_id": case[0],
+        "as_of_date": case[1],
+        "materialized_from": "sqlite_canonical_case_support_graph",
+        "sources": canonical_case_sources(
+            con,
+            case_id=case_id,
+        ),
+    }
+
+
+def render_source_manifest(
+    con: sqlite3.Connection,
+    *,
+    case_id: str,
+) -> str:
+    """Render the byte-stable canonical JSON source manifest for a case."""
+    return json.dumps(
+        source_manifest_payload(con, case_id=case_id),
+        ensure_ascii=False,
+        indent=2,
+    ) + "\n"
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description=(
@@ -54,34 +95,12 @@ def main() -> int:
 
     con = sqlite3.connect(args.db)
     try:
-        case = con.execute(
-            """
-            SELECT case_id, as_of_date
-            FROM cases
-            WHERE case_id = ?
-            """,
-            (args.case_id,),
-        ).fetchone()
-        if case is None:
-            raise RuntimeError(f"case not found: {args.case_id}")
-
-        payload = {
-            "case_id": case[0],
-            "as_of_date": case[1],
-            "materialized_from": "sqlite_canonical_case_support_graph",
-            "sources": canonical_case_sources(
-                con,
-                case_id=args.case_id,
-            ),
-        }
+        rendered = render_source_manifest(
+            con,
+            case_id=args.case_id,
+        )
     finally:
         con.close()
-
-    rendered = json.dumps(
-        payload,
-        ensure_ascii=False,
-        indent=2,
-    ) + "\n"
 
     if args.output:
         Path(args.output).write_text(

@@ -307,10 +307,10 @@ Confianza de extracción registrada: 1
 
 | Relación | Origen | Tipo | Destino | Estado | Evidencia |
 | --- | --- | --- | --- | --- | --- |
-| REL-04f5941663635594bdb9dcaa28833fd5 | provision:PROV-47bcb0b0983d5bc99e19c87298047952 | modified_by | provision:PROV-69a0c477c79b5deea358d76b8de125ad | validated | EVD-b1f3a087fcad59278b0a28e7ce325734 |
-| REL-357142fa26865437810192dc2d7782dc | provision:PROV-69a0c477c79b5deea358d76b8de125ad | modifies | provision:PROV-47bcb0b0983d5bc99e19c87298047952 | validated | EVD-153ae6a74dd9502282adb11afdc1d2d0 |
-| REL-7f0340428bae5baa8fd71bbe655cacd2 | provision:PROV-47bcb0b0983d5bc99e19c87298047952 | added_by | provision:PROV-69a0c477c79b5deea358d76b8de125ad | validated | EVD-ca60cd3ce9875ce19eab8e41998d07dd |
-| REL-bcf4f5ae642754c2af04970ea00a3d85 | provision:PROV-69a0c477c79b5deea358d76b8de125ad | adds | provision:PROV-47bcb0b0983d5bc99e19c87298047952 | validated | EVD-f0225cef20825af6848fa48ca64b7da0 |
+| REL-04f5941663635594bdb9dcaa28833fd5 | provision:PROV-47bcb0b0983d5bc99e19c87298047952 | modified_by | provision:PROV-69a0c477c79b5deea358d76b8de125ad | validated | EVD-167c8ca632eb5779947fb6a37818e172 |
+| REL-357142fa26865437810192dc2d7782dc | provision:PROV-69a0c477c79b5deea358d76b8de125ad | modifies | provision:PROV-47bcb0b0983d5bc99e19c87298047952 | validated | EVD-ee41db7f35b053f19e06c2f1009f80c6 |
+| REL-7f0340428bae5baa8fd71bbe655cacd2 | provision:PROV-47bcb0b0983d5bc99e19c87298047952 | added_by | provision:PROV-69a0c477c79b5deea358d76b8de125ad | validated | EVD-f95b0e95801c528ab3272e22623a73a4 |
+| REL-bcf4f5ae642754c2af04970ea00a3d85 | provision:PROV-69a0c477c79b5deea358d76b8de125ad | adds | provision:PROV-47bcb0b0983d5bc99e19c87298047952 | validated | EVD-fc95ab4bd27e59a0bccedf159b6b1f91 |
 
 ## Fuentes canónicas
 
@@ -325,7 +325,7 @@ Confianza de extracción registrada: 1
 ### SRC-0004
 
 - Autoridad: DIAN
-- Tipo: `normograma_html`
+- Tipo: `decreto`
 - URL: https://normograma.dian.gov.co/dian/compilacion/docs/decreto_2229_2023.htm
 - Documentos: `DOC-f2cebeb1cb865955b9c3d8be684a2259`
 - Manifestación: `MAN-b35b7a0da3bb5adb80c33111a2ab15ec` · SHA-256 `588fe0c50fca7ef8df2f49c95228d6460e9d361162993f44761b3a87479a0898` · 2026-09-22T09:37:52+00:00
@@ -333,7 +333,7 @@ Confianza de extracción registrada: 1
 ### SRC-0005
 
 - Autoridad: DIAN
-- Tipo: `resolucion_compilada`
+- Tipo: `resolucion`
 - URL: https://normograma.dian.gov.co/dian/compilacion/docs/resolucion_dian_0227_2025.htm
 - Documentos: `DOC-9436748965e05a82a5be13de7fcf6e2d`
 - Manifestación: `MAN-d0bed6f38d3756cc859bc1872125ba5b` · SHA-256 `570d7f547b0a19d0f1e90953e12a16e5fc3a69a54308e6f2545b99b995ddd44b` · 2026-09-22T11:14:42+00:00
