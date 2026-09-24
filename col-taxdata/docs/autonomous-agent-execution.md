@@ -10,7 +10,7 @@ Normal implementation uses:
 
 An implementation agent must never develop directly on `main`. Each admitted issue owns one branch named `agent/issue-<number>-<slug>` created from the accepted current `main` revision. The base SHA is recorded in pull-request metadata.
 
-The pull request is the integration unit. It targets `main`, contains exactly one closing target (`Fixes`, `Closes`, or `Resolves`), and keeps the issue open until GitHub closes it after the PR is merged. Human approval, a manual merge click, manual rerun, manual conflict resolution, and manual issue closure are not normal lifecycle steps.
+The pull request is the integration unit. It targets `main` and contains exactly one closing target (`Fixes`, `Closes`, or `Resolves`) for durable linkage. Native GitHub auto-close is treated as a convenience, not the sole completion mechanism: after post-merge convergence succeeds, repository automation idempotently closes the owning issue if it is still open. Human approval, a manual merge click, manual rerun, manual conflict resolution, and manual issue closure are not normal lifecycle steps.
 
 ## Machine-readable PR metadata
 
@@ -73,7 +73,9 @@ A clean merge is not sufficient evidence of semantic compatibility. Agents must 
 
 After a successful `CI Gate`, the lifecycle controller re-reads live PR mergeability and head SHA and performs a deterministic squash merge. It then emits `col-taxdata-convergence`; a normal authenticated merge to `main` also triggers convergence through `push`.
 
-Convergence marks the merged SHA with `Convergence Gate`, detects overlapping semantic domains among recent merged autonomous PRs, and runs the complete col-taxdata integration/invariant suite on the resulting `main`. The test suite runs for every applicable merge, so semantic overlap cannot bypass convergence validation.
+Convergence marks the merged SHA with `Convergence Gate`, detects overlapping semantic domains among recent merged autonomous PRs, and runs the complete col-taxdata integration/invariant suite on the resulting `main`. Repository-dispatch semantic-domain metadata is normalized to compact JSON before it is exported through GitHub Actions outputs. The test suite runs for every applicable merge, so semantic overlap cannot bypass convergence validation.
+
+On convergence success, the controller closes the owning issue if GitHub did not already do so. It also reconciles recent stranded autonomous merged issues only when their merge commit is contained in the successfully validated current history and the issue was not explicitly reopened after that merge. Historical failed convergence statuses are not rewritten; recovery is recorded against the newer validated main state.
 
 A convergence failure sets the commit status to failure, leaves downstream readiness blocked, and automatically creates a focused corrective issue. Merged histories are preserved; revert or forward-fix is an explicit, separately validated action.
 
