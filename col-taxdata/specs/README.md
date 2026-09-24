@@ -53,6 +53,10 @@ specs/
 │   ├── identifier-semantics.md
 │   └── adr/
 │       └── ADR-NNNN-*.md
+├── application/
+│   ├── case-contracts-v1.md
+│   └── schemas/
+│       └── case-contracts-v1.schema.json
 ├── audits/
 │   └── YYYY-MM-DD-<audit>.md
 ├── defects/
@@ -62,6 +66,17 @@ specs/
 │   └── GAP-NNNN-<slug>.md
 └── manifest.yaml
 ```
+
+## Application contracts
+
+Stable application-facing contracts live under [`application/`](application/). They define consumer/domain boundaries downstream of canonical corpus evidence without claiming that deferred transports or orchestrators are already implemented.
+
+The current natural-language case boundary is:
+
+- [`application/case-contracts-v1.md`](application/case-contracts-v1.md) — authoritative ownership, trust, lifecycle, validation, versioning and CASE-0001 mapping.
+- [`application/schemas/case-contracts-v1.schema.json`](application/schemas/case-contracts-v1.schema.json) — machine-readable JSON Schema for the v1 serialized contracts.
+
+CLI, API and future MCP adapters are expected to preserve these application semantics rather than embedding their own case logic.
 
 ## Source-of-truth order for issue work
 
