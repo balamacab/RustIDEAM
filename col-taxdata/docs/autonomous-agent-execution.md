@@ -53,7 +53,7 @@ When reconciliation requires implementation judgment, the controller emits `repo
   "branch": "agent/issue-123-short-slug",
   "head_sha": "<sha>",
   "base_sha": "<sha>",
-  "reason": "NEEDS_REBASE | MERGE_CONFLICT | CI_FAILED | SEMANTIC_REVALIDATION_REQUIRED",
+  "reason": "NEEDS_REBASE | MERGE_CONFLICT | CI_FAILED | CHECKS_OUTDATED | SEMANTIC_REVALIDATION_REQUIRED",
   "semantic_domains": ["domain"],
   "retry": {
     "attempt": 1,
@@ -71,13 +71,13 @@ Retries are bounded per `(reason, head_sha)`. After three recorded resume reques
 
 ## Agent states
 
-Normal states are represented by issue/PR/check state and durable lifecycle comments: `ADMITTED`, `WORKING`, `PR_OPEN`, `CI_VALIDATING`, `READY_FOR_MERGE`, `MERGED`, and `DONE`. Exceptional states include `NEEDS_REBASE`, `MERGE_CONFLICT`, `CI_FAILED`, `SEMANTIC_REVALIDATION_REQUIRED`, and `BLOCKED`.
+Normal states are represented by issue/PR/check state and durable lifecycle comments: `ADMITTED`, `WORKING`, `PR_OPEN`, `CI_VALIDATING`, `READY_FOR_MERGE`, `MERGED`, and `DONE`. Exceptional states include `NEEDS_REBASE`, `MERGE_CONFLICT`, `CI_FAILED`, `CHECKS_OUTDATED`, `SEMANTIC_REVALIDATION_REQUIRED`, and `BLOCKED`.
 
 A clean merge is not sufficient evidence of semantic compatibility. Agents must refresh `main` before final integration and rerun validation after relevant concurrent changes.
 
 ## Merge and convergence
 
-After a successful `CI Gate`, the lifecycle controller re-reads live PR mergeability and head SHA and performs a deterministic squash merge. It then emits `col-taxdata-convergence`; a normal authenticated merge to `main` also triggers convergence through `push`.
+After a successful `CI Gate`, the lifecycle controller re-reads live PR mergeability and head SHA and performs a deterministic squash merge. GitHub can transiently report `mergeable_state=blocked` while a just-completed required check is still propagating. For the exact CI-tested current head, the controller therefore performs a small bounded mergeability recheck. A head change becomes `NEEDS_REBASE`; a persistently blocked state becomes bounded `CHECKS_OUTDATED` recovery instead of a silent terminal wait. Required checks are never bypassed. It then emits `col-taxdata-convergence`; a normal authenticated merge to `main` also triggers convergence through `push`.
 
 Convergence marks the merged SHA with `Convergence Gate`, detects overlapping semantic domains among recent merged autonomous PRs, and runs the complete col-taxdata integration/invariant suite on the resulting `main`. Repository-dispatch semantic-domain metadata is normalized to compact JSON before it is exported through GitHub Actions outputs. The test suite runs for every applicable merge, so semantic overlap cannot bypass convergence validation.
 
