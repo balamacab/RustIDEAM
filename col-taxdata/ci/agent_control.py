@@ -21,6 +21,9 @@ BLOCKER_MARKER = "<!-- col-taxdata-agent-blocker:"
 MAX_RETRIES = 3
 RESUME_SCHEMA_VERSION = 2
 GITHUB_REPOSITORY_DISPATCH_MAX_PROPERTIES = 10
+MERGE_READY_STATES = {"clean", "has_hooks", "unstable"}
+MERGE_STATE_RECHECKS = 4
+MERGE_STATE_RECHECK_SECONDS = 2
 RESUME_EVENT = "col-taxdata-agent-resume"
 CONVERGENCE_EVENT = "col-taxdata-convergence"
 
@@ -205,6 +208,30 @@ def fetch_pr(token: str, repo: str, pr_number: int) -> dict[str, Any]:
     return pr
 
 
+def settle_mergeability_after_success(
+    token: str,
+    repo: str,
+    pr_number: int,
+    expected_head_sha: str,
+    initial_pr: dict[str, Any],
+) -> dict[str, Any]:
+    """Boundedly wait for GitHub's mergeability state to reflect a just-finished CI run."""
+    pr = initial_pr
+    for attempt in range(MERGE_STATE_RECHECKS):
+        head_sha = str((pr.get("head") or {}).get("sha") or "")
+        mergeable = pr.get("mergeable")
+        state = str(pr.get("mergeable_state") or "unknown")
+        if head_sha != expected_head_sha:
+            return pr
+        if not (mergeable is True and state == "blocked"):
+            return pr
+        if attempt + 1 >= MERGE_STATE_RECHECKS:
+            return pr
+        time.sleep(MERGE_STATE_RECHECK_SECONDS)
+        pr = fetch_pr(token, repo, pr_number)
+    return pr
+
+
 def pr_context(pr: dict[str, Any]) -> tuple[int, dict[str, Any], str, str, str]:
     body = str(pr.get("body") or "")
     issue = closing_issue_number(body)
@@ -268,7 +295,42 @@ def handle_lifecycle(token: str, repo: str, pr_number: int, ci_conclusion: str |
         if ci_head_sha and ci_head_sha != head_sha:
             req = ResumeRequest(repo, issue, pr_number, branch, head_sha, base_sha, "NEEDS_REBASE", domains, 0)
             return request_resume(token, req)
-        if mergeable is not True or state not in {"clean", "has_hooks", "unstable"}:
+
+        if ci_head_sha and mergeable is True and state == "blocked":
+            pr = settle_mergeability_after_success(token, repo, pr_number, ci_head_sha, pr)
+            issue, metadata, branch, head_sha, base_sha = pr_context(pr)
+            domains = list(metadata["semantic_domains"])
+            mergeable = pr.get("mergeable")
+            state = str(pr.get("mergeable_state") or "unknown")
+            if head_sha != ci_head_sha:
+                req = ResumeRequest(repo, issue, pr_number, branch, head_sha, base_sha, "NEEDS_REBASE", domains, 0)
+                return request_resume(token, req)
+            if mergeable is True and state == "blocked":
+                post_issue_comment(
+                    token,
+                    repo,
+                    issue,
+                    state_comment(
+                        "CHECKS_OUTDATED",
+                        pr_number=pr_number,
+                        head_sha=head_sha,
+                        mergeable_state=state,
+                    ),
+                )
+                req = ResumeRequest(
+                    repo,
+                    issue,
+                    pr_number,
+                    branch,
+                    head_sha,
+                    base_sha,
+                    "CHECKS_OUTDATED",
+                    domains,
+                    0,
+                )
+                return request_resume(token, req)
+
+        if mergeable is not True or state not in MERGE_READY_STATES:
             return {"merged": False, "waiting": True, "mergeable": mergeable, "mergeable_state": state}
         post_issue_comment(token, repo, issue, state_comment("READY_FOR_MERGE", pr_number=pr_number, head_sha=head_sha))
         result = request_json(token, "PUT", f"/repos/{repo}/pulls/{pr_number}/merge", {
@@ -329,7 +391,7 @@ def main() -> int:
     p.add_argument("--branch", required=True)
     p.add_argument("--head-sha", required=True)
     p.add_argument("--base-sha", required=True)
-    p.add_argument("--reason", required=True, choices=["NEEDS_REBASE", "MERGE_CONFLICT", "CI_FAILED", "SEMANTIC_REVALIDATION_REQUIRED"])
+    p.add_argument("--reason", required=True, choices=["NEEDS_REBASE", "MERGE_CONFLICT", "CI_FAILED", "CHECKS_OUTDATED", "SEMANTIC_REVALIDATION_REQUIRED"])
     p.add_argument("--semantic-domains", required=True)
     p.set_defaults(func=cmd_resume)
     args = parser.parse_args()
