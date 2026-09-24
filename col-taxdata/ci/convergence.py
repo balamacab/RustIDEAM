@@ -14,6 +14,7 @@ from policy import PolicyError, parse_metadata
 API = "https://api.github.com"
 STATUS_CONTEXT = "Convergence Gate"
 CORRECTIVE_MARKER = "<!-- col-taxdata-convergence-corrective:"
+STATE_MARKER = "<!-- col-taxdata-agent-state:"
 
 class ConvergenceError(RuntimeError):
     pass
@@ -39,6 +40,20 @@ def request_json(token: str, method: str, path: str, payload: Any | None = None)
         detail = exc.read().decode("utf-8", errors="replace")[:2000]
         raise ConvergenceError(f"GitHub API {method} {path} failed: {exc.code} {detail}") from exc
     return json.loads(raw.decode("utf-8")) if raw else None
+
+
+def parse_semantic_domains(raw: str) -> list[str]:
+    try:
+        value = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise ConvergenceError(f"semantic_domains is not valid JSON: {exc}") from exc
+    if not isinstance(value, list) or not value or not all(isinstance(item, str) and item.strip() for item in value):
+        raise ConvergenceError("semantic_domains must be a non-empty JSON string array")
+    return value
+
+
+def compact_semantic_domains(raw: str) -> str:
+    return json.dumps(parse_semantic_domains(raw), separators=(",", ":"))
 
 
 def overlap_with_prs(current_domains: list[str], prs: list[dict[str, Any]], current_pr: int) -> list[dict[str, Any]]:
@@ -87,6 +102,105 @@ def corrective_issue(token: str, repo: str, sha: str, pr: int, issue: int, detai
     })
 
 
+
+def issue_reopened_after(token: str, repo: str, issue: int, merged_at: str) -> bool:
+    events = request_json(token, "GET", f"/repos/{repo}/issues/{issue}/events?per_page=100")
+    if not isinstance(events, list):
+        return False
+    return any(
+        item.get("event") == "reopened" and str(item.get("created_at") or "") > merged_at
+        for item in events
+    )
+
+
+def close_issue_completed(
+    token: str,
+    repo: str,
+    issue: int,
+    *,
+    pr: int,
+    convergence_sha: str,
+    original_merge_sha: str,
+    recovered: bool,
+) -> bool:
+    current = request_json(token, "GET", f"/repos/{repo}/issues/{issue}")
+    if not isinstance(current, dict) or current.get("state") != "open":
+        return False
+    request_json(token, "PATCH", f"/repos/{repo}/issues/{issue}", {
+        "state": "closed",
+        "state_reason": "completed",
+    })
+    payload = {
+        "state": "DONE",
+        "pr_number": pr,
+        "convergence_sha": convergence_sha,
+        "merge_sha": original_merge_sha,
+        "recovered": recovered,
+    }
+    request_json(
+        token,
+        "POST",
+        f"/repos/{repo}/issues/{issue}/comments",
+        {
+            "body": (
+                f"{STATE_MARKER} {json.dumps(payload, sort_keys=True, separators=(',', ':'))} -->\n"
+                "Agent state: `DONE`. Post-merge convergence passed and repository automation "
+                "completed the issue lifecycle."
+            )
+        },
+    )
+    return True
+
+
+def is_ancestor_of_validated_sha(token: str, repo: str, merge_sha: str, validated_sha: str) -> bool:
+    if merge_sha == validated_sha:
+        return True
+    compare = request_json(token, "GET", f"/repos/{repo}/compare/{merge_sha}...{validated_sha}")
+    return isinstance(compare, dict) and compare.get("status") in {"ahead", "identical"}
+
+
+def reconcile_stranded_merged_issues(
+    token: str,
+    repo: str,
+    *,
+    validated_sha: str,
+    current_pr: int,
+) -> list[int]:
+    prs = request_json(token, "GET", f"/repos/{repo}/pulls?state=closed&sort=updated&direction=desc&per_page=30")
+    if not isinstance(prs, list):
+        return []
+    recovered: list[int] = []
+    for pr in prs:
+        pr_number = int(pr.get("number") or 0)
+        merged_at = str(pr.get("merged_at") or "")
+        merge_sha = str(pr.get("merge_commit_sha") or "")
+        if pr_number == current_pr or not merged_at or not merge_sha:
+            continue
+        body = str(pr.get("body") or "")
+        try:
+            issue = closing_issue_number(body)
+            parse_metadata(body)
+        except PolicyError:
+            continue
+        if not is_ancestor_of_validated_sha(token, repo, merge_sha, validated_sha):
+            continue
+        issue_state = request_json(token, "GET", f"/repos/{repo}/issues/{issue}")
+        if not isinstance(issue_state, dict) or issue_state.get("state") != "open":
+            continue
+        if issue_reopened_after(token, repo, issue, merged_at):
+            continue
+        if close_issue_completed(
+            token,
+            repo,
+            issue,
+            pr=pr_number,
+            convergence_sha=validated_sha,
+            original_merge_sha=merge_sha,
+            recovered=True,
+        ):
+            recovered.append(issue)
+    return recovered
+
 def write_output(name: str, value: str) -> None:
     path = os.environ.get("GITHUB_OUTPUT")
     if path:
@@ -103,7 +217,7 @@ def auth() -> str:
 
 def cmd_prepare(args: argparse.Namespace) -> int:
     token = auth()
-    domains = json.loads(args.semantic_domains)
+    domains = parse_semantic_domains(args.semantic_domains)
     prs = request_json(token, "GET", f"/repos/{args.repo}/pulls?state=closed&sort=updated&direction=desc&per_page=30")
     overlaps = overlap_with_prs(domains, prs if isinstance(prs, list) else [], args.pr)
     set_status(token, args.repo, args.sha, "pending", "post-merge convergence validation in progress")
@@ -116,8 +230,23 @@ def cmd_prepare(args: argparse.Namespace) -> int:
 def cmd_finalize(args: argparse.Namespace) -> int:
     token = auth()
     if args.result == "success":
+        close_issue_completed(
+            token,
+            args.repo,
+            args.issue,
+            pr=args.pr,
+            convergence_sha=args.sha,
+            original_merge_sha=args.sha,
+            recovered=False,
+        )
+        recovered = reconcile_stranded_merged_issues(
+            token,
+            args.repo,
+            validated_sha=args.sha,
+            current_pr=args.pr,
+        )
         set_status(token, args.repo, args.sha, "success", "post-merge convergence validation passed")
-        print(json.dumps({"result": "PASS", "sha": args.sha}))
+        print(json.dumps({"result": "PASS", "sha": args.sha, "recovered_issues": recovered}))
         return 0
     set_status(token, args.repo, args.sha, "failure", "post-merge convergence validation failed")
     corrective = corrective_issue(token, args.repo, args.sha, args.pr, args.issue, args.details)
@@ -128,6 +257,9 @@ def cmd_finalize(args: argparse.Namespace) -> int:
 def main() -> int:
     parser = argparse.ArgumentParser(description="Post-merge semantic/invariant convergence control")
     sub = parser.add_subparsers(dest="command", required=True)
+    p = sub.add_parser("normalize-domains")
+    p.add_argument("--semantic-domains", required=True)
+    p.set_defaults(func=lambda args: (print(compact_semantic_domains(args.semantic_domains)) or 0))
     p = sub.add_parser("prepare")
     p.add_argument("--repo", required=True)
     p.add_argument("--sha", required=True)
@@ -145,7 +277,7 @@ def main() -> int:
     args = parser.parse_args()
     try:
         return args.func(args)
-    except (ConvergenceError, PolicyError, json.JSONDecodeError) as exc:
+    except (ConvergenceError, PolicyError) as exc:
         print(f"CONVERGENCE FAIL: {exc}", file=sys.stderr)
         return 2
 
