@@ -778,3 +778,246 @@ def check_temporal_resolutions(ctx: DoctorContext) -> CheckResult:
         SELECT tr.temporal_resolution_id, tr.extraction_id, tr.document_id, tr.role,
                tr.status, tr.candidate_count, tr.trusted_candidate_count,
                tr.promoted_candidate_id, tr.processor_name, tr.processor_version
+        FROM temporal_role_resolutions tr
+        ORDER BY tr.temporal_resolution_id
+        """
+    ).fetchall()
+    for row in rows:
+        (resolution_id, extraction_id, document_id, role, status, candidate_count,
+         trusted_count, promoted_id, processor_name, processor_version) = row
+        actual_count, actual_trusted = ctx.con.execute(
+            """
+            SELECT COUNT(*), COALESCE(SUM(is_trusted_structure), 0)
+            FROM temporal_candidates
+            WHERE extraction_id = ? AND document_id = ? AND role = ?
+              AND processor_name = ? AND processor_version = ?
+            """,
+            (extraction_id, document_id, role, processor_name, processor_version),
+        ).fetchone()
+        if int(candidate_count) != int(actual_count) or int(trusted_count) != int(actual_trusted):
+            problems.append(f"{resolution_id}: recorded counts={candidate_count}/{trusted_count} actual={actual_count}/{actual_trusted}")
+        if status == "resolved":
+            candidate = ctx.con.execute(
+                """
+                SELECT extraction_id, document_id, role, processor_name, processor_version
+                FROM temporal_candidates WHERE temporal_candidate_id = ?
+                """,
+                (promoted_id,),
+            ).fetchone()
+            expected = (extraction_id, document_id, role, processor_name, processor_version)
+            if candidate is None or tuple(candidate) != expected:
+                problems.append(f"{resolution_id}: promoted candidate does not belong to the resolved role")
+        elif promoted_id is not None:
+            problems.append(f"{resolution_id}: {status} resolution retains promoted candidate")
+    if problems:
+        return _error("TEMP-002", "temporal", "temporal resolution status/count/promotion invariants are violated", len(problems), problems, spec="DEF-0004")
+    return _pass("TEMP-002", "temporal", "temporal resolution counts/status/promotion are consistent", spec="DEF-0004")
+
+
+def check_review_queue(ctx: DoctorContext) -> CheckResult:
+    missing = _require_tables(ctx, "REVIEW-001", "review", ["review_queue"], spec="architecture/domain-model.md")
+    if missing:
+        return missing
+    problems: list[str] = []
+    unknown: list[str] = []
+    for review_id, entity_type, entity_id in ctx.con.execute(
+        "SELECT review_id, entity_type, entity_id FROM review_queue ORDER BY review_id"
+    ):
+        exists = _exists(ctx, str(entity_type), str(entity_id))
+        if exists is False:
+            problems.append(f"{review_id}: missing {entity_type}:{entity_id}")
+        elif exists is None:
+            unknown.append(f"{review_id}: unknown entity_type={entity_type}")
+    if problems:
+        return _error("REVIEW-001", "review", "review queue items reference missing entities", len(problems), problems, spec="architecture/domain-model.md")
+    if unknown:
+        return _warn("REVIEW-001", "review", "review queue contains entity types outside the current doctor mapping", len(unknown), unknown, spec="architecture/domain-model.md")
+    return _pass("REVIEW-001", "review", "review queue entity references resolve", spec="architecture/domain-model.md")
+
+
+def check_fts_sync(ctx: DoctorContext) -> CheckResult:
+    missing = _require_tables(ctx, "FTS-001", "retrieval", ["extracted_segments", "extracted_segments_fts"], spec="architecture/overview.md § Retrieval")
+    if missing:
+        return missing
+    missing_rows = ctx.con.execute(
+        """
+        SELECT es.rowid, es.extracted_segment_id
+        FROM extracted_segments es
+        LEFT JOIN extracted_segments_fts f ON f.rowid = es.rowid
+        WHERE f.rowid IS NULL
+        ORDER BY es.rowid
+        """
+    ).fetchall()
+    orphan_rows = ctx.con.execute(
+        """
+        SELECT f.rowid
+        FROM extracted_segments_fts f
+        LEFT JOIN extracted_segments es ON es.rowid = f.rowid
+        WHERE es.rowid IS NULL
+        ORDER BY f.rowid
+        """
+    ).fetchall()
+    problems = [f"missing FTS row for {row[1]} (rowid={row[0]})" for row in missing_rows]
+    problems.extend(f"orphan FTS rowid={row[0]}" for row in orphan_rows)
+    if problems:
+        return _error("FTS-001", "retrieval", "contentless extracted-segment FTS rowid synchronization is stale", len(problems), problems, spec="architecture/overview.md § Retrieval")
+    return _pass("FTS-001", "retrieval", "extracted_segments and contentless FTS rowids are synchronized", spec="architecture/overview.md § Retrieval")
+
+
+def check_case_items(ctx: DoctorContext) -> CheckResult:
+    missing = _require_tables(ctx, "CASE-001", "case", ["case_items", "cases"], spec="architecture/data-lifecycle.md § Case analysis")
+    if missing:
+        return missing
+    problems: list[str] = []
+    unknown: list[str] = []
+    for case_id, item_type, item_id in ctx.con.execute(
+        "SELECT case_id, item_type, item_id FROM case_items ORDER BY case_id, item_type, item_id"
+    ):
+        exists = _exists(ctx, str(item_type), str(item_id))
+        if exists is False:
+            problems.append(f"{case_id}: missing {item_type}:{item_id}")
+        elif exists is None:
+            unknown.append(f"{case_id}: unknown item_type={item_type}")
+    if problems:
+        return _error("CASE-001", "case", "case items reference missing corpus entities", len(problems), problems, spec="architecture/data-lifecycle.md § Case analysis")
+    if unknown:
+        return _warn("CASE-001", "case", "case items contain types outside the current doctor mapping", len(unknown), unknown, spec="architecture/data-lifecycle.md § Case analysis")
+    return _pass("CASE-001", "case", "case item references resolve for known corpus entity types", spec="architecture/data-lifecycle.md § Case analysis")
+
+
+CHECKS: tuple[Check, ...] = (
+    check_db_integrity,
+    check_foreign_keys,
+    check_migration_hashes,
+    check_raw_files_exist,
+    check_raw_byte_sizes,
+    check_raw_content_paths,
+    check_raw_hashes,
+    check_extracted_files,
+    check_extracted_hashes,
+    check_segment_hashes,
+    check_evidence_manifestation,
+    check_evidence_segment_chain,
+    check_validated_claim_evidence,
+    check_identity_uniqueness,
+    check_issuer_aware_identity,
+    check_source_family_bindings,
+    check_provision_observations,
+    check_reference_chains,
+    check_reference_resolutions,
+    check_relationship_endpoints,
+    check_relationship_provenance,
+    check_temporal_candidates,
+    check_temporal_resolutions,
+    check_review_queue,
+    check_fts_sync,
+    check_case_items,
+)
+
+
+def open_read_only_database(db_path: Path) -> sqlite3.Connection:
+    resolved = db_path.resolve(strict=True)
+    con = sqlite3.connect(f"file:{resolved.as_posix()}?mode=ro", uri=True)
+    con.row_factory = sqlite3.Row
+    con.execute("PRAGMA foreign_keys = ON")
+    con.execute("PRAGMA query_only = ON")
+    return con
+
+
+def run_doctor(
+    *,
+    db_path: Path,
+    data_root: Path,
+    schema_dir: Path,
+    mode: str = "quick",
+    scopes: Sequence[str] = (),
+) -> DoctorReport:
+    selected = set(scopes)
+    unknown = selected - set(VALID_SCOPES)
+    if unknown:
+        raise ValueError("unknown scope(s): " + ", ".join(sorted(unknown)))
+    if mode not in {"quick", "full"}:
+        raise ValueError(f"unsupported mode: {mode}")
+
+    con = open_read_only_database(db_path)
+    try:
+        ctx = DoctorContext(con, db_path, data_root, schema_dir, mode)
+        checks: list[CheckResult] = []
+        for check in CHECKS:
+            result = check(ctx)
+            if selected and result.scope not in selected:
+                continue
+            checks.append(result)
+        return DoctorReport(mode, str(db_path), tuple(checks))
+    finally:
+        con.close()
+
+
+def render_human(report: DoctorReport) -> str:
+    groups: dict[str, list[CheckResult]] = {}
+    for check in report.checks:
+        groups.setdefault(check.scope, []).append(check)
+
+    lines: list[str] = []
+    for scope in VALID_SCOPES:
+        scope_checks = groups.get(scope)
+        if not scope_checks:
+            continue
+        lines.append(scope.upper())
+        for check in scope_checks:
+            suffix = f" ({check.affected_count} affected)" if check.affected_count else ""
+            lines.append(f"  {check.check_id:<13} {check.status:<5} {check.description}{suffix}")
+            for example in check.examples:
+                lines.append(f"    - {example}")
+        lines.append("")
+
+    summary = report.summary()
+    lines.append("RESULT")
+    lines.append(
+        "  " + "  ".join(f"{summary[name]} {name}" for name in ("PASS", "WARN", "INFO", "ERROR"))
+    )
+    return "\n".join(lines)
+
+
+def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Read-only col-taxdata corpus doctor / invariant validator."
+    )
+    parser.add_argument("--db", default="data/state/taxdata.sqlite", help="SQLite corpus database path")
+    parser.add_argument("--data-root", default="data", help="Root used to resolve registered corpus artifact paths")
+    parser.add_argument("--schema-dir", default="schema", help="Directory containing append-only SQL migrations")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--quick", action="store_true", help="Run routine structural checks without full-file hashing (default)")
+    mode.add_argument("--full", action="store_true", help="Run structural checks plus full raw/extracted SHA-256 verification")
+    parser.add_argument("--scope", action="append", choices=VALID_SCOPES, default=[], help="Run only the selected invariant family; repeatable")
+    parser.add_argument("--format", choices=("human", "json"), default="human", help="Output format")
+    return parser.parse_args(argv)
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    args = _parse_args(argv)
+    selected_mode = "full" if args.full else "quick"
+    try:
+        report = run_doctor(
+            db_path=Path(args.db),
+            data_root=Path(args.data_root),
+            schema_dir=Path(args.schema_dir),
+            mode=selected_mode,
+            scopes=args.scope,
+        )
+    except Exception as exc:
+        if args.format == "json":
+            print(json.dumps({"status": "validator_error", "error": f"{type(exc).__name__}: {exc}"}, ensure_ascii=False, indent=2, sort_keys=True))
+        else:
+            print(f"VALIDATOR ERROR: {type(exc).__name__}: {exc}", file=sys.stderr)
+        return 2
+
+    if args.format == "json":
+        print(json.dumps(report.to_json(), ensure_ascii=False, indent=2, sort_keys=True))
+    else:
+        print(render_human(report))
+    return 1 if report.has_errors else 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
