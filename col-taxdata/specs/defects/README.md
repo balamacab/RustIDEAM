@@ -13,5 +13,6 @@ The machine-readable ordering/dependency graph is maintained in [`specs/manifest
 | [DEF-0005](DEF-0005-retrieval-duplicate-segments.md) | P2 | Repeated equivalent segments bias FTS/RAG retrieval | [#5](https://github.com/balamacab/RustIDEAM/issues/5) | specified |
 | [DEF-0006](DEF-0006-container-file-ownership.md) | P2 | Docker writes runtime evidence as root with raw files mode 0600 | [#6](https://github.com/balamacab/RustIDEAM/issues/6) | specified |
 | [DEF-0007](DEF-0007-legal-body-false-short.md) | P2 | Valid Sentencia C-096/2001 is rejected as an unexpectedly short legal body | [#7](https://github.com/balamacab/RustIDEAM/issues/7) | specified |
+| [DEF-0009](DEF-0009-unreferenced-document-lifecycle.md) | — | Source-less canonical Documents lack an explicit retention/cleanup lifecycle | [#19](https://github.com/balamacab/RustIDEAM/issues/19) | implementing |
 
 Coverage limitations that are not parser defects are tracked separately under `specs/gaps/`; GAP-0001 is tracked by [issue #8](https://github.com/balamacab/RustIDEAM/issues/8).
