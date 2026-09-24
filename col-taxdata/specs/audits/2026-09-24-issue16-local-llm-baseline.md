@@ -121,3 +121,37 @@ claiming a configured model that the selected backend did not actually serve.
 The historical failing observations above remain preserved. Final runtime PASS
 evidence must be appended only after the recovery branch passes repository CI
 and the merged-code-equivalent primary-model validation succeeds.
+
+
+### Recovery design correction after contract re-read
+
+The first recovery patch experimentally moved immutable client fields outside the
+model output and re-injected them afterward. That approach was rejected before
+merge because CASE v3 §5.1 and issue #23 explicitly require an omitted supplied
+optional field to remain an `INVALID_CASE_DRAFT`; the application must not
+repair a missing model value after the fact.
+
+The recovery now keeps the complete CaseDraft contract intact. For each
+CaseInput, the model-facing JSON Schema pins `problem_text` and each present
+optional client field with an exact `const`, requires supplied optional fields,
+and removes absent optional properties so constrained generation cannot
+manufacture them. The authoritative post-generation validator remains unchanged
+and still rejects any mismatch.
+
+A second bounded Qwen3 diagnostic identified the next primary-output failure:
+the model treated `as_of_date` and `client_reference` metadata as
+`user_provided` CaseFact values and used those metadata strings as
+`source_quote`, although they were not verbatim substrings of
+`problem_text`. The validator correctly rejected the draft. The prompt/model
+context now distinguishes `problem_text` as the only client fact-source text,
+passes `as_of_date` only as temporal analysis context, and does not expose
+`client_reference` as analytical model context.
+
+The same runtime phase also proved that automatic review escalation cannot be
+truthfully executed through the current single-model llama.cpp endpoint: when
+the configured review route requested Gemma, the endpoint continued serving
+Qwen3. The adapter's served-model integrity check rejected the mismatch. The
+local profile therefore disables automatic review-on-invalid-output while
+retaining the configured review route for an environment/runtime router that can
+actually make that model resident. This avoids false review metadata and does
+not require simultaneous model residency.
