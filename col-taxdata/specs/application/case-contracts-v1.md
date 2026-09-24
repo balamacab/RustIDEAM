@@ -77,6 +77,12 @@ Internal storage refactoring alone does not change the application contract vers
 
 A consumer that does not support the supplied major version MUST reject it explicitly rather than guessing how to interpret it.
 
+### 2.1 Cross-object integrity clarification
+
+The referential-integrity rules added by GitHub issue #25 do not add, remove, or rename serialized fields and do not change the companion JSON Schema. They make explicit the cross-object semantics for which this document was already normative. A payload whose references are dangling, duplicate in an owning ref namespace, or resolved to the wrong object type is not a semantically valid case graph merely because each object is schema-valid.
+
+For that reason this refinement remains within contract package version 1.0.0. The separate result-metadata refinement owned by issue #24 retains responsibility for its own serialized-shape/versioning decision.
+
 ## 3. Trust and ownership model
 
 | Layer | May produce | Trust meaning | Normal client visibility |
@@ -170,7 +176,8 @@ Before deterministic corpus work, the application MUST:
 4. verify that every fact marked `user_provided` and carrying a `source_quote` is traceable to the `CaseInput` text;
 5. preserve missing/ambiguous information as unresolved state;
 6. verify every `CandidateClaim` still has status `candidate`;
-7. reject attempts by model output to inject canonical IDs, evidence IDs, hashes, sequence numbers, or a `validated` claim state into candidate structures.
+7. reject attempts by model output to inject canonical IDs, evidence IDs, hashes, sequence numbers, or a `validated` claim state into candidate structures;
+8. validate the typed CaseDraft reference graph and ref uniqueness rules defined in §14 before deterministic corpus work.
 
 A mismatch in `problem_text`, `as_of_date`, or `client_reference` — including a missing optional field that was supplied or a manufactured optional field that was absent — is a semantic validation failure and MUST produce `INVALID_CASE_DRAFT`. The application MUST reject the draft before deterministic corpus work or case/canonical mutation. It MUST NOT repair the mismatch by accepting the model's value as a replacement for the client payload.
 
@@ -325,6 +332,8 @@ A supported claim is intentionally distinct from CandidateClaim. It has:
 
 analysis_status = complete does not mean "all law is known"; it means the application completed the requested workflow without unresolved items that block the represented result. partial/blocked states are valid outcomes.
 
+A CaseResult is not accepted merely because it is schema-valid. Before registration, persistence as accepted application state, materialization, or presentation, it MUST pass the semantic graph-integrity validation defined in §14.
+
 ## 12. Provider-neutral structuring-model interface
 
 The structuring-model adapter receives:
@@ -369,6 +378,98 @@ If deterministic logic cannot resolve exactly one supported target under the cur
 
 ## 14. Validation and error semantics
 
+### 14.1 JSON Schema and semantic-validation boundary
+
+The companion JSON Schema is normative for serialized shape. It can validate matters such as required fields, allowed fields, value types, ref-prefix syntax, enums, and local `uniqueItems` constraints on an array.
+
+JSON Schema MUST NOT be represented as sufficient proof of application graph integrity. In particular, schema validation alone does not establish:
+
+- that a referenced object exists;
+- that exactly one object owns the referenced ref;
+- that the target is the required object type;
+- that ref-valued identity properties are unique across an owning collection;
+- that refs shared across lifecycle objects point to the originating object graph allowed by this contract.
+
+Application semantic validation is therefore normative for cross-object referential integrity. A schema-valid `CaseDraft` or `CaseResult` is not a valid application graph until the semantic validator passes.
+
+The semantic validator MUST use typed ref registries. It MUST NOT search all objects by raw string and accept whichever object happens to match. A ref must resolve to exactly one object in the namespace and lifecycle location allowed below.
+
+### 14.2 Ref uniqueness and typed namespaces
+
+Application-facing refs are opaque identifiers, but each ref field has a semantic type.
+
+For `CaseDraft`, the application MUST build and validate these owning namespaces:
+
+- `facts[*].fact_ref`;
+- `questions[*].question_ref`;
+- `candidate_claims[*].claim_ref`;
+- `unresolved[*].unresolved_ref`.
+
+Each declared ref MUST be unique within its owning collection.
+
+For `CaseResult`, the application MUST build and validate these owning namespaces:
+
+- `supported_claims[*].claim_ref` and `remaining_candidate_claims[*].claim_ref` as one shared result-level claim namespace;
+- `unresolved[*].unresolved_ref`;
+- `evidence[*].evidence_ref`;
+- `sources[*].source_ref`;
+- `documents[*].document_ref`;
+- `provisions[*].provision_ref`.
+
+Each declared ref MUST be unique within its owning namespace. In particular, the same `claim_ref` MUST NOT appear once as supported and again as remaining candidate in the same result. A promoted candidate may retain its application-local claim ref, but the result contains that ref in exactly one claim collection.
+
+Duplicate refs are invalid even when the duplicated objects are byte-for-byte equal. A local array-level `uniqueItems` check on fields such as `evidence_refs` or `related_*_refs` does not replace these owning-collection uniqueness rules.
+
+### 14.3 CaseDraft lifecycle graph integrity
+
+A `CaseDraft` is a self-contained candidate graph except for its explicit immutable link back to its originating `CaseInput` in §4.1.
+
+The following refs MUST resolve to exactly one object inside the same `CaseDraft`:
+
+| Ref-bearing field | Required target |
+| --- | --- |
+| `CaseQuestion.depends_on_fact_refs[*]` | one `CaseFact` in `facts` with matching `fact_ref` |
+| `CandidateClaim.related_question_refs[*]` | one `CaseQuestion` in `questions` with matching `question_ref` |
+| `CaseUnresolved.related_fact_refs[*]` | one `CaseFact` in `facts` with matching `fact_ref` |
+| `CaseUnresolved.related_question_refs[*]` | one `CaseQuestion` in `questions` with matching `question_ref` |
+| `CaseUnresolved.related_claim_refs[*]` | one `CandidateClaim` in `candidate_claims` with matching `claim_ref` |
+
+A draft ref MUST NOT be satisfied by an object that exists only in a later `CaseResult`, another case, another model execution, persistence state, or a presentation artifact. `CaseDraft` has no valid evidence/source/document/provision reference namespace.
+
+Any dangling, duplicate, or wrong-type draft ref makes the draft semantically invalid and produces `INVALID_CASE_DRAFT` before deterministic corpus processing.
+
+### 14.4 CaseResult lifecycle graph integrity
+
+A `CaseResult` is validated in the context of the exact accepted `CaseDraft` from the same case-analysis execution. This is explicit cross-stage behavior; it does not authorize refs to arbitrary drafts or prior results.
+
+The following refs MUST resolve to exactly one target inside the same `CaseResult`:
+
+| Ref-bearing field | Required target |
+| --- | --- |
+| `SupportedClaim.evidence_refs[*]` | one `CaseEvidence` in `evidence` |
+| `CaseEvidence.source_ref` | one `PublicSourceRef` in `sources` |
+| `CaseEvidence.document_ref`, when present | one `PublicDocumentRef` in `documents` |
+| `CaseEvidence.provision_ref`, when present | one `PublicProvisionRef` in `provisions` |
+| `PublicProvisionRef.document_ref` | one `PublicDocumentRef` in `documents` |
+| `CaseUnresolved.related_claim_refs[*]` | exactly one claim in the shared result-level `supported_claims + remaining_candidate_claims` namespace |
+
+Because v1 `CaseResult` does not serialize facts or questions, the following are the only cross-stage application refs defined by this contract:
+
+| CaseResult ref-bearing field | Required target in originating accepted CaseDraft |
+| --- | --- |
+| `CaseUnresolved.related_fact_refs[*]` | one `CaseFact` in `CaseDraft.facts` |
+| `CaseUnresolved.related_question_refs[*]` | one `CaseQuestion` in `CaseDraft.questions` |
+| `SupportedClaim.related_question_refs[*]` | one `CaseQuestion` in `CaseDraft.questions` |
+| `CandidateClaim.related_question_refs[*]` for remaining candidates | one `CaseQuestion` in `CaseDraft.questions` |
+
+If the originating accepted draft is unavailable when one of those cross-stage refs is present, semantic validation cannot be completed safely and the result MUST be rejected as `INVALID_CASE_RESULT`.
+
+No other implicit cross-stage lookup is allowed. In particular, a result-level `related_claim_ref` MUST NOT be satisfied by a candidate that existed only in the draft but is absent from both result claim collections.
+
+Transformation, promotion, filtering, or presentation MUST NOT leave stale refs. Presentation logic MUST NOT hide a dangling object/reference and then treat the reduced output as a valid result.
+
+### 14.5 Transport-neutral failure semantics
+
 Transport-neutral symbolic error semantics are:
 
 | Condition | Application meaning |
@@ -377,15 +478,43 @@ Transport-neutral symbolic error semantics are:
 | Structuring provider unavailable | CASE_STRUCTURING_UNAVAILABLE |
 | Model output fails schema/semantic validation | INVALID_CASE_DRAFT |
 | CaseDraft changes, omits, or manufactures immutable CaseInput payload fields | INVALID_CASE_DRAFT |
+| CaseDraft contains duplicate, dangling, or wrong-type application refs | INVALID_CASE_DRAFT |
 | user_provided quote does not match CaseInput | INVALID_CASE_DRAFT |
-| Missing/ambiguous required fact | CaseUnresolved |
-| Legal target cannot be resolved uniquely | CaseUnresolved |
+| CaseResult contains duplicate, dangling, stale, cross-stage-invalid, or wrong-type application refs | INVALID_CASE_RESULT |
+| Missing/ambiguous required fact in an otherwise valid graph | CaseUnresolved |
+| Legal target cannot be resolved uniquely in an otherwise valid graph | CaseUnresolved |
 | Corpus lacks required source/target | CaseUnresolved category corpus_gap |
 | Candidate claim lacks canonical support | remains candidate and/or CaseUnresolved unsupported_claim |
 | Required as_of_date absent for a time-sensitive decision | CaseUnresolved temporal_uncertainty |
 | Canonical provenance/integrity check fails | block supported result; surface system/integrity failure |
 
-These are application meanings, not HTTP status codes and not MCP error codes. Transport adapters map them without changing domain semantics.
+`INVALID_CASE_DRAFT` and `INVALID_CASE_RESULT` are system/contract validation conditions, not legal uncertainty. The application MUST NOT convert a broken application graph into `CaseUnresolved`.
+
+A `CaseResult` MUST pass schema validation and semantic graph validation before it is accepted as valid, registered as accepted application state, materialized, or rendered as a valid result. Transport adapters map these meanings without changing domain semantics; the symbolic values are not HTTP status codes or MCP error codes.
+
+### 14.6 Required semantic-integrity test matrix for issue #16
+
+Issue #16 MUST implement application semantic validation and, at minimum, cover this matrix:
+
+| Test | Expected result |
+| --- | --- |
+| Complete internally consistent CaseResult graph, with every present ref resolving exactly once to the required type and permitted lifecycle target | PASS |
+| Supported claim references missing `evidence_ref` | `INVALID_CASE_RESULT` |
+| CaseEvidence references missing `source_ref` | `INVALID_CASE_RESULT` |
+| CaseEvidence references missing `document_ref` | `INVALID_CASE_RESULT` |
+| CaseEvidence references missing `provision_ref` | `INVALID_CASE_RESULT` |
+| PublicProvisionRef references missing `document_ref` | `INVALID_CASE_RESULT` |
+| CaseUnresolved references missing related fact in originating accepted CaseDraft | `INVALID_CASE_RESULT` |
+| CaseUnresolved references missing related question in originating accepted CaseDraft | `INVALID_CASE_RESULT` |
+| CaseUnresolved references missing related claim in the result-level claim namespace | `INVALID_CASE_RESULT` |
+| Duplicate declared ref inside an owning collection | reject at semantic validation (`INVALID_CASE_DRAFT` or `INVALID_CASE_RESULT` by lifecycle) |
+| Same `claim_ref` appears in both supported and remaining-candidate result collections | `INVALID_CASE_RESULT` |
+| Draft question/candidate/unresolved ref points to a missing draft fact/question/claim | `INVALID_CASE_DRAFT` |
+| A syntactically valid ref is looked up against or satisfied from the wrong typed registry | reject; never coerce/cross-resolve types |
+| Result fact/question ref attempts to resolve against a different/stale draft or result-only object | `INVALID_CASE_RESULT` |
+| Semantic validation repeated over the same immutable objects/context | same deterministic validation outcome |
+
+Where a malformed ref is already rejected by JSON Schema (for example, a wrong namespace prefix), the test may fail at the schema boundary first; the application MUST still never implement a fallback that coerces that ref to another object type.
 
 ## 15. Mapping to current CASE-0001 infrastructure
 
@@ -500,6 +629,11 @@ An implementation conforming to v1 must preserve all of these:
 11. Missing or ambiguous information remains explicit unresolved state.
 12. Contract use does not require runtime/corpus mutation.
 13. Persistence changes are not implied by this specification.
+14. JSON Schema conformance is necessary for serialized shape but is not sufficient for CaseDraft/CaseResult graph validity.
+15. Every application ref resolves to exactly one target of the required type in the lifecycle namespace defined by §14, and each owning ref namespace is unique.
+16. CaseResult may resolve fact/question refs only against the originating accepted CaseDraft from the same execution; other implicit cross-stage resolution is forbidden.
+17. A broken application graph is `INVALID_CASE_DRAFT` or `INVALID_CASE_RESULT`, never legal unresolved state.
+18. Presentation/materialization cannot hide dangling or stale refs and then treat the result as valid.
 
 ## 20. Related authoritative contracts
 
