@@ -40,6 +40,8 @@ The required `CI Gate` job is stable and is the branch-rule status context. The 
 
 The lifecycle controller handles safe stale-branch updates through GitHub's update-branch API. Because GitHub-token-authored changes do not reliably generate a fresh CI event, the controller explicitly dispatches `col-taxdata CI` against the updated branch.
 
+A recovery CI started through `workflow_dispatch` must not rely on a downstream `workflow_run` event: GitHub token anti-recursion rules can suppress that event. After its `CI Gate` succeeds, the dispatched CI therefore re-enters the existing lifecycle controller directly, using the tested head SHA and PR number. The write-capable completion job checks out controller code from the repository default branch, not PR code, and grants write permissions only to that final lifecycle job. Ordinary `pull_request` CI continues to use the separate `workflow_run` lifecycle path.
+
 When reconciliation requires implementation judgment, the controller emits `repository_dispatch` event type `col-taxdata-agent-resume` and writes the same request durably to the owning issue. The payload contract is:
 
 ```json
