@@ -160,6 +160,9 @@ Extraction / segments / FTS
 
 **Idempotency:** canonical keys and most `DOC-*` registration paths are deterministic. Identity migrations can split/rebind prior derived state while recording migration provenance.
 
+**Zero-Manifestation lifecycle:** absence of a linked Manifestation is not a deletion rule. A source-less Document is retained while an active binding depends on it (including an active reference-resolution target) or while its primary canonical identifier has valid `document_identifier_evidence` backed by the registered Manifestation SHA. Broken/malformed provenance is retained as a conflict. Only a source-less Document with one primary canonical key, no active direct/polymorphic binding and no identifier evidence is stale derived residue eligible for `tools/cleanup_unreferenced_documents.py`. The cleanup is dry-run by default, discovers current direct Document FKs from SQLite metadata, rechecks candidates inside an immediate transaction on apply, and verifies the Manifestation registry digest is unchanged.
+
+
 ### 8. Provision registration
 
 **Input:** canonical Document + qualifying structural segments.

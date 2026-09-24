@@ -115,6 +115,14 @@ cited Document/Provision != identity of the citing Document
 - same type/number/year can represent distinct documents when issuers differ;
 - one Document can have multiple Manifestations.
 
+- zero linked Manifestations do not by themselves prove that a Document is stale or legally invalid;
+- a source-less Document is protected while an active canonical/derived binding depends on it, or while explicit canonical-identifier evidence supports it;
+- a source-less Document with neither active bindings nor identifier provenance is unsupported derived residue and may be removed only through the deterministic DEF-0009 lifecycle cleanup;
+- malformed/conflicting source-less provenance is retained for review rather than treated as deletion permission.
+
+**Source-less lifecycle boundary:** `document_identifier_evidence` is the current explicit provenance mechanism for a canonical identifier that is supported by evidence from another Manifestation. Active reference resolutions are also protected dependencies and carry their own mention/extraction/Manifestation provenance chain. Other active direct or polymorphic Document bindings block cleanup even when separate identity evidence is absent; their owning subsystem must be resolved first. Cleanup classifies database support state only and never infers that the underlying legal instrument does not exist.
+
+
 ### Issuer
 
 **Represents:** the normalized authority that issued the canonical document, such as `DIAN`, `BANREP_JD`, `CORTE_CONSTITUCIONAL`, `CONGRESO`, or `PRESIDENCIA`.
