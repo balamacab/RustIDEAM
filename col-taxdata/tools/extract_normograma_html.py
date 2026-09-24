@@ -321,7 +321,7 @@ def classify_segment(block: RawBlock) -> str:
 
     if block.kind == "table_row":
         return "table_row"
-    if LEGAL_HEADING_RE.match(key):
+    if LEGAL_HEADING_RE.match(key) or SENTENCIA_C_HEADING_RE.match(key):
         return "document_heading"
     if REG_ARTICLE_RE.match(key):
         return "regulatory_article"
