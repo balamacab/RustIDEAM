@@ -32,15 +32,17 @@ The durable gate also rejects modification/deletion/renaming of already-present 
 
 ## CI and current-base validation
 
-`col-taxdata CI` runs the scope/policy gate on every PR to `main`. For applicable changes it always runs repository-control regression tests. It runs the complete col-taxdata suite when product, schema, test, configuration, or CI-control code changes; documentation-only changes can skip the heavy suite.
+`col-taxdata CI` is started explicitly by the trusted PR-lifecycle controller through `workflow_dispatch`; it does not listen directly to `pull_request`. The workflow definition comes from the default branch, resolves the exact PR head through the GitHub API, checks that candidate SHA out separately, and runs trusted default-branch policy code against the candidate checkout. For applicable changes it always runs repository-control regression tests. It runs the complete col-taxdata suite when product, schema, test, configuration, or CI-control code changes; documentation-only changes can skip the heavy suite.
 
-The required `CI Gate` job is stable and is the branch-rule status context. The main ruleset requires strict/current-base status checks, PR integration, zero approving reviews, and non-fast-forward protection. No bypass actor is configured; automation merges through a validated PR rather than bypassing the PR requirement.
+Because a default-branch `workflow_dispatch` run is itself attached to the default-branch commit, the trusted gate explicitly publishes a GitHub Actions check run named `CI Gate` on the exact candidate head SHA after validation. The check is emitted with `checks: write` only by trusted workflow code; candidate jobs remain read-only. The required `CI Gate` context on the PR head is therefore tied to the exact candidate SHA that was validated.
+
+The required `CI Gate` check is stable and is the branch-rule status context. The main ruleset requires strict/current-base status checks, PR integration, zero approving reviews, and non-fast-forward protection. No bypass actor is configured; automation merges through a validated PR rather than bypassing the PR requirement.
 
 ## Stale branch, conflict, and CI recovery
 
-The lifecycle controller handles safe stale-branch updates through GitHub's update-branch API. Because GitHub-token-authored changes do not reliably generate a fresh CI event, the controller explicitly dispatches `col-taxdata CI` against the updated branch.
+The lifecycle controller handles safe stale-branch updates through GitHub's update-branch API. GitHub-token-authored branch updates can create a non-runnable `pull_request` check suite with conclusion `action_required`, so `col-taxdata CI` no longer has a direct `pull_request` trigger. Instead, trusted `pull_request_target` controller code explicitly dispatches CI for a PR head, both at initial validation and after automated branch reconciliation.
 
-A recovery CI started through `workflow_dispatch` must not rely on a downstream `workflow_run` event: GitHub token anti-recursion rules can suppress that event. After its `CI Gate` succeeds, the dispatched CI therefore re-enters the existing lifecycle controller directly, using the tested head SHA and PR number. The write-capable completion job checks out controller code from the repository default branch, not PR code, and grants write permissions only to that final lifecycle job. Ordinary `pull_request` CI continues to use the separate `workflow_run` lifecycle path.
+Every dispatched CI uses the workflow definition from the default branch, not the candidate branch. The workflow resolves the current PR head SHA, checks that candidate code out separately with read-only permissions, and applies trusted default-branch policy code to the candidate checkout. After `CI Gate` succeeds, the write-capable completion job again checks out default-branch controller code and re-enters the lifecycle with the exact tested candidate head SHA. This avoids GitHub anti-recursion ghost suites while preventing candidate code from defining its own write-capable integration workflow.
 
 When reconciliation requires implementation judgment, the controller emits `repository_dispatch` event type `col-taxdata-agent-resume` and writes the same request durably to the owning issue. The payload contract is:
 
