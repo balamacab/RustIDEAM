@@ -17,8 +17,13 @@ from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 
+from source_identity import (
+    CORTE_CONSTITUCIONAL_SENTENCIA_C,
+    classify_source_url,
+)
+
 EXTRACTOR_NAME = "normograma_html"
-EXTRACTOR_VERSION = "2"
+EXTRACTOR_VERSION = "3"
 
 BLOCK_TAGS = {
     "address", "article", "aside", "blockquote", "dd", "div", "dl", "dt",
@@ -34,6 +39,12 @@ LEGAL_HEADING_RE = re.compile(
     r"\s+(?:N[ÚU]MERO\s+)?[A-Z0-9._/-]+\s+DE\s+\d{4}\b",
     re.IGNORECASE,
 )
+SENTENCIA_C_HEADING_RE = re.compile(
+    r"^SENTENCIA\s+C-\d{1,4}/\d{2,4}\b",
+    re.IGNORECASE,
+)
+SENTENCIA_C_MIN_BODY_CHARS = 500
+SENTENCIA_C_REQUIRED_SECTION_SIGNALS = 2
 ARTICLE_RE = re.compile(r"^[“\"']?ART[IÍ]CULO\s+[^\s]+", re.IGNORECASE)
 REG_ARTICLE_RE = re.compile(
     r"^[“\"']?ART[IÍ]CULO\s+\d+(?:\.\d+){2,}\b",
@@ -224,12 +235,54 @@ class VisibleBlockParser(HTMLParser):
         self.flush_text()
 
 
-def find_legal_body(blocks: list[RawBlock]) -> list[RawBlock]:
-    candidates: list[int] = []
-    for i, block in enumerate(blocks):
-        if LEGAL_HEADING_RE.match(normalize_key(block.text)):
-            candidates.append(i)
+def sentencia_c_section_signals(blocks: list[RawBlock]) -> set[str]:
+    """Return structural section signals present in a Sentencia C body."""
+    signals: set[str] = set()
+    for block in blocks:
+        key = normalize_key(block.text)
+        if "ANTECEDENTES" in key:
+            signals.add("antecedentes")
+        if "CONSIDERACIONES" in key:
+            signals.add("consideraciones")
+        if "DECISION" in key or re.sub(r"[^A-Z]", "", key).startswith("RESUELVE"):
+            signals.add("decision")
+    return signals
 
+
+def validate_sentencia_c_body(blocks: list[RawBlock]) -> None:
+    """Reject navigation/truncated pages without relying on block count alone."""
+    char_count = sum(len(block.text) for block in blocks)
+    section_signals = sentencia_c_section_signals(blocks)
+    if (
+        char_count < SENTENCIA_C_MIN_BODY_CHARS
+        or len(section_signals) < SENTENCIA_C_REQUIRED_SECTION_SIGNALS
+    ):
+        raise RuntimeError(
+            "detected Sentencia C body is incomplete or unexpectedly short"
+        )
+
+
+def find_legal_body(
+    blocks: list[RawBlock],
+    *,
+    source_url: str | None = None,
+) -> list[RawBlock]:
+    source_family = (
+        classify_source_url(source_url).family
+        if source_url is not None
+        else None
+    )
+    heading_re = (
+        SENTENCIA_C_HEADING_RE
+        if source_family == CORTE_CONSTITUCIONAL_SENTENCIA_C
+        else LEGAL_HEADING_RE
+    )
+
+    candidates = [
+        i
+        for i, block in enumerate(blocks)
+        if heading_re.match(normalize_key(block.text))
+    ]
     if not candidates:
         raise RuntimeError("legal document heading was not detected")
 
@@ -253,7 +306,11 @@ def find_legal_body(blocks: list[RawBlock]) -> list[RawBlock]:
         for block in blocks[start:end]
         if not is_portal_annotation(block.text)
     ]
-    if len(body) < 5:
+    if source_family == CORTE_CONSTITUCIONAL_SENTENCIA_C:
+        validate_sentencia_c_body(body)
+    elif len(body) < 5:
+        # Preserve the existing normative-act guard. DEF-0007 only changes
+        # validation for the trusted Sentencia C source family.
         raise RuntimeError("detected legal body is unexpectedly short")
     return body
 
@@ -264,7 +321,7 @@ def classify_segment(block: RawBlock) -> str:
 
     if block.kind == "table_row":
         return "table_row"
-    if LEGAL_HEADING_RE.match(key):
+    if LEGAL_HEADING_RE.match(key) or SENTENCIA_C_HEADING_RE.match(key):
         return "document_heading"
     if REG_ARTICLE_RE.match(key):
         return "regulatory_article"
@@ -355,6 +412,7 @@ def extract_manifestation(
     manifestation_id: str,
     db_path: Path,
     data_root: Path,
+    dry_run: bool = False,
 ) -> dict[str, object]:
     con = sqlite3.connect(db_path)
     con.execute("PRAGMA foreign_keys = ON")
@@ -405,7 +463,10 @@ def extract_manifestation(
         parser.feed(raw_html)
         parser.close()
 
-        body_blocks = find_legal_body(parser.blocks)
+        body_blocks = find_legal_body(
+            parser.blocks,
+            source_url=source_url,
+        )
         normalized_text, segments = build_segments(body_blocks)
         normalized_bytes = normalized_text.encode("utf-8")
         normalized_sha256 = sha256_bytes(normalized_bytes)
@@ -424,7 +485,6 @@ def extract_manifestation(
             / f"{normalized_sha256}.txt"
         )
         output_path = data_root / output_relative
-        write_atomic(output_path, normalized_bytes)
 
         existing = con.execute(
             """
@@ -439,28 +499,45 @@ def extract_manifestation(
             sorted(Counter(segment["segment_type"] for segment in segments).items())
         )
 
-        if existing is not None:
-            if (
-                existing[0] != normalized_sha256
-                or existing[1] != str(output_relative)
-                or existing[2] != len(segments)
-            ):
-                raise RuntimeError(
-                    "same extractor version produced a different result"
-                )
+        if existing is not None and (
+            existing[0] != normalized_sha256
+            or existing[1] != str(output_relative)
+            or existing[2] != len(segments)
+        ):
+            raise RuntimeError(
+                "same extractor version produced a different result"
+            )
+
+        output_exists = output_path.exists()
+        if output_exists and sha256_file(output_path) != normalized_sha256:
+            raise RuntimeError(f"immutable output path collision: {output_path}")
+
+        result = {
+            "extraction_id": extraction_id,
+            "manifestation_id": manifestation_id,
+            "extractor_version": EXTRACTOR_VERSION,
+            "source_url": source_url,
+            "raw_sha256": raw_sha256,
+            "normalized_sha256": normalized_sha256,
+            "local_path": str(output_relative),
+            "char_count": len(normalized_text),
+            "segment_count": len(segments),
+            "segment_types": counts,
+            "reused": existing is not None,
+        }
+
+        if dry_run:
             return {
-                "extraction_id": extraction_id,
-                "manifestation_id": manifestation_id,
-                "extractor_version": EXTRACTOR_VERSION,
-                "source_url": source_url,
-                "raw_sha256": raw_sha256,
-                "normalized_sha256": normalized_sha256,
-                "local_path": str(output_relative),
-                "char_count": len(normalized_text),
-                "segment_count": len(segments),
-                "segment_types": counts,
-                "reused": True,
+                **result,
+                "dry_run": True,
+                "would_insert_extraction": existing is None,
+                "would_write_output": not output_exists,
             }
+
+        write_atomic(output_path, normalized_bytes)
+
+        if existing is not None:
+            return result
 
         created_at = utc_now()
 
@@ -532,19 +609,7 @@ def extract_manifestation(
                     ),
                 )
 
-        return {
-            "extraction_id": extraction_id,
-            "manifestation_id": manifestation_id,
-            "extractor_version": EXTRACTOR_VERSION,
-            "source_url": source_url,
-            "raw_sha256": raw_sha256,
-            "normalized_sha256": normalized_sha256,
-            "local_path": str(output_relative),
-            "char_count": len(normalized_text),
-            "segment_count": len(segments),
-            "segment_types": counts,
-            "reused": False,
-        }
+        return result
 
     finally:
         con.close()
@@ -557,12 +622,18 @@ def main() -> int:
     parser.add_argument("--manifestation-id", required=True)
     parser.add_argument("--db", default="data/state/taxdata.sqlite")
     parser.add_argument("--data-root", default="data")
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="validate and report the extraction without writing files or rows",
+    )
     args = parser.parse_args()
 
     result = extract_manifestation(
         manifestation_id=args.manifestation_id,
         db_path=Path(args.db),
         data_root=Path(args.data_root),
+        dry_run=args.dry_run,
     )
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0
