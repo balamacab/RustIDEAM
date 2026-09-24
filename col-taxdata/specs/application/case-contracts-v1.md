@@ -81,7 +81,7 @@ A consumer that does not support the supplied major version MUST reject it expli
 
 The referential-integrity rules added by GitHub issue #25 do not add, remove, or rename serialized fields and do not change the companion JSON Schema. They make explicit the cross-object semantics for which this document was already normative. A payload whose references are dangling, duplicate in an owning ref namespace, or resolved to the wrong object type is not a semantically valid case graph merely because each object is schema-valid.
 
-For that reason this refinement remains within contract package version 1.0.0. The separate result-metadata refinement owned by issue #24 retains responsibility for its own serialized-shape/versioning decision.
+These referential-integrity rules are a semantic clarification and do not, by themselves, require a contract-version increment. Any separate change to serialized shape or field semantics must apply the versioning policy above independently.
 
 ## 3. Trust and ownership model
 
