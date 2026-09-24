@@ -9,7 +9,7 @@ import urllib.error
 import urllib.request
 from typing import Any
 
-from policy import PolicyError, parse_metadata
+from policy import PolicyError, closing_issue_number, parse_metadata
 
 API = "https://api.github.com"
 STATUS_CONTEXT = "Convergence Gate"
