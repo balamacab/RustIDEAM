@@ -73,12 +73,14 @@ Stable application-facing contracts live under [`application/`](application/). T
 
 The current natural-language case-contract line is:
 
-- [`application/case-contracts-v2.md`](application/case-contracts-v2.md) — current contract for new implementations, including required provider-neutral structuring metadata in both CaseDraft and CaseResult.
-- [`application/schemas/case-contracts-v2.schema.json`](application/schemas/case-contracts-v2.schema.json) — machine-readable JSON Schema for the v2 serialized contracts.
-- [`application/case-contracts-v1.md`](application/case-contracts-v1.md) — retained v1.0.0 compatibility contract for consumers that explicitly support the previous major version.
+- [`application/case-contracts-v3.md`](application/case-contracts-v3.md) — current contract for new implementations and issue #16; CaseResult requires self-contained facts/questions while preserving provider-neutral structuring metadata and typed graph validation.
+- [`application/schemas/case-contracts-v3.schema.json`](application/schemas/case-contracts-v3.schema.json) — machine-readable JSON Schema for the v3 serialized contracts.
+- [`application/case-contracts-v2.md`](application/case-contracts-v2.md) — retained v2.0.0 compatibility contract; its CaseResult does not serialize facts/questions and therefore may require its originating accepted CaseDraft for fact/question ref validation.
+- [`application/schemas/case-contracts-v2.schema.json`](application/schemas/case-contracts-v2.schema.json) — retained machine-readable v2 schema.
+- [`application/case-contracts-v1.md`](application/case-contracts-v1.md) — retained v1.0.0 compatibility contract.
 - [`application/schemas/case-contracts-v1.schema.json`](application/schemas/case-contracts-v1.schema.json) — retained machine-readable v1 schema.
 
-Issue #24 intentionally makes the result-metadata requirement a v2 breaking change rather than weakening v1 compatibility semantics. Consumers that support only v1 must reject v2 explicitly instead of silently dropping required traceability metadata.
+Issue #24 introduced required result structuring metadata as the v2 breaking change. Issue #27 introduces v3 because required CaseResult facts/questions and standalone result-owned fact/question reference namespaces are another breaking wire/validation change. Consumers that support only v1/v2 must reject v3 explicitly rather than silently dropping required state or reintroducing hidden CaseDraft dependencies.
 
 CLI, API and future MCP adapters are expected to preserve the applicable application-contract semantics rather than embedding their own case logic.
 
