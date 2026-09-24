@@ -8,6 +8,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -288,6 +289,248 @@ class CorpusDoctorTests(unittest.TestCase):
         )
         report = self._run()
         self.assertEqual(self._check(report, "FTS-001").status, "ERROR")
+
+
+    def test_non_numbered_official_guidance_identity_is_not_malformed(self) -> None:
+        now = "2026-09-24T00:00:00+00:00"
+        con = sqlite3.connect(self.db_path)
+        with con:
+            con.execute(
+                """
+                INSERT INTO documents(
+                    document_id, entity, document_type, title,
+                    created_at, updated_at
+                ) VALUES (
+                    'DOC-guidance', 'DIAN', 'TRAMITE_OFICIAL',
+                    'Cancelación RUT', ?, ?
+                )
+                """,
+                (now, now),
+            )
+            con.execute(
+                """
+                INSERT INTO document_identifiers(
+                    identifier_id, document_id, identifier_type,
+                    identifier_value, issuer, is_primary
+                ) VALUES (
+                    'ID-guidance', 'DOC-guidance', 'canonical_key',
+                    'CO:DIAN:TRAMITE:RUT_CANCELACION', 'DIAN', 1
+                )
+                """
+            )
+        con.close()
+
+        report = self._run()
+        self.assertEqual(self._check(report, "IDENTITY-002").status, "PASS")
+
+    def test_malformed_numbered_legal_identity_still_fails(self) -> None:
+        self._mutate_db(
+            """
+            UPDATE document_identifiers
+            SET identifier_value = 'CO:LEY:ONE:2020'
+            WHERE identifier_id = 'ID-healthy'
+            """
+        )
+        report = self._run()
+        self.assertEqual(self._check(report, "IDENTITY-002").status, "ERROR")
+
+    def test_unresolved_article_can_retain_resolved_document_target(self) -> None:
+        now = "2026-09-24T00:00:00+00:00"
+        con = sqlite3.connect(self.db_path)
+        con.execute("PRAGMA foreign_keys = ON")
+        with con:
+            con.execute(
+                """
+                INSERT INTO reference_detection_runs(
+                    detection_run_id, extraction_id, detector_name,
+                    detector_version, mention_count, relation_count,
+                    created_at, status
+                ) VALUES (
+                    'RDR-partial', 'EXT-healthy', 'fixture', '1',
+                    1, 0, ?, 'success'
+                )
+                """,
+                (now,),
+            )
+            con.execute(
+                """
+                INSERT INTO reference_mentions(
+                    reference_mention_id, detection_run_id, extraction_id,
+                    extracted_segment_id, mention_type, raw_text,
+                    context_text, normalized_reference,
+                    target_document_key, target_document_type,
+                    target_document_number, target_document_year,
+                    article_designation, char_start, char_end,
+                    detection_method, confidence,
+                    requires_human_review, status
+                ) VALUES (
+                    'RM-partial', 'RDR-partial', 'EXT-healthy',
+                    'SEG-healthy', 'article', 'artículo 99 de la Ley 1 de 2020',
+                    'fixture', 'ARTICULO 99 LEY 1 2020',
+                    'CO:LEY:1:2020', 'LEY', '1', 2020,
+                    '99', 0, 10, 'fixture', 1.0, 1, 'candidate'
+                )
+                """
+            )
+            con.execute(
+                """
+                INSERT INTO reference_resolutions(
+                    reference_resolution_id, reference_mention_id,
+                    target_document_id, target_provision_id,
+                    resolution_method, confidence, status,
+                    requires_human_review, created_at
+                ) VALUES (
+                    'RRES-partial', 'RM-partial', 'DOC-healthy', NULL,
+                    'fixture:1', 0.0, 'unresolved', 1, ?
+                )
+                """,
+                (now,),
+            )
+        con.close()
+
+        report = self._run()
+        self.assertEqual(self._check(report, "REF-002").status, "PASS")
+
+    def test_review_queue_accepts_explicit_relation_mention_entity(self) -> None:
+        now = "2026-09-24T00:00:00+00:00"
+        con = sqlite3.connect(self.db_path)
+        con.execute("PRAGMA foreign_keys = ON")
+        with con:
+            con.execute(
+                """
+                INSERT INTO reference_detection_runs(
+                    detection_run_id, extraction_id, detector_name,
+                    detector_version, mention_count, relation_count,
+                    created_at, status
+                ) VALUES (
+                    'RDR-review', 'EXT-healthy', 'fixture', '1',
+                    1, 1, ?, 'success'
+                )
+                """,
+                (now,),
+            )
+            con.execute(
+                """
+                INSERT INTO reference_mentions(
+                    reference_mention_id, detection_run_id, extraction_id,
+                    extracted_segment_id, mention_type, raw_text,
+                    context_text, normalized_reference,
+                    target_document_key, target_document_type,
+                    target_document_number, target_document_year,
+                    article_designation, char_start, char_end,
+                    detection_method, confidence,
+                    requires_human_review, status
+                ) VALUES (
+                    'RM-review', 'RDR-review', 'EXT-healthy',
+                    'SEG-healthy', 'document', 'Ley 1 de 2020',
+                    'fixture', 'LEY 1 2020',
+                    'CO:LEY:1:2020', 'LEY', '1', 2020,
+                    NULL, 0, 10, 'fixture', 1.0, 0, 'candidate'
+                )
+                """
+            )
+            con.execute(
+                """
+                INSERT INTO explicit_relation_mentions(
+                    relation_mention_id, detection_run_id, extraction_id,
+                    extracted_segment_id, target_reference_mention_id,
+                    relation_type, trigger_text, context_text,
+                    detection_method, confidence,
+                    requires_human_review, status
+                ) VALUES (
+                    'ERM-review', 'RDR-review', 'EXT-healthy',
+                    'SEG-healthy', 'RM-review', 'modified_by',
+                    'modificado por', 'fixture', 'fixture',
+                    1.0, 1, 'candidate'
+                )
+                """
+            )
+            con.execute(
+                """
+                INSERT INTO review_queue(
+                    review_id, entity_type, entity_id, reason_code,
+                    severity, created_at
+                ) VALUES (
+                    'REV-review', 'explicit_relation_mention',
+                    'ERM-review', 'FIXTURE', 'medium', ?
+                )
+                """,
+                (now,),
+            )
+        con.close()
+
+        report = self._run()
+        self.assertEqual(self._check(report, "REVIEW-001").status, "PASS")
+
+    def test_case_items_accept_source_entity(self) -> None:
+        now = "2026-09-24T00:00:00+00:00"
+        con = sqlite3.connect(self.db_path)
+        con.execute("PRAGMA foreign_keys = ON")
+        with con:
+            con.execute(
+                """
+                INSERT INTO cases(
+                    case_id, title, query_text, created_at, updated_at
+                ) VALUES ('CASE-source', 'fixture', 'fixture', ?, ?)
+                """,
+                (now, now),
+            )
+            con.execute(
+                """
+                INSERT INTO case_items(
+                    case_id, item_type, item_id, relevance, added_at
+                ) VALUES (
+                    'CASE-source', 'source', 'SRC-healthy',
+                    'fixture source', ?
+                )
+                """,
+                (now,),
+            )
+        con.close()
+
+        report = self._run()
+        self.assertEqual(self._check(report, "CASE-001").status, "PASS")
+
+    def test_read_failure_becomes_finding_instead_of_aborting_full_run(self) -> None:
+        real_sha256_file = doctor._sha256_file
+        data_root = self.data_root.resolve()
+
+        def fail_only_corpus_artifacts(path: Path) -> str:
+            try:
+                path.resolve().relative_to(data_root)
+            except ValueError:
+                return real_sha256_file(path)
+            raise PermissionError("fixture permission denied")
+
+        with mock.patch(
+            "doctor._sha256_file",
+            side_effect=fail_only_corpus_artifacts,
+        ):
+            report = self._run(mode="full")
+
+        self.assertEqual(self._check(report, "RAW-004").status, "ERROR")
+        self.assertEqual(self._check(report, "ARTIFACT-002").status, "ERROR")
+
+    def test_raw_read_permission_failure_is_reported_by_raw_check(self) -> None:
+        con = doctor.open_read_only_database(self.db_path)
+        try:
+            ctx = doctor.DoctorContext(
+                con,
+                self.db_path,
+                self.data_root,
+                self.schema_dir,
+                "quick",
+            )
+            with mock.patch(
+                "pathlib.Path.open",
+                side_effect=PermissionError("fixture permission denied"),
+            ):
+                result = doctor.check_raw_files_exist(ctx)
+        finally:
+            con.close()
+
+        self.assertEqual(result.status, "ERROR")
+        self.assertIn("unreadable", result.examples[0])
 
     def test_json_output_and_exit_semantics_are_deterministic(self) -> None:
         command = [

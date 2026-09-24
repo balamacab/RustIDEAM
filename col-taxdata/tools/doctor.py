@@ -262,6 +262,7 @@ def _manifestation_rows(ctx: DoctorContext) -> list[sqlite3.Row]:
     ).fetchall()
 
 
+
 def check_raw_files_exist(ctx: DoctorContext) -> CheckResult:
     missing = _require_tables(ctx, "RAW-001", "raw", ["manifestations"], spec="ADR-0002")
     if missing:
@@ -270,11 +271,30 @@ def check_raw_files_exist(ctx: DoctorContext) -> CheckResult:
     for row in _manifestation_rows(ctx):
         path = _resolve_data_path(ctx.data_root, row[3])
         if not path.is_file():
-            failures.append(f"{row[0]}: {row[3]}")
+            failures.append(f"missing {row[0]}: {row[3]}")
+            continue
+        try:
+            with path.open("rb") as handle:
+                handle.read(1)
+        except OSError as exc:
+            failures.append(
+                f"unreadable {row[0]}: {type(exc).__name__}: {exc}"
+            )
     if failures:
-        return _error("RAW-001", "raw", "registered raw manifestation files are missing", len(failures), failures, spec="ADR-0002")
-    return _pass("RAW-001", "raw", "all registered raw manifestation files exist", spec="ADR-0002")
-
+        return _error(
+            "RAW-001",
+            "raw",
+            "registered raw manifestation files are missing or unreadable",
+            len(failures),
+            failures,
+            spec="ADR-0002",
+        )
+    return _pass(
+        "RAW-001",
+        "raw",
+        "all registered raw manifestation files exist and are readable",
+        spec="ADR-0002",
+    )
 
 def check_raw_byte_sizes(ctx: DoctorContext) -> CheckResult:
     missing = _require_tables(ctx, "RAW-002", "raw", ["manifestations"], spec="ADR-0002")
@@ -288,15 +308,19 @@ def check_raw_byte_sizes(ctx: DoctorContext) -> CheckResult:
         path = _resolve_data_path(ctx.data_root, row[3])
         if not path.is_file():
             continue
+        try:
+            actual = path.stat().st_size
+        except OSError as exc:
+            failures.append(
+                f"{row[0]}: stat failed: {type(exc).__name__}: {exc}"
+            )
+            continue
         checked += 1
-        actual = path.stat().st_size
         if actual != int(row[2]):
             failures.append(f"{row[0]}: recorded={row[2]} actual={actual}")
     if failures:
         return _error("RAW-002", "raw", "raw byte-size mismatches detected", len(failures), failures, spec="ADR-0002")
     return _pass("RAW-002", "raw", f"raw byte sizes match for {checked} registered files", spec="ADR-0002")
-
-
 def check_raw_content_paths(ctx: DoctorContext) -> CheckResult:
     missing = _require_tables(ctx, "RAW-003", "raw", ["manifestations"], spec="ADR-0002")
     if missing:
@@ -319,6 +343,7 @@ def check_raw_content_paths(ctx: DoctorContext) -> CheckResult:
     return _pass("RAW-003", "raw", "raw paths agree with content-addressed SHA-256 layout", spec="ADR-0002")
 
 
+
 def check_raw_hashes(ctx: DoctorContext) -> CheckResult:
     if ctx.mode != "full":
         return _info("RAW-004", "raw", "full raw SHA-256 verification skipped; run with --full", spec="ADR-0002")
@@ -331,19 +356,24 @@ def check_raw_hashes(ctx: DoctorContext) -> CheckResult:
         path = _resolve_data_path(ctx.data_root, row[3])
         if not path.is_file():
             continue
+        try:
+            actual = _sha256_file(path)
+        except OSError as exc:
+            failures.append(
+                f"{row[0]}: unreadable: {type(exc).__name__}: {exc}"
+            )
+            continue
         checked += 1
-        actual = _sha256_file(path)
         if actual.lower() != str(row[1]).lower():
             failures.append(f"{row[0]}: expected={row[1]} actual={actual}")
     if failures:
-        return _error("RAW-004", "raw", "raw SHA-256 mismatches detected", len(failures), failures, spec="ADR-0002")
+        return _error("RAW-004", "raw", "raw SHA-256 mismatches or read failures detected", len(failures), failures, spec="ADR-0002")
     return _pass("RAW-004", "raw", f"full SHA-256 verified for {checked} raw files", spec="ADR-0002")
-
-
 def _extraction_rows(ctx: DoctorContext) -> list[sqlite3.Row]:
     return ctx.con.execute(
         "SELECT extraction_id, normalized_sha256, byte_size, local_path FROM text_extractions ORDER BY extraction_id"
     ).fetchall()
+
 
 
 def check_extracted_files(ctx: DoctorContext) -> CheckResult:
@@ -357,13 +387,30 @@ def check_extracted_files(ctx: DoctorContext) -> CheckResult:
         if not path.is_file():
             failures.append(f"missing {row[0]}: {row[3]}")
             continue
+        try:
+            with path.open("rb") as handle:
+                handle.read(1)
+            actual_size = path.stat().st_size
+        except OSError as exc:
+            failures.append(
+                f"unreadable {row[0]}: {type(exc).__name__}: {exc}"
+            )
+            continue
         checked += 1
-        if path.stat().st_size != int(row[2]):
-            failures.append(f"size {row[0]}: recorded={row[2]} actual={path.stat().st_size}")
+        if actual_size != int(row[2]):
+            failures.append(
+                f"size {row[0]}: recorded={row[2]} actual={actual_size}"
+            )
     if failures:
-        return _error("ARTIFACT-001", "artifact", "registered normalized/extracted artifacts are missing or wrong-sized", len(failures), failures, spec="architecture/data-lifecycle.md")
+        return _error(
+            "ARTIFACT-001",
+            "artifact",
+            "registered normalized/extracted artifacts are missing, unreadable, or wrong-sized",
+            len(failures),
+            failures,
+            spec="architecture/data-lifecycle.md",
+        )
     return _pass("ARTIFACT-001", "artifact", f"registered extraction files exist with expected size ({checked} checked)", spec="architecture/data-lifecycle.md")
-
 
 def check_extracted_hashes(ctx: DoctorContext) -> CheckResult:
     if ctx.mode != "full":
@@ -377,15 +424,26 @@ def check_extracted_hashes(ctx: DoctorContext) -> CheckResult:
         path = _resolve_data_path(ctx.data_root, row[3])
         if not path.is_file():
             continue
+        try:
+            actual = _sha256_file(path)
+        except OSError as exc:
+            failures.append(
+                f"{row[0]}: unreadable: {type(exc).__name__}: {exc}"
+            )
+            continue
         checked += 1
-        actual = _sha256_file(path)
         if actual.lower() != str(row[1]).lower():
             failures.append(f"{row[0]}: expected={row[1]} actual={actual}")
     if failures:
-        return _error("ARTIFACT-002", "artifact", "normalized/extracted artifact SHA-256 mismatches detected", len(failures), failures, spec="architecture/data-lifecycle.md")
+        return _error(
+            "ARTIFACT-002",
+            "artifact",
+            "normalized/extracted artifact SHA-256 mismatches or read failures detected",
+            len(failures),
+            failures,
+            spec="architecture/data-lifecycle.md",
+        )
     return _pass("ARTIFACT-002", "artifact", f"full SHA-256 verified for {checked} normalized/extracted files", spec="architecture/data-lifecycle.md")
-
-
 def check_segment_hashes(ctx: DoctorContext) -> CheckResult:
     missing = _require_tables(ctx, "ARTIFACT-003", "artifact", ["extracted_segments"], spec="architecture/data-lifecycle.md")
     if missing:
@@ -496,14 +554,29 @@ def check_identity_uniqueness(ctx: DoctorContext) -> CheckResult:
 
 def _parse_primary_key(value: str) -> tuple[str | None, str | None, str | None, int | None]:
     parts = value.split(":")
-    try:
-        if len(parts) == 5 and parts[0] == "CO":
-            return parts[1], parts[2], parts[3], int(parts[4])
-        if len(parts) == 4 and parts[0] == "CO":
-            return None, parts[1], parts[2], int(parts[3])
-    except ValueError:
-        pass
-    return None, None, None, None
+    if len(parts) == 5 and parts[0] == "CO":
+        issuer, document_type, number, year_text = parts[1:]
+    elif len(parts) == 4 and parts[0] == "CO":
+        issuer = None
+        document_type, number, year_text = parts[1:]
+    else:
+        return None, None, None, None
+
+    # source_identity canonicalizes numbered acts as digits with at most one
+    # trailing letter. Validate that shape here rather than merely splitting.
+    numeric_part = number[:-1] if number[-1:].isalpha() else number
+    suffix = number[-1:] if number[-1:].isalpha() else ""
+    if (
+        not numeric_part
+        or not numeric_part.isdigit()
+        or (suffix and (len(suffix) != 1 or not suffix.isupper()))
+        or len(year_text) != 4
+        or not year_text.isdigit()
+    ):
+        return None, None, None, None
+
+    return issuer, document_type, number, int(year_text)
+
 
 
 def check_issuer_aware_identity(ctx: DoctorContext) -> CheckResult:
@@ -520,7 +593,14 @@ def check_issuer_aware_identity(ctx: DoctorContext) -> CheckResult:
         ORDER BY d.document_id
         """
     ).fetchall()
+    numbered_identity_types = set(ISSUER_SCOPED_TYPES) | {"LEY", "DECRETO"}
     for document_id, document_type, key, issuer in rows:
+        # Not every canonical Document uses a numbered legal-act key shape.
+        # Official guidance (for example CO:DIAN:TRAMITE:RUT_CANCELACION)
+        # intentionally uses a domain key without number/year. Only enforce
+        # numbered-key structure for types governed by source_identity.
+        if str(document_type) not in numbered_identity_types:
+            continue
         key_issuer, key_type, _number, _year = _parse_primary_key(str(key))
         if key_type is None:
             problems.append(f"{document_id}: malformed canonical key {key}")
@@ -536,9 +616,7 @@ def check_issuer_aware_identity(ctx: DoctorContext) -> CheckResult:
                 problems.append(f"{document_id}: issuer={issuer} key_issuer={key_issuer}")
     if problems:
         return _error("IDENTITY-002", "identity", "issuer-aware canonical-key invariants are violated", len(problems), problems, spec="ADR-0006")
-    return _pass("IDENTITY-002", "identity", "issuer-scoped canonical identities are issuer-qualified and internally consistent", spec="ADR-0006")
-
-
+    return _pass("IDENTITY-002", "identity", "numbered/issuer-scoped canonical identities are internally consistent", spec="ADR-0006")
 def check_source_family_bindings(ctx: DoctorContext) -> CheckResult:
     missing = _require_tables(ctx, "IDENTITY-003", "identity", ["manifestations", "sources", "documents", "document_identifiers"], spec="DEF-0001/DEF-0003")
     if missing:
@@ -629,6 +707,7 @@ def check_reference_chains(ctx: DoctorContext) -> CheckResult:
     return _pass("REF-001", "reference", "reference mention detector/extraction/segment chains are consistent", spec="architecture/domain-model.md")
 
 
+
 def check_reference_resolutions(ctx: DoctorContext) -> CheckResult:
     missing = _require_tables(ctx, "REF-002", "reference", ["reference_resolutions", "reference_mentions", "provisions"], spec="architecture/domain-model.md")
     if missing:
@@ -650,15 +729,17 @@ def check_reference_resolutions(ctx: DoctorContext) -> CheckResult:
                 problems.append(f"{resolution_id}: resolved without target_document_id")
             if mention_type == "article" and target_provision is None:
                 problems.append(f"{resolution_id}: resolved article without target_provision_id")
-            if target_provision is not None and provision_document != target_document:
-                problems.append(f"{resolution_id}: target provision/document mismatch")
-        elif target_document is not None or target_provision is not None:
-            problems.append(f"{resolution_id}: {status} resolution retains target binding")
+        elif target_provision is not None:
+            # The resolver intentionally preserves an unambiguous Document
+            # target when an article/provision remains unresolved or ambiguous.
+            problems.append(
+                f"{resolution_id}: {status} resolution retains target_provision_id"
+            )
+        if target_provision is not None and provision_document != target_document:
+            problems.append(f"{resolution_id}: target provision/document mismatch")
     if problems:
         return _error("REF-002", "reference", "reference resolution status/target invariants are violated", len(problems), problems, spec="architecture/domain-model.md")
-    return _pass("REF-002", "reference", "reference resolution status and target bindings are consistent", spec="architecture/domain-model.md")
-
-
+    return _pass("REF-002", "reference", "reference resolution status and partial/full target bindings are consistent", spec="architecture/domain-model.md")
 def _entity_table(entity_type: str) -> tuple[str, str] | None:
     return {
         "document": ("documents", "document_id"),
@@ -670,9 +751,14 @@ def _entity_table(entity_type: str) -> tuple[str, str] | None:
         "temporal_event": ("temporal_events", "temporal_event_id"),
         "reference_mention": ("reference_mentions", "reference_mention_id"),
         "reference_resolution": ("reference_resolutions", "reference_resolution_id"),
+        "explicit_relation_mention": (
+            "explicit_relation_mentions",
+            "relation_mention_id",
+        ),
         "temporal_resolution": ("temporal_role_resolutions", "temporal_resolution_id"),
         "extraction": ("text_extractions", "extraction_id"),
         "extracted_segment": ("extracted_segments", "extracted_segment_id"),
+        "source": ("sources", "source_id"),
     }.get(entity_type)
 
 
