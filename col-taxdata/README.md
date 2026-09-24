@@ -23,7 +23,7 @@ The project has moved beyond its original single-source vertical slice:
 - Canonical provisions and manifestation-specific provision observations are represented.
 - Reference mentions, reference resolutions, explicit relation mentions and provenance-backed relationships are represented.
 - DEF-0004's temporal candidate/resolution/event model is implemented; ambiguous/missing temporal evidence remains unresolved rather than causing exact-one failures.
-- CASE-0001 demonstrates registered case claims/evidence and reproducible source/report materialization from canonical SQLite state.
+- CASE-0001 demonstrates registered case claims/evidence and reproducible source/report materialization from canonical SQLite state.\n- The v3 Case Application Service now accepts natural-language case input through `tools/analyze_case.py`, uses a provider-neutral structured LLM boundary for candidate state, and keeps retrieval/evidence promotion deterministic.
 
 The 2026-09-22 corpus audit remains a **historical baseline**, not a statement that all of its defect counts are still current. DEF-0001 through DEF-0004 are now verified. Other specified defects/gaps remain separate work.
 
