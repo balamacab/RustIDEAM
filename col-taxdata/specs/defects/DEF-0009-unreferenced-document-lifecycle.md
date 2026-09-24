@@ -1,6 +1,6 @@
 # DEF-0009 — Lifecycle and cleanup for unreferenced canonical Documents
 
-Status: **implementing**
+Status: **verified**
 
 GitHub issue: [#19](https://github.com/balamacab/RustIDEAM/issues/19)
 
@@ -193,6 +193,18 @@ the historical expectation.
 
 No raw file, Manifestation row, registered SHA-256, source, extraction, segment,
 reference mention, or other active binding may be modified by this cleanup.
+
+## 7.1 Verified corpus result — 2026-09-24
+
+The guarded production run completed after the full 115-test suite passed.
+
+- dry-run: 11 source-less Documents -> 9 stale candidates, 2 retained active reference targets, 0 conflicts;
+- apply: 9 Documents deleted with 9 intrinsic identifier rows cascading;
+- raw Manifestation registry digest before/after: `a9e10e4a7bedc01e2552e6d8a93177ec13c3e1d397f618cfd1838088b7d1b3f2`;
+- post-apply dry-run: 2 source-less Documents, 0 candidates, 2 retained, 0 conflicts;
+- the retained rows remain `CO:LEY:643:2001` (28 reference resolutions) and `CO:LEY:56:1981` (2 reference resolutions).
+
+The direct host account could not write the SQLite database. That attempt failed without mutation; the exact tested cleanup implementation was then mounted read-only into a transient taxdata container using the existing production data volume. No production service was stopped or replaced.
 
 ## 8. Schema / migration
 
