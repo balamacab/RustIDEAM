@@ -514,15 +514,44 @@ def validate_result_preserves_draft(
             )
 
 
-def case_draft_response_schema() -> dict[str, Any]:
-    """Return the model-facing CaseDraft schema without app-owned run metadata."""
+def case_draft_response_schema(case_input: dict[str, Any]) -> dict[str, Any]:
+    """Return a CaseInput-specific model schema for a complete v3 CaseDraft.
+
+    Client-owned fields remain part of the serialized CaseDraft. Their exact
+    values/presence are constrained here so structured generation cannot choose,
+    rewrite, omit, or manufacture them. Authoritative cross-object validation
+    still runs after generation.
+    """
+    validate_case_input(case_input)
     root = load_contract_schema()
     definitions = deepcopy(root["$defs"])
     draft = definitions["CaseDraft"]
+
     draft["required"] = [
         name for name in draft["required"] if name != "model_metadata"
     ]
     draft["properties"].pop("model_metadata", None)
+
+    draft["properties"]["problem_text"] = {
+        "type": "string",
+        "const": case_input["problem_text"],
+    }
+    if "problem_text" not in draft["required"]:
+        draft["required"].append("problem_text")
+
+    for name in ("as_of_date", "client_reference"):
+        if name in case_input:
+            draft["properties"][name] = {
+                "type": "string",
+                "const": case_input[name],
+            }
+            if name not in draft["required"]:
+                draft["required"].append(name)
+        else:
+            draft["properties"].pop(name, None)
+            draft["required"] = [
+                item for item in draft["required"] if item != name
+            ]
 
     # llama.cpp constrained generation does not reliably enforce JSON-Schema
     # conditional if/then branches. Preserve the authoritative CaseFact

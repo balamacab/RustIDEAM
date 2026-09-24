@@ -25,18 +25,26 @@ CASE_STRUCTURING_UNAVAILABLE = "CASE_STRUCTURING_UNAVAILABLE"
 CASE_CONTEXT_LIMIT = "CASE_CONTEXT_LIMIT"
 
 PROMPT_TEMPLATE_ID = "case-structuring-v3"
-PROMPT_TEMPLATE_VERSION = "1"
+PROMPT_TEMPLATE_VERSION = "3"
 
 SYSTEM_PROMPT = """You structure a Colombian legal/tax case into the supplied JSON schema.
-Preserve problem_text, as_of_date, and client_reference exactly, including absence.
-Facts explicitly stated by the client use state=user_provided, a verbatim
-source_quote, and requires_confirmation=false. llm_normalized and llm_inferred
-facts always use requires_confirmation=true. missing and ambiguous facts always
-use requires_confirmation=true and needed_information. Unknown required facts
-remain missing/ambiguous. Every legal conclusion is only a candidate_claim. Never emit canonical/persistence document, provision, evidence,
-manifestation, segment, relationship, source, claim, or case identifiers. Target hints
-may contain ordinary human-readable legal references or search phrases only.
-Do not assert that a candidate is validated and do not invent evidence."""
+The response schema pins problem_text, as_of_date, and client_reference to the
+exact client-owned values and presence/absence. Emit them exactly as constrained;
+never rewrite, normalize, omit, or manufacture them.
+Only problem_text is client fact source text. analysis_context.as_of_date is a
+temporal analysis parameter, not a user-provided fact or source quote.
+client_reference is correlation metadata and is intentionally not model context.
+Never create a CaseFact from either metadata field unless the same information is
+also stated verbatim inside problem_text. Every user_provided fact must use a
+source_quote copied verbatim from problem_text and requires_confirmation=false.
+llm_normalized and llm_inferred facts always use requires_confirmation=true.
+missing and ambiguous facts always use requires_confirmation=true and
+needed_information. Unknown required facts remain missing/ambiguous. Every legal
+conclusion is only a candidate_claim. Never emit canonical/persistence document,
+provision, evidence, manifestation, segment, relationship, source, claim, or case
+identifiers. Target hints may contain ordinary human-readable legal references or
+search phrases only. Do not assert that a candidate is validated and do not
+invent evidence."""
 
 
 class LLMClientError(RuntimeError):
@@ -90,7 +98,7 @@ class LLMClient(Protocol):
         case_input: dict[str, Any],
         route: ModelRoute,
     ) -> dict[str, Any]:
-        """Return model-owned CaseDraft fields, excluding model_metadata."""
+        """Return model-produced CaseDraft fields; app adds only model_metadata."""
 
 
 def utc_now() -> str:
@@ -149,14 +157,22 @@ def _compact_json(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
 
 
+def _model_input_context(case_input: dict[str, Any]) -> dict[str, Any]:
+    """Expose analytical input while keeping correlation metadata out of model facts."""
+    context: dict[str, Any] = {"problem_text": case_input["problem_text"]}
+    if "as_of_date" in case_input:
+        context["analysis_context"] = {"as_of_date": case_input["as_of_date"]}
+    return context
+
+
 def _estimate_request_tokens(
     *,
-    case_input: dict[str, Any],
+    model_input: dict[str, Any],
     response_schema: dict[str, Any],
     chars_per_token: float,
 ) -> tuple[int, int]:
     serialized_chars = len(SYSTEM_PROMPT)
-    serialized_chars += len(_compact_json(case_input))
+    serialized_chars += len(_compact_json(model_input))
     serialized_chars += len(_compact_json(response_schema))
     estimated_tokens = math.ceil(serialized_chars / max(chars_per_token, 1.0))
     return serialized_chars, estimated_tokens
@@ -188,9 +204,10 @@ class OpenAICompatibleLLMClient:
         case_input: dict[str, Any],
         route: ModelRoute,
     ) -> dict[str, Any]:
-        response_schema = case_draft_response_schema()
+        response_schema = case_draft_response_schema(case_input)
+        model_input = _model_input_context(case_input)
         char_count, estimated_tokens = _estimate_request_tokens(
-            case_input=case_input,
+            model_input=model_input,
             response_schema=response_schema,
             chars_per_token=self.config.chars_per_token_estimate,
         )
@@ -236,7 +253,7 @@ class OpenAICompatibleLLMClient:
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {
                     "role": "user",
-                    "content": _compact_json(case_input),
+                    "content": _compact_json(model_input),
                 },
             ],
             "response_format": {
@@ -276,6 +293,18 @@ class OpenAICompatibleLLMClient:
 
         try:
             envelope = json.loads(raw)
+            served_model = envelope["model"]
+            if not isinstance(served_model, str):
+                raise TypeError("response.model is not a string")
+            if served_model != route.name:
+                raise LLMClientError(
+                    CASE_STRUCTURING_UNAVAILABLE,
+                    (
+                        f"backend served model {served_model!r} for requested "
+                        f"route {route.name!r}"
+                    ),
+                    retryable=False,
+                )
             content = envelope["choices"][0]["message"]["content"]
             if not isinstance(content, str):
                 raise TypeError("message.content is not a string")

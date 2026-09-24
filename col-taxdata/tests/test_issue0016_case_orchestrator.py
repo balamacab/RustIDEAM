@@ -35,6 +35,7 @@ from llm_client import (
     LLMPlatformConfig,
     ModelRoute,
     OpenAICompatibleLLMClient,
+    load_platform_config,
 )
 
 
@@ -252,16 +253,16 @@ class Issue0016ContractAndRoutingTests(unittest.TestCase):
             as_of_date="2026-09-24",
             client_reference="matter-16",
         )
-        fake = FakeLLMClient(
-            [
-                model_payload(
-                    as_of_date="2026-09-24",
-                    client_reference="matter-16",
-                )
-            ]
-        )
         outcome = CaseStructuringService(
-            make_config(), fake
+            make_config(),
+            FakeLLMClient(
+                [
+                    model_payload(
+                        as_of_date="2026-09-24",
+                        client_reference="matter-16",
+                    )
+                ]
+            ),
         ).structure(original)
         self.assertEqual(outcome.draft["problem_text"], original["problem_text"])
         self.assertEqual(outcome.draft["as_of_date"], original["as_of_date"])
@@ -275,6 +276,32 @@ class Issue0016ContractAndRoutingTests(unittest.TestCase):
         ).structure(case_input()).draft
         self.assertNotIn("as_of_date", absent)
         self.assertNotIn("client_reference", absent)
+
+    def test_model_facing_schema_pins_exact_client_payload(self):
+        original = case_input(
+            as_of_date="2026-09-24",
+            client_reference="matter-16",
+        )
+        schema = case_draft_response_schema(original)
+        draft = schema["$defs"]["CaseDraft"]
+        self.assertNotIn("model_metadata", draft["properties"])
+        self.assertNotIn("model_metadata", draft["required"])
+        for name in ("problem_text", "as_of_date", "client_reference"):
+            self.assertIn(name, draft["required"])
+            self.assertEqual(
+                draft["properties"][name]["const"],
+                original[name],
+            )
+
+        absent = case_draft_response_schema(case_input())["$defs"]["CaseDraft"]
+        self.assertIn("problem_text", absent["required"])
+        self.assertEqual(
+            absent["properties"]["problem_text"]["const"],
+            PROBLEM,
+        )
+        for name in ("as_of_date", "client_reference"):
+            self.assertNotIn(name, absent["properties"])
+            self.assertNotIn(name, absent["required"])
 
     def test_modified_or_manufactured_client_fields_are_invalid(self):
         cases = [
@@ -301,6 +328,10 @@ class Issue0016ContractAndRoutingTests(unittest.TestCase):
             (
                 case_input(client_reference="matter-16"),
                 model_payload(),
+            ),
+            (
+                case_input(),
+                model_payload(client_reference="matter-16"),
             ),
         ]
         for original, payload in cases:
@@ -366,7 +397,7 @@ class Issue0016ContractAndRoutingTests(unittest.TestCase):
             ).structure(case_input())
 
     def test_model_schema_expands_case_fact_state_constraints(self):
-        schema = case_draft_response_schema()
+        schema = case_draft_response_schema(case_input())
         variants = schema["$defs"]["CaseFact"]["oneOf"]
         states = {
             item["properties"]["state"]["const"]: item
@@ -493,14 +524,24 @@ class Issue0016ContractAndRoutingTests(unittest.TestCase):
             },
         )
         client = OpenAICompatibleLLMClient(config)
+        original = case_input(
+            as_of_date="2026-09-24",
+            client_reference="matter-16",
+        )
         envelope = {
+            "model": "primary-model",
             "choices": [
                 {
                     "message": {
-                        "content": json.dumps(model_payload())
+                        "content": json.dumps(
+                            model_payload(
+                                as_of_date="2026-09-24",
+                                client_reference="matter-16",
+                            )
+                        )
                     }
                 }
-            ]
+            ],
         }
 
         class Response:
@@ -518,15 +559,78 @@ class Issue0016ContractAndRoutingTests(unittest.TestCase):
             return_value=Response(),
         ) as mocked:
             payload = client.complete_case_draft(
-                case_input=case_input(),
+                case_input=original,
                 route=config.primary,
             )
         sent = json.loads(mocked.call_args.args[0].data)
         self.assertFalse(
             sent["chat_template_kwargs"]["enable_thinking"]
         )
-        self.assertEqual(payload["kind"], "case_draft")
+        model_context = json.loads(sent["messages"][1]["content"])
+        self.assertEqual(model_context["problem_text"], PROBLEM)
+        self.assertEqual(
+            model_context["analysis_context"]["as_of_date"],
+            "2026-09-24",
+        )
+        self.assertNotIn("client_reference", model_context)
+        draft_schema = sent["response_format"]["json_schema"]["schema"][
+            "$defs"
+        ]["CaseDraft"]
+        for name in ("problem_text", "as_of_date", "client_reference"):
+            self.assertEqual(
+                draft_schema["properties"][name]["const"],
+                original[name],
+            )
+        self.assertEqual(payload["problem_text"], PROBLEM)
+        self.assertEqual(payload["as_of_date"], "2026-09-24")
+        self.assertEqual(payload["client_reference"], "matter-16")
         self.assertNotIn("model_metadata", payload)
+
+    def test_adapter_rejects_backend_model_mismatch(self):
+        config = make_config()
+        client = OpenAICompatibleLLMClient(config)
+        envelope = {
+            "model": "unexpected-model",
+            "choices": [
+                {
+                    "message": {
+                        "content": json.dumps(model_payload())
+                    }
+                }
+            ],
+        }
+
+        class Response:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return False
+
+            def read(self):
+                return json.dumps(envelope).encode("utf-8")
+
+        with mock.patch(
+            "llm_client.urlrequest.urlopen",
+            return_value=Response(),
+        ):
+            with self.assertRaises(LLMClientError) as raised:
+                client.complete_case_draft(
+                    case_input=case_input(),
+                    route=config.primary,
+                )
+        self.assertEqual(
+            raised.exception.code,
+            CASE_STRUCTURING_UNAVAILABLE,
+        )
+
+    def test_local_profile_does_not_auto_review_single_model_endpoint(self):
+        config = load_platform_config(
+            ROOT / "config" / "llm" / "local-platform.yaml"
+        )
+        self.assertFalse(config.review_on_invalid_output)
+        self.assertIsNotNone(config.review)
+        self.assertEqual(config.review.routing_role, "review")
 
     def test_adapter_request_options_cannot_override_owned_fields(self):
         config = replace(

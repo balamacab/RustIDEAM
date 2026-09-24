@@ -27,7 +27,7 @@
   },
   "routing": {
     "primary_attempts": 2,
-    "review_on_invalid_output": true,
+    "review_on_invalid_output": false,
     "review_on_provider_error": false
   },
   "context": {
