@@ -86,6 +86,14 @@ items:
     github_issue: 7
     depends_on: []
 
+  - id: DEF-0009
+    type: defect
+    status: implementing
+    area: document-lifecycle
+    spec: specs/defects/DEF-0009-unreferenced-document-lifecycle.md
+    github_issue: 19
+    depends_on: []
+
   - id: GAP-0001
     type: coverage-gap
     priority: P2
