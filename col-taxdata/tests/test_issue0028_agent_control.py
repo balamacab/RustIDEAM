@@ -81,6 +81,42 @@ class AgentControlTests(unittest.TestCase):
         self.assertEqual(client_payload["retry"]["max_attempts"], agent_control.MAX_RETRIES)
         self.assertFalse(client_payload["retry"]["automatic_update"])
 
+    @mock.patch.object(agent_control, "request_json")
+    def test_dispatch_ci_uses_trusted_main_workflow_definition(self, request_json):
+        agent_control.dispatch_ci(
+            "token",
+            "balamacab/RustIDEAM",
+            "agent/issue-28-autonomous-ci",
+            99,
+        )
+        request_json.assert_called_once_with(
+            "token",
+            "POST",
+            "/repos/balamacab/RustIDEAM/actions/workflows/col-taxdata-ci.yml/dispatches",
+            {
+                "ref": agent_control.CI_WORKFLOW_REF,
+                "inputs": {"pr_number": "99"},
+            },
+        )
+
+    @mock.patch.object(agent_control, "dispatch_ci")
+    @mock.patch.object(agent_control, "post_issue_comment")
+    @mock.patch.object(agent_control, "fetch_pr")
+    def test_pull_request_lifecycle_dispatches_ci_when_no_result_exists(
+        self, fetch_pr, post_comment, dispatch_ci
+    ):
+        fetch_pr.return_value = self.pr("blocked")
+        result = agent_control.handle_lifecycle(
+            "token", "balamacab/RustIDEAM", 99, None, None
+        )
+        self.assertTrue(result["ci_dispatched"])
+        dispatch_ci.assert_called_once_with(
+            "token",
+            "balamacab/RustIDEAM",
+            "agent/issue-28-autonomous-ci",
+            99,
+        )
+
     @mock.patch.object(agent_control.time, "sleep")
     @mock.patch.object(agent_control, "fetch_pr")
     def test_green_ci_waits_for_transient_blocked_state_to_clear(self, fetch_pr, sleep):
