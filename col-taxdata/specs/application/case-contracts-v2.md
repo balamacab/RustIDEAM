@@ -513,7 +513,7 @@ The following refs MUST resolve to exactly one target inside the same `CaseResul
 | `PublicProvisionRef.document_ref` | one `PublicDocumentRef` in `documents` |
 | `CaseUnresolved.related_claim_refs[*]` | exactly one claim in the shared result-level `supported_claims + remaining_candidate_claims` namespace |
 
-Because v1 `CaseResult` does not serialize facts or questions, the following are the only cross-stage application refs defined by this contract:
+Because v2 `CaseResult` does not serialize facts or questions, the following are the only cross-stage application refs defined by this contract:
 
 | CaseResult ref-bearing field | Required target in originating accepted CaseDraft |
 | --- | --- |
