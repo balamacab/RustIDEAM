@@ -31,7 +31,7 @@
     "review_on_provider_error": false
   },
   "context": {
-    "chars_per_token_estimate": 4.0,
+    "chars_per_token_estimate": 4,
     "silent_truncation": false
   },
   "residency": {
@@ -42,5 +42,10 @@
     "raw_endpoint_scope": "loopback_or_private_authenticated_transport",
     "model_shell_access": false,
     "model_sql_access": false
+  },
+  "request_options": {
+    "chat_template_kwargs": {
+      "enable_thinking": false
+    }
   }
 }
