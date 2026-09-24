@@ -155,3 +155,72 @@ local profile therefore disables automatic review-on-invalid-output while
 retaining the configured review route for an environment/runtime router that can
 actually make that model resident. This avoids false review metadata and does
 not require simultaneous model residency.
+
+
+### Final recovery runtime acceptance
+
+The recovery code at commit
+`348edecd0fe5658a165a722de9cd0e970da6885c` passed the required real local
+adapter validation against the installed llama.cpp CUDA server and
+`Qwen3-1.7B-Q4_K_M`.
+
+A direct full `CaseStructuringService` execution completed successfully with
+the real primary model and therefore passed the authoritative v3 CaseDraft
+schema/semantic validation, including exact immutable client-payload
+preservation. It advanced to the CLI phase without review escalation.
+
+The first CLI dry-run attempt exposed an unrelated host-capacity condition:
+`/tmp` had only about 101 MiB available while the runtime SQLite database was
+about 824 MiB, so SQLite backup failed with `database or disk is full`. A
+second candidate temporary path under `data/tmp` was not writable by the
+runtime user; permissions/ownership were intentionally not changed. The final
+validation used a new disposable directory under `/home/user`, on the same
+filesystem that had about 65 GiB available, and removed it after completion.
+
+The exact natural-language CLI path then passed:
+
+```text
+tools/analyze_case.py
+  --input <natural-language-file>
+  --as-of-date 2026-09-24
+  --client-reference issue16-pr47-cli
+  --db /home/user/col-taxdata/data/state/taxdata.sqlite
+  --dry-run
+```
+
+Observed result:
+
+- adapter: `openai-compatible`;
+- provider: `local-llama-cpp`;
+- model: `Qwen3-1.7B-Q4_K_M`;
+- routing role: `primary`;
+- prompt template version: `3`;
+- persistence mode: `dry-run`;
+- generated bundle validation: `true`;
+- analysis status: `partial`;
+- facts: 2;
+- questions: 2;
+- supported claims: 0;
+- remaining candidate claims: 1;
+- unresolved items: 2;
+- evidence objects: 0.
+
+The unsupported legal conclusion remained candidate/unresolved rather than being
+promoted without canonical evidence.
+
+Non-mutation checks passed:
+
+- source SQLite SHA-256 before/after: unchanged;
+- canonical `cases` row count before/after: 1 -> 1;
+- requested case-root remained absent after dry-run.
+
+No production corpus row, raw manifestation, registered hash, permission,
+ownership, model file, driver, or persistent service configuration was changed.
+
+Remote validation required more status reads than the original two-phase budget
+because Desktop Commander returned control while the bounded inference process
+was still running and two environment-only dry-run attempts were needed
+(`/tmp` capacity, then a non-writable existing temp directory). The actual
+runtime actions remained bounded and non-destructive: one primary diagnostic
+phase, one corrected full service/CLI validation phase, and one environment-only
+CLI rerun using a disposable writable home-directory temp area.
