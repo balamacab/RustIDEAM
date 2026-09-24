@@ -50,3 +50,28 @@ durable application semantics.
 
 No container, model, driver, CUDA component, corpus row or raw evidence was changed
 during this baseline inspection. No secrets or credentials were collected.
+
+
+## Post-merge executable-adapter finding
+
+After PR #36 merged and repository convergence passed, the issue-mandated real
+adapter validation exercised the merged code against the installed llama.cpp
+server and the configured Qwen3 primary model.
+
+The first structured request reached the backend but failed application parsing:
+llama.cpp returned an empty `message.content` while Qwen3 emitted reasoning text.
+A bounded diagnostic isolated the model-template behavior:
+
+- default request: `finish_reason=length`, empty content, non-empty
+  `reasoning_content`;
+- same request with
+  `chat_template_kwargs.enable_thinking=false`: `finish_reason=stop`,
+  JSON content present, no reasoning payload.
+
+Issue #16 was therefore reopened instead of treating the initial merge as full
+runtime acceptance. The corrective integration exposes safe adapter-level
+`request_options` while forbidding those options from overriding
+application-owned `model`, `messages`, `response_format`, `temperature` or
+`max_tokens`. The local profile disables Qwen3 thinking for deterministic
+structured intake. This remains an adapter/configuration concern and does not
+change CASE domain semantics or give the model canonical authority.
