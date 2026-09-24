@@ -554,14 +554,28 @@ def check_identity_uniqueness(ctx: DoctorContext) -> CheckResult:
 
 def _parse_primary_key(value: str) -> tuple[str | None, str | None, str | None, int | None]:
     parts = value.split(":")
-    try:
-        if len(parts) == 5 and parts[0] == "CO":
-            return parts[1], parts[2], parts[3], int(parts[4])
-        if len(parts) == 4 and parts[0] == "CO":
-            return None, parts[1], parts[2], int(parts[3])
-    except ValueError:
-        pass
-    return None, None, None, None
+    if len(parts) == 5 and parts[0] == "CO":
+        issuer, document_type, number, year_text = parts[1:]
+    elif len(parts) == 4 and parts[0] == "CO":
+        issuer = None
+        document_type, number, year_text = parts[1:]
+    else:
+        return None, None, None, None
+
+    # source_identity canonicalizes numbered acts as digits with at most one
+    # trailing letter. Validate that shape here rather than merely splitting.
+    numeric_part = number[:-1] if number[-1:].isalpha() else number
+    suffix = number[-1:] if number[-1:].isalpha() else ""
+    if (
+        not numeric_part
+        or not numeric_part.isdigit()
+        or (suffix and (len(suffix) != 1 or not suffix.isupper()))
+        or len(year_text) != 4
+        or not year_text.isdigit()
+    ):
+        return None, None, None, None
+
+    return issuer, document_type, number, int(year_text)
 
 
 
