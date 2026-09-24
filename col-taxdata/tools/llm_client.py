@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 import json
 import math
@@ -76,6 +76,7 @@ class LLMPlatformConfig:
     review_on_invalid_output: bool
     review_on_provider_error: bool
     api_key_env: str | None = None
+    request_options: dict[str, Any] = field(default_factory=dict)
 
 
 class LLMClient(Protocol):
@@ -139,6 +140,7 @@ def load_platform_config(path: Path) -> LLMPlatformConfig:
             routing.get("review_on_provider_error", False)
         ),
         api_key_env=raw.get("api_key_env"),
+        request_options=deepcopy(raw.get("request_options", {})),
     )
 
 
@@ -211,6 +213,20 @@ class OpenAICompatibleLLMClient:
                 },
             )
 
+        forbidden_request_options = {
+            "model",
+            "messages",
+            "response_format",
+            "temperature",
+            "max_tokens",
+        }.intersection(self.config.request_options)
+        if forbidden_request_options:
+            raise LLMClientError(
+                CASE_STRUCTURING_UNAVAILABLE,
+                "adapter request_options cannot override application-owned fields: "
+                + ", ".join(sorted(forbidden_request_options)),
+            )
+
         payload = {
             "model": route.name,
             "temperature": 0,
@@ -230,6 +246,7 @@ class OpenAICompatibleLLMClient:
                     "schema": response_schema,
                 },
             },
+            **deepcopy(self.config.request_options),
         }
         body = _compact_json(payload).encode("utf-8")
         headers = {
