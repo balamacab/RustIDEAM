@@ -276,6 +276,10 @@ Extraction / segments / FTS
 
 **Idempotency:** case registration/materialization is designed to reuse deterministic bindings and reproduce files from canonical state.
 
+**Materialization freshness contract:** checked-in case materializations are caches of canonical case state, never an authority over it. A case source manifest or report is **current** only when its exact UTF-8 content equals the output of the repository's canonical materializer for the same case, canonical SQLite state, and declared case-local materializer inputs such as `unresolved.json`. Equality of source IDs or continued existence of claims is not sufficient. Any case-visible canonical change — including relationship evidence rebinding, evidence replacement, source-kind normalization, identity/reprocessing changes, or future temporal/reference replay that changes rendered case output — makes the affected materialization stale.
+
+Freshness is detected by deterministic render-and-compare. Refresh must use `tools/rematerialize_case.py`: preview is the default and performs no writes; `--write` applies exactly the previewed canonical renders and immediately verifies convergence. Generated report/source lines must not be hand-edited to follow canonical IDs or labels. Repeating refresh with unchanged inputs must produce zero writes and byte-identical files. Materialization hashes may be reported as comparison aids, but they do not replace the underlying evidence/provenance chain.
+
 ### 15. Future MCP / LLM consumer
 
 **Input:** retrieval results, canonical entities, evidence and/or validated case material.
