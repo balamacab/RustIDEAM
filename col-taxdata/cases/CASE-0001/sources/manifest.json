@@ -26,7 +26,7 @@
     {
       "id": "SRC-0004",
       "authority": "DIAN",
-      "type": "normograma_html",
+      "type": "decreto",
       "url": "https://normograma.dian.gov.co/dian/compilacion/docs/decreto_2229_2023.htm",
       "status": "fetched_registered",
       "document_ids": [
@@ -46,7 +46,7 @@
     {
       "id": "SRC-0005",
       "authority": "DIAN",
-      "type": "resolucion_compilada",
+      "type": "resolucion",
       "url": "https://normograma.dian.gov.co/dian/compilacion/docs/resolucion_dian_0227_2025.htm",
       "status": "fetched_registered",
       "document_ids": [
@@ -145,3 +145,5 @@
     }
   ]
 }
+
+[executed on device: morichalserver (2bfaa62f-23ff-40e5-9fc7-7c1a7d28b1fc)]
