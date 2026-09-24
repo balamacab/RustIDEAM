@@ -1,17 +1,19 @@
-name: col-taxdata Convergence
+name: col-taxdata convergence
 
 on:
   push:
     branches: [main]
     paths:
-      - col-taxdata/**
-      - .github/workflows/col-taxdata-*.yml
-      - .github/actions/**
+      - 'col-taxdata/**'
+      - '.github/workflows/col-taxdata-*.yml'
+      - '.github/actions/col-taxdata/**'
+  repository_dispatch:
+    types: [col-taxdata-convergence]
 
 permissions:
-  actions: read
   contents: read
   issues: write
+  pull-requests: read
   statuses: write
 
 concurrency:
@@ -19,61 +21,89 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  convergence:
+  resolve:
+    name: Resolve merged change
     runs-on: ubuntu-latest
+    outputs:
+      sha: ${{ steps.context.outputs.sha }}
+      pr_number: ${{ steps.context.outputs.pr_number }}
+      issue_number: ${{ steps.context.outputs.issue_number }}
+      semantic_domains: ${{ steps.context.outputs.semantic_domains }}
     steps:
-      - name: Mark combined main pending
-        env:
-          GH_TOKEN: \${{ github.token }}
-        run: |
-          gh api -X POST "repos/\${GITHUB_REPOSITORY}/statuses/\${GITHUB_SHA}" \
-            -f state=pending -f context=col-taxdata-convergence \
-            -f description="Combined-main invariant suite is running" >/dev/null
-
-      - name: Checkout resulting main
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           ref: main
           fetch-depth: 0
-
-      - name: Run complete integration and invariant suite
-        id: tests
-        continue-on-error: true
-        run: python3 -m unittest discover -s col-taxdata/tests -p 'test_*.py'
-
-      - name: Publish convergence result and corrective work
+      - name: Resolve merge context
+        id: context
         env:
-          GH_TOKEN: \${{ github.token }}
-          TEST_OUTCOME: \${{ steps.tests.outcome }}
+          GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          DISPATCH_SHA: ${{ github.event.client_payload.sha }}
+          DISPATCH_PR: ${{ github.event.client_payload.pr_number }}
+          DISPATCH_ISSUE: ${{ github.event.client_payload.issue_number }}
+          DISPATCH_DOMAINS: ${{ toJson(github.event.client_payload.semantic_domains) }}
         run: |
           set -euo pipefail
-          if [[ "$TEST_OUTCOME" == "success" ]]; then
-            gh api -X POST "repos/\${GITHUB_REPOSITORY}/statuses/\${GITHUB_SHA}" \
-              -f state=success -f context=col-taxdata-convergence \
-              -f description="Combined-main invariants passed" >/dev/null
-            exit 0
-          fi
-
-          gh api -X POST "repos/\${GITHUB_REPOSITORY}/statuses/\${GITHUB_SHA}" \
-            -f state=failure -f context=col-taxdata-convergence \
-            -f description="Combined-main invariants failed; downstream merge blocked" >/dev/null
-
-          MARKER="convergence:\${GITHUB_SHA}"
-          EXISTING="$(gh api -X GET "search/issues" \
-            -f q="repo:\${GITHUB_REPOSITORY} in:body \"\${MARKER}\" is:issue is:open" \
-            --jq '.items[0].number // empty')"
-          if [[ -z "$EXISTING" ]]; then
-            ISSUE="$(gh api -X POST "repos/\${GITHUB_REPOSITORY}/issues" \
-              -f title="[CONVERGENCE] Correct combined-main invariant failure" \
-              -f body="Automated convergence validation failed on main commit \${GITHUB_SHA}. \${MARKER}. Downstream autonomous merge remains blocked until a later main convergence run succeeds." \
-              --jq '.number')"
+          if [ "$EVENT_NAME" = "repository_dispatch" ]; then
+            SHA="$DISPATCH_SHA"; PR_NUMBER="$DISPATCH_PR"; ISSUE_NUMBER="$DISPATCH_ISSUE"; DOMAINS="$DISPATCH_DOMAINS"
           else
-            ISSUE="$EXISTING"
+            SHA="$GITHUB_SHA"
+            PR_NUMBER="$(gh api -H 'Accept: application/vnd.github+json' "repos/$GITHUB_REPOSITORY/commits/$SHA/pulls" --jq '[.[] | select(.merged_at != null)][0].number // empty')"
+            test -n "$PR_NUMBER"
+            gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" > /tmp/pr.json
+            ISSUE_NUMBER="$(python3 col-taxdata/ci/policy.py issue-number --pr-json /tmp/pr.json | tail -1)"
+            DOMAINS="$(python3 col-taxdata/ci/policy.py metadata-domains --pr-json /tmp/pr.json)"
           fi
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          echo "pr_number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
+          echo "issue_number=$ISSUE_NUMBER" >> "$GITHUB_OUTPUT"
+          echo "semantic_domains=$DOMAINS" >> "$GITHUB_OUTPUT"
+      - name: Mark convergence pending and detect semantic overlap
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          SHA: ${{ steps.context.outputs.sha }}
+          PR_NUMBER: ${{ steps.context.outputs.pr_number }}
+          DOMAINS: ${{ steps.context.outputs.semantic_domains }}
+        run: >-
+          python3 col-taxdata/ci/convergence.py prepare
+          --repo "$REPOSITORY" --sha "$SHA" --pr "$PR_NUMBER"
+          --semantic-domains "$DOMAINS"
 
-          gh api -X POST "repos/\${GITHUB_REPOSITORY}/dispatches" \
-            -f event_type=integration.validation.required \
-            -f "client_payload[schema_version]=1" \
-            -f "client_payload[main_sha]=\${GITHUB_SHA}" \
-            -f "client_payload[corrective_issue]=\${ISSUE}" >/dev/null
-          exit 1
+  integration:
+    name: Main integration invariants
+    needs: resolve
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.resolve.outputs.sha }}
+      - name: Run complete col-taxdata suite on resulting main
+        working-directory: col-taxdata
+        run: python3 -m unittest discover -s tests -p 'test_*.py' -v
+
+  finalize:
+    name: Convergence Gate
+    needs: [resolve, integration]
+    if: always() && needs.resolve.result == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: Publish durable convergence result
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          SHA: ${{ needs.resolve.outputs.sha }}
+          PR_NUMBER: ${{ needs.resolve.outputs.pr_number }}
+          ISSUE_NUMBER: ${{ needs.resolve.outputs.issue_number }}
+          INTEGRATION_RESULT: ${{ needs.integration.result }}
+        run: |
+          set -euo pipefail
+          RESULT=failure
+          if [ "$INTEGRATION_RESULT" = "success" ]; then RESULT=success; fi
+          python3 col-taxdata/ci/convergence.py finalize --repo "$REPOSITORY" --sha "$SHA" --pr "$PR_NUMBER" --issue "$ISSUE_NUMBER" --result "$RESULT"
+
+[executed on device: morichalserver (2bfaa62f-23ff-40e5-9fc7-7c1a7d28b1fc)]
