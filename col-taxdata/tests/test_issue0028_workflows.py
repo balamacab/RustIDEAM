@@ -13,20 +13,20 @@ class WorkflowStructureTests(unittest.TestCase):
 
     def test_ci_exposes_stable_required_gate_and_skips_heavy_when_unrelated(self):
         text = self.read("col-taxdata-ci.yml")
-        self.assertIn("name: CI Gate", text)
+        self.assertIn("name: Trusted CI Gate", text)
         self.assertIn("-f name='CI Gate'", text)
         self.assertIn('-f head_sha="$HEAD_SHA"', text)
         self.assertIn("checks: write", text)
         self.assertIn("run_heavy", text)
         self.assertIn("if: needs.policy.outputs.applicable == 'true' && needs.policy.outputs.run_heavy == 'true'", text)
         self.assertIn("workflow_dispatch:", text)
-        self.assertIn("  pull_request:\n", text)
+        self.assertNotIn("  pull_request:\n", text)
 
     def test_dispatched_revalidation_reenters_lifecycle_from_trusted_main(self):
         text = self.read("col-taxdata-ci.yml")
         self.assertIn("name: Complete dispatched lifecycle", text)
         self.assertIn(
-            "if: github.event_name == 'workflow_dispatch' && needs.gate.result == 'success' && needs.policy.outputs.applicable == 'true'",
+            "if: needs.gate.result == 'success' && needs.policy.outputs.applicable == 'true'",
             text,
         )
         self.assertIn("pr_number: ${{ steps.resolve.outputs.pr_number }}", text)
@@ -38,7 +38,7 @@ class WorkflowStructureTests(unittest.TestCase):
         self.assertIn("python3 trusted/col-taxdata/ci/policy.py", text)
         self.assertIn("CI_HEAD_SHA: ${{ needs.policy.outputs.head_sha }}", text)
         self.assertIn("workflow_dispatch:", text)
-        self.assertIn("  pull_request:\n", text)
+        self.assertNotIn("  pull_request:\n", text)
         self.assertIn("--ci-conclusion success", text)
         self.assertIn("--ci-head-sha \"$CI_HEAD_SHA\"", text)
         self.assertIn("contents: write", text)

@@ -1,8 +1,6 @@
 name: col-taxdata CI
 
 on:
-  pull_request:
-    branches: [main]
   workflow_dispatch:
     inputs:
       pr_number:
@@ -36,13 +34,10 @@ jobs:
         id: resolve
         env:
           GH_TOKEN: ${{ github.token }}
-          EVENT_NAME: ${{ github.event_name }}
-          EVENT_PR: ${{ github.event.pull_request.number }}
           INPUT_PR: ${{ inputs.pr_number }}
         run: |
           set -euo pipefail
-          PR_NUMBER="$EVENT_PR"
-          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then PR_NUMBER="$INPUT_PR"; fi
+          PR_NUMBER="$INPUT_PR"
           test -n "$PR_NUMBER"
           gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" > /tmp/pr.json
           ISSUE_NUMBER="$(python3 trusted/col-taxdata/ci/policy.py issue-number --pr-json /tmp/pr.json | tail -1)"
@@ -102,7 +97,7 @@ jobs:
         run: python3 -m unittest discover -s tests -p 'test_*.py' -v
 
   gate:
-    name: CI Gate
+    name: Trusted CI Gate
     needs: [policy, policy-tests, project-tests]
     if: always()
     permissions:
@@ -110,10 +105,9 @@ jobs:
       contents: read
     runs-on: ubuntu-latest
     steps:
-      - name: Enforce outcomes and publish candidate gate when dispatched
+      - name: Publish required CI Gate on exact candidate head
         env:
           GH_TOKEN: ${{ github.token }}
-          EVENT_NAME: ${{ github.event_name }}
           HEAD_SHA: ${{ needs.policy.outputs.head_sha }}
           POLICY: ${{ needs.policy.result }}
           APPLICABLE: ${{ needs.policy.outputs.applicable }}
@@ -126,22 +120,20 @@ jobs:
           if [ "$POLICY" != "success" ]; then CONCLUSION=failure; fi
           if [ "$APPLICABLE" = "true" ] && [ "$POLICY_TESTS" != "success" ]; then CONCLUSION=failure; fi
           if [ "$RUN_HEAVY" = "true" ] && [ "$PROJECT_TESTS" != "success" ]; then CONCLUSION=failure; fi
-          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
-            test -n "$HEAD_SHA"
-            gh api -X POST "repos/$GITHUB_REPOSITORY/check-runs" \
-              -f name='CI Gate' \
-              -f head_sha="$HEAD_SHA" \
-              -f status=completed \
-              -f conclusion="$CONCLUSION" \
-              -f "output[title]=col-taxdata autonomous validation: $CONCLUSION" \
-              -f "output[summary]=Trusted default-branch workflow validated candidate $HEAD_SHA"
-          fi
+          test -n "$HEAD_SHA"
+          gh api -X POST "repos/$GITHUB_REPOSITORY/check-runs" \
+            -f name='CI Gate' \
+            -f head_sha="$HEAD_SHA" \
+            -f status=completed \
+            -f conclusion="$CONCLUSION" \
+            -f output[title]="col-taxdata autonomous validation: $CONCLUSION" \
+            -f output[summary]="Trusted default-branch workflow validated candidate $HEAD_SHA"
           test "$CONCLUSION" = "success"
 
   complete-dispatched-lifecycle:
     name: Complete dispatched lifecycle
     needs: [policy, gate]
-    if: github.event_name == 'workflow_dispatch' && needs.gate.result == 'success' && needs.policy.outputs.applicable == 'true'
+    if: needs.gate.result == 'success' && needs.policy.outputs.applicable == 'true'
     permissions:
       actions: write
       contents: write
