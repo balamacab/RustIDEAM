@@ -80,7 +80,7 @@ items:
   - id: DEF-0007
     type: defect
     priority: P2
-    status: specified
+    status: verified
     area: html-extraction
     spec: specs/defects/DEF-0007-legal-body-false-short.md
     github_issue: 7
