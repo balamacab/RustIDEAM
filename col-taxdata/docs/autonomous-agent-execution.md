@@ -86,5 +86,3 @@ Repository CD means promotion of validated repository changes into `main`. It do
 `ci/repository_governance.py` plans, applies, verifies, or deletes the named `col-taxdata-autonomous-main` ruleset. Mutating commands require an administrator token supplied only through `GITHUB_ADMIN_TOKEN` or `GH_TOKEN`; no credential is stored in the repository.
 
 Before applying the ruleset, the repository CI workflow must already exist on `main`, because `CI Gate` becomes required immediately. Rollback deletes only the named ruleset and does not rewrite history, weaken project tests, or modify production data. A rollback is an administrative recovery action, not a normal development path.
-
-[executed on device: morichalserver (2bfaa62f-23ff-40e5-9fc7-7c1a7d28b1fc)]
