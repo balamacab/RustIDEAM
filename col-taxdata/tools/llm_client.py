@@ -22,6 +22,7 @@ from case_contract_validation import (
 
 
 CASE_STRUCTURING_UNAVAILABLE = "CASE_STRUCTURING_UNAVAILABLE"
+CASE_PROVIDER_TIMEOUT = "CASE_PROVIDER_TIMEOUT"
 CASE_CONTEXT_LIMIT = "CASE_CONTEXT_LIMIT"
 CASE_OUTPUT_LIMIT = "CASE_OUTPUT_LIMIT"
 
@@ -298,7 +299,25 @@ class OpenAICompatibleLLMClient:
                 timeout=self.config.timeout_seconds,
             ) as response:
                 raw = response.read()
-        except (urlerror.URLError, TimeoutError, OSError) as exc:
+        except TimeoutError as exc:
+            raise LLMClientError(
+                CASE_PROVIDER_TIMEOUT,
+                f"OpenAI-compatible backend timed out: {exc}",
+                retryable=True,
+            ) from exc
+        except urlerror.URLError as exc:
+            if isinstance(exc.reason, TimeoutError):
+                raise LLMClientError(
+                    CASE_PROVIDER_TIMEOUT,
+                    f"OpenAI-compatible backend timed out: {exc.reason}",
+                    retryable=True,
+                ) from exc
+            raise LLMClientError(
+                CASE_STRUCTURING_UNAVAILABLE,
+                f"OpenAI-compatible backend unavailable: {exc}",
+                retryable=True,
+            ) from exc
+        except OSError as exc:
             raise LLMClientError(
                 CASE_STRUCTURING_UNAVAILABLE,
                 f"OpenAI-compatible backend unavailable: {exc}",
