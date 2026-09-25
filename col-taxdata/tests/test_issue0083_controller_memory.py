@@ -214,6 +214,20 @@ class ControllerMemoryTests(unittest.TestCase):
         self.assertEqual(first.read_bytes(), original)
         self.assertEqual(cm.verify(self.root).session_count, 2)
 
+    def test_repository_memory_is_self_consistent(self) -> None:
+        index = cm.verify(ROOT / "controller-memory")
+        self.assertGreaterEqual(index.session_count, 1)
+        self.assertIn("i83", index.pointers)
+        self.assertIn("tcm", index.pointers)
+
+    def test_controller_docs_require_index_first_on_demand_handoff(self) -> None:
+        orchestration = (ROOT / "docs" / "controller-orchestration.md").read_text(encoding="utf-8")
+        handoff = (ROOT / "docs" / "controller-handoff-template.md").read_text(encoding="utf-8")
+        self.assertIn("load only `controller-memory/INDEX.cm`", orchestration)
+        self.assertIn("Do not load all historical session files by default.", orchestration)
+        self.assertIn("CM: col-taxdata/controller-memory/INDEX.cm", handoff)
+        self.assertIn("SID: <latest/new CM1 session id>", handoff)
+
     def test_tool_has_no_model_or_network_dependency(self) -> None:
         source = (ROOT / "tools" / "controller_memory.py").read_text(encoding="utf-8")
         for forbidden in ("requests", "urllib", "openai", "httpx", "socket"):
