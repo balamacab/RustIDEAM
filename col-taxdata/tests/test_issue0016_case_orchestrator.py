@@ -25,6 +25,8 @@ from case_contract_validation import (
     validate_case_result,
 )
 from case_retrieval import RetrievalIntegrityError
+from rematerialize_case import refresh_case_materializations
+from validate_case_bundle import validate_case
 from llm_client import (
     CASE_CONTEXT_LIMIT,
     CASE_STRUCTURING_UNAVAILABLE,
@@ -925,6 +927,12 @@ class Issue0016ApplicationTests(unittest.TestCase):
                 con.execute("SELECT COUNT(*) FROM evidence").fetchone()[0],
                 1,
             )
+            self.assertEqual(
+                con.execute(
+                    "SELECT status, requires_human_review FROM claims"
+                ).fetchone(),
+                ("validated", 0),
+            )
         finally:
             con.close()
 
@@ -977,6 +985,185 @@ class Issue0016ApplicationTests(unittest.TestCase):
         self.assertEqual(
             outcome.result["remaining_candidate_claims"][0]["status"],
             "candidate",
+        )
+
+    def test_issue64_unsupported_candidate_review_state_persists_and_is_idempotent(self):
+        paraphrase = (
+            "Las obligaciones tributarias deben examinarse mediante una "
+            "conclusión diferente que no aparece literalmente en la fuente."
+        )
+        payload = model_payload(claim_text=paraphrase)
+
+        first = analyze_case(
+            case_input=case_input(),
+            db_path=self.db,
+            case_root=self.case_root,
+            structurer=self._structurer(payload),
+        )
+        case_dir = self.case_root / first.case_id
+        bundle = json.loads(
+            (case_dir / "evidence.json").read_text(encoding="utf-8")
+        )
+        self.assertTrue(bundle["claims"][0]["requires_human_review"])
+        self.assertEqual(
+            json.loads(
+                (case_dir / "claim_bindings.json").read_text(
+                    encoding="utf-8"
+                )
+            ),
+            {},
+        )
+
+        con = sqlite3.connect(self.db)
+        try:
+            row = con.execute(
+                """
+                SELECT status, requires_human_review,
+                       (SELECT COUNT(*) FROM evidence e
+                        WHERE e.claim_id = c.claim_id)
+                FROM claims c
+                WHERE subject_id = ?
+                """,
+                (first.case_id,),
+            ).fetchone()
+        finally:
+            con.close()
+        self.assertEqual(row, ("candidate", 1, 0))
+        self.assertTrue(first.validation["valid"])
+
+        second = analyze_case(
+            case_input=case_input(),
+            db_path=self.db,
+            case_root=self.case_root,
+            structurer=self._structurer(payload),
+        )
+        self.assertEqual(second.case_id, first.case_id)
+        self.assertEqual(second.registration["claims_inserted"], 0)
+        self.assertEqual(second.registration["claims_reused"], 1)
+        self.assertEqual(second.registration["evidence_inserted"], 0)
+        self.assertTrue(second.validation["valid"])
+
+        con = sqlite3.connect(self.db)
+        try:
+            rerun_row = con.execute(
+                """
+                SELECT status, requires_human_review
+                FROM claims
+                WHERE subject_id = ?
+                """,
+                (first.case_id,),
+            ).fetchone()
+        finally:
+            con.close()
+        self.assertEqual(rerun_row, ("candidate", 1))
+
+    def test_issue64_rerun_repairs_stale_candidate_review_state(self):
+        paraphrase = (
+            "Las obligaciones tributarias deben examinarse mediante una "
+            "conclusión diferente que no aparece literalmente en la fuente."
+        )
+        payload = model_payload(claim_text=paraphrase)
+        first = analyze_case(
+            case_input=case_input(),
+            db_path=self.db,
+            case_root=self.case_root,
+            structurer=self._structurer(payload),
+        )
+
+        con = sqlite3.connect(self.db)
+        try:
+            con.execute(
+                """
+                UPDATE claims
+                SET requires_human_review = 0
+                WHERE subject_id = ?
+                """,
+                (first.case_id,),
+            )
+            con.commit()
+        finally:
+            con.close()
+
+        repaired = analyze_case(
+            case_input=case_input(),
+            db_path=self.db,
+            case_root=self.case_root,
+            structurer=self._structurer(payload),
+        )
+        self.assertTrue(repaired.validation["valid"])
+        self.assertEqual(repaired.registration["claims_inserted"], 0)
+        self.assertEqual(repaired.registration["claims_reused"], 1)
+
+        con = sqlite3.connect(self.db)
+        try:
+            row = con.execute(
+                """
+                SELECT status, requires_human_review
+                FROM claims
+                WHERE subject_id = ?
+                """,
+                (first.case_id,),
+            ).fetchone()
+        finally:
+            con.close()
+        self.assertEqual(row, ("candidate", 1))
+
+    def test_issue64_validator_detects_review_state_disagreement(self):
+        paraphrase = (
+            "Las obligaciones tributarias deben examinarse mediante una "
+            "conclusión diferente que no aparece literalmente en la fuente."
+        )
+        outcome = analyze_case(
+            case_input=case_input(),
+            db_path=self.db,
+            case_root=self.case_root,
+            structurer=self._structurer(
+                model_payload(claim_text=paraphrase)
+            ),
+        )
+        case_dir = self.case_root / outcome.case_id
+
+        con = sqlite3.connect(self.db)
+        try:
+            claim_id = con.execute(
+                "SELECT claim_id FROM claims WHERE subject_id = ?",
+                (outcome.case_id,),
+            ).fetchone()[0]
+            con.execute(
+                """
+                UPDATE claims
+                SET requires_human_review = 0
+                WHERE claim_id = ?
+                """,
+                (claim_id,),
+            )
+            con.commit()
+            refresh_case_materializations(
+                con,
+                case_id=outcome.case_id,
+                case_dir=case_dir,
+                write=True,
+            )
+            validation = validate_case(
+                con=con,
+                case_id=outcome.case_id,
+                case_dir=case_dir,
+            )
+        finally:
+            con.close()
+
+        self.assertFalse(validation["valid"])
+        self.assertIn("claim_review_state_mismatch", validation["errors"])
+        self.assertEqual(
+            validation["claim_review_state_mismatches"],
+            [
+                {
+                    "claim_id": claim_id,
+                    "status": "candidate",
+                    "persisted_requires_human_review": False,
+                    "expected_requires_human_review": True,
+                }
+            ],
         )
 
     def test_unresolved_canonical_identity_does_not_validate(self):
