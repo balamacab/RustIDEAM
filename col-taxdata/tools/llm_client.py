@@ -103,9 +103,29 @@ class LLMPlatformConfig:
     request_options: dict[str, Any] = field(default_factory=dict)
 
 
+@dataclass(frozen=True)
+class StructuredGenerationCapability:
+    """Provider-neutral guarantees required for CASE draft generation."""
+
+    mechanism: str
+    schema_constrained: bool
+    direct_object: bool
+    post_response_repair: bool = False
+
+    def is_case_compatible(self) -> bool:
+        """Return whether the declared mechanism satisfies the CASE boundary."""
+        return (
+            bool(self.mechanism.strip())
+            and self.schema_constrained
+            and self.direct_object
+            and not self.post_response_repair
+        )
+
+
 class LLMClient(Protocol):
     adapter_id: str
     provider_id: str
+    structured_generation_capability: StructuredGenerationCapability | None
 
     def complete_case_draft(
         self,
@@ -197,6 +217,12 @@ class OpenAICompatibleLLMClient:
     """Minimal provider-neutral HTTP adapter for OpenAI-compatible chat completions."""
 
     adapter_id = "openai-compatible"
+    structured_generation_capability = StructuredGenerationCapability(
+        mechanism="json_schema",
+        schema_constrained=True,
+        direct_object=True,
+        post_response_repair=False,
+    )
 
     def __init__(self, config: LLMPlatformConfig):
         self.config = config
@@ -305,6 +331,24 @@ class OpenAICompatibleLLMClient:
                 f"OpenAI-compatible backend timed out: {exc}",
                 retryable=True,
             ) from exc
+        except urlerror.HTTPError as exc:
+            # A client-side rejection of the required structured-generation
+            # request means this backend cannot satisfy the CASE contract as
+            # configured. Do not relax response_format or repair prose instead.
+            if 400 <= exc.code < 500:
+                raise LLMClientError(
+                    CASE_STRUCTURING_UNAVAILABLE,
+                    (
+                        "backend rejected the required structured-generation "
+                        f"request with HTTP {exc.code}"
+                    ),
+                    retryable=False,
+                ) from exc
+            raise LLMClientError(
+                CASE_STRUCTURING_UNAVAILABLE,
+                f"OpenAI-compatible backend unavailable: HTTP {exc.code}",
+                retryable=True,
+            ) from exc
         except urlerror.URLError as exc:
             if isinstance(exc.reason, TimeoutError):
                 raise LLMClientError(
@@ -392,9 +436,22 @@ class FakeLLMClient:
     adapter_id = "fake-llm"
     provider_id = "test"
 
-    def __init__(self, outputs: list[dict[str, Any] | Exception]):
+    def __init__(
+        self,
+        outputs: list[dict[str, Any] | Exception],
+        *,
+        structured_generation_capability: StructuredGenerationCapability | None = (
+            StructuredGenerationCapability(
+                mechanism="deterministic-test-schema",
+                schema_constrained=True,
+                direct_object=True,
+                post_response_repair=False,
+            )
+        ),
+    ):
         self._outputs = list(outputs)
         self.calls: list[ModelRoute] = []
+        self.structured_generation_capability = structured_generation_capability
 
     def complete_case_draft(
         self,
@@ -425,6 +482,28 @@ class CaseStructuringService:
     def __init__(self, config: LLMPlatformConfig, client: LLMClient):
         self.config = config
         self.client = client
+
+    def _require_generation_compatibility(self) -> None:
+        """Fail closed before invoking a backend that cannot honor CASE structure."""
+        capability = getattr(
+            self.client,
+            "structured_generation_capability",
+            None,
+        )
+        if (
+            capability is None
+            or not isinstance(capability, StructuredGenerationCapability)
+            or not capability.is_case_compatible()
+        ):
+            raise LLMClientError(
+                CASE_STRUCTURING_UNAVAILABLE,
+                (
+                    "backend is incompatible with CASE structuring: a supported "
+                    "schema-constrained, directly parseable, non-repairing "
+                    "structured-generation mechanism is required"
+                ),
+                retryable=False,
+            )
 
     def _attempt(
         self,
@@ -457,6 +536,7 @@ class CaseStructuringService:
         return draft
 
     def structure(self, case_input: dict[str, Any]) -> StructuringOutcome:
+        self._require_generation_compatibility()
         attempts = 0
         last_invalid: Exception | None = None
         provider_error: LLMClientError | None = None

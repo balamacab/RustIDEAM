@@ -6,7 +6,7 @@ Status: **Active architectural/application contract**
 
 Contract package version: **3.0.0**
 
-Driver: GitHub issue #15, refined by GitHub issues #23, #24, #25 and #27.
+Driver: GitHub issue #15, refined by GitHub issues #23, #24, #25, #27 and #76.
 
 This specification defines the stable application boundary for creating and analyzing a legal/tax case from natural-language input. It is downstream of the canonical corpus and evidence model documented in ../architecture/. It does not replace those contracts and does not claim that a final case-analysis orchestrator, MCP server, API server, or Ports-and-Adapters implementation already exists.
 
@@ -204,6 +204,51 @@ A mismatch in `problem_text`, `as_of_date`, or `client_reference` — including 
 Issue #16 MUST implement this validation outside JSON Schema. Its acceptance tests MUST cover, at minimum: exact `problem_text` preservation; exact supplied `as_of_date`; exact supplied `client_reference`; optional-field absence remaining absence; rejection of modified `problem_text`; rejection of modified `as_of_date`; rejection of a manufactured missing `as_of_date`; and rejection of modified `client_reference`.
 
 Malformed or semantically invalid model output does not mutate canonical/case state.
+
+### 5.2 Structured-generation backend compatibility
+
+CASE structuring has two separate validation gates. They MUST NOT be collapsed into one another.
+
+**Generation compatibility** asks whether the selected backend/adapter can produce the CaseDraft candidate through a supported constrained or structured-generation mechanism at the backend/model boundary. A CASE-compatible structuring backend MUST:
+
+- constrain generation against the model-facing CaseDraft schema for the active contract version, or provide an equivalent structured-generation mechanism with the same semantic guarantees;
+- return one directly parseable structured object, not prose that merely contains JSON-like text;
+- preserve the requested CaseDraft semantic field names, types, enum values, required fields, and unknown-field policy at generation time to the extent promised by that mechanism;
+- require no post-response semantic or JSON repair before the object can be handed to application validation.
+
+CASE MUST fail closed when an adapter/backend cannot provide those guarantees. An unavailable, unsupported, or rejected structured-generation mechanism is a structuring-compatibility failure; CASE MUST NOT silently retry by weakening the schema contract or switching to unconstrained prose generation.
+
+Compatibility MUST NOT depend on provider or model identity. A provider-specific transport feature is acceptable when the adapter can truthfully declare that it provides the required constrained-generation guarantees. Equivalent mechanisms from different providers are compatible when they preserve this boundary. The application contract does not require one vendor-specific request syntax, API family, model name, GPU/NPU/CPU runtime, or server implementation.
+
+CASE structuring MUST NOT repair arbitrary model text into a candidate draft. In particular, it MUST NOT:
+
+- strip Markdown or code fences around JSON;
+- extract a JSON-looking substring from surrounding prose;
+- heuristically repair malformed JSON;
+- rename model-produced fields to match the contract;
+- insert or delete semantic fields after generation merely to satisfy schema;
+- coerce field types or enum values;
+- silently drop unknown or unsupported fields;
+- relax the authoritative CaseDraft contract for a particular provider.
+
+A directly parseable object that violates the CaseDraft schema or semantics is still invalid. Generation compatibility only permits the object to reach the second gate.
+
+**Application validity** is the mandatory authoritative validation performed after generation. The application MUST validate the returned candidate against the v3 schema and all semantic invariants in this specification, including immutable CaseInput preservation, source-quote traceability, fact-state rules, typed references, canonical-ID injection prohibitions, and every other CaseDraft constraint. Backend-side constrained generation assists correctness but never replaces or bypasses this validation.
+
+The intended boundary is:
+
+    CASE-compatible structuring backend
+            |
+            +-- constrained / structured generation
+            |      -> directly parseable structured object
+            |      -> model-facing CaseDraft schema contract
+            |
+            +-- authoritative application validation
+                   -> accepted CaseDraft
+                   OR
+                   -> INVALID_CASE_DRAFT
+
+A backend that cannot satisfy the generation-compatibility gate is not available for CASE structuring under this contract version. It may still be used for unrelated or experimental tasks that do not claim to produce a CASE CaseDraft.
 
 ## 6. CaseFact
 
