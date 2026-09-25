@@ -22,6 +22,8 @@ Exact `problem_text`: `config/benchmarks/issue65/complex-case.txt`. Its final LF
 
 Canonical identity uses the current v3 compact JSON contract: UTF-8, sorted keys, compact separators, no trailing LF. `request.json` is also byte-frozen, has no trailing LF, and contains only `problem_text` and `as_of_date`. No CASE/DOC/PROV/SEG/EVD IDs, source hints, expected conclusions or evidence bindings may be added by the caller.
 
+Issue #66 is now part of the integration baseline. Every measured request must use `POST /v1/cases` through `tools/case_http.py`. A successful response must expose both `raw_request_sha256` and `case_input_sha256`. The frozen failure categories are `CASE_PROVIDER_TIMEOUT`, `CASE_OUTPUT_LIMIT`, `CASE_CONTEXT_LIMIT` and `INVALID_CASE_DRAFT`; in particular, the merged provider adapter independently raises `CASE_OUTPUT_LIMIT` when `completion_tokens >= max_output_tokens`, even if a provider reports another finish reason.
+
 ## Matrix and generation policy
 
 Exactly three configurations:
@@ -191,7 +193,7 @@ After all prerequisites close/verify:
 4. freeze database/raw-evidence/runtime baseline;
 5. clone nine isolated writable run stores;
 6. establish clean backend state;
-7. send exact `request.json` bytes through the #66 HTTP adapter;
+7. send exact `request.json` bytes to `POST /v1/cases` through the #66 HTTP adapter;
 8. capture each run record before the next repetition;
 9. preserve failures without parameter repair;
 10. score each run, then the suite and E2B concordance;
