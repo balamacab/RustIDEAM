@@ -48,13 +48,14 @@ def validate_case(
 
     claim_ids = {row[0] for row in claims}
 
-    bundle = json.loads(
-        (case_dir / "evidence.json").read_text(encoding="utf-8")
-    )
-    bundle_claims = {
-        item["id"]: item
-        for item in bundle.get("claims", [])
-    }
+    bundle_path = case_dir / "evidence.json"
+    bundle_claims = {}
+    if bundle_path.exists():
+        bundle = json.loads(bundle_path.read_text(encoding="utf-8"))
+        bundle_claims = {
+            item["id"]: item
+            for item in bundle.get("claims", [])
+        }
     claim_review_state_mismatches = []
     for claim_id, status, requires_human_review in claims:
         bundle_claim = bundle_claims.get(claim_id)
