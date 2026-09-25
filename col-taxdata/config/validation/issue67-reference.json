@@ -1,0 +1,105 @@
+{
+  "schema_version": 1,
+  "profile_id": "issue67-controlled-validation-v1",
+  "issue_number": 67,
+  "driver_issue_number": 75,
+  "historical_benchmark": {
+    "config_path": "config/benchmarks/issue65/benchmark.json",
+    "preserve_immutable": true,
+    "problem_text_sha256": "ee31a861095b69862f40c2050c1b5469f67506182fbebc64ddfe19f2099980e1",
+    "canonical_case_input_sha256": "9a88c7d1f818e22ef310ef52a4185d2795d3e51ddd374d22b25e713b522171d4",
+    "raw_http_request_sha256": "b0b36bf6ab5c5d46572aee434933b4a87f830c953ef26ee17c78734c82a9b763",
+    "expected_case_id": "CASE-31fdda05d776558393b16095880202d7"
+  },
+  "application": {
+    "transport": "openai-compatible",
+    "llm_platform_config": "config/llm/case-validation-reference.yaml",
+    "http_adapter": "tools/case_http.py",
+    "http_method": "POST",
+    "http_endpoint": "/v1/cases",
+    "provider_neutral_boundary": true
+  },
+  "generation": {
+    "temperature": 0,
+    "thinking": false,
+    "context_tokens": 16384,
+    "max_output_tokens": 6144,
+    "provider_timeout_seconds": 900,
+    "top_p": 1,
+    "top_k": 0,
+    "stream": false,
+    "n": 1
+  },
+  "reference_backend": {
+    "id": "quadro-m620-gemma-e2b-llamacpp",
+    "requirement": "required",
+    "hardware": "NVIDIA Quadro M620",
+    "backend": "llama.cpp",
+    "logical_model": "Gemma E2B",
+    "requested_model_name": "gemma-4-E2B-it-Q4_K_M",
+    "artifact_basename": "gemma-4-E2B-it-Q4_K_M.gguf",
+    "artifact_sha256": "740185b21d22ceb83a11c3aa62ad5842ef32c70f6096d756bbee85a1e4ec34b8",
+    "allow_model_substitution": false,
+    "allow_generation_substitution": false
+  },
+  "experimental_backends": [
+    {
+      "id": "ryzen-ai-gemma-e2b-fastflowlm",
+      "requirement": "optional_experimental",
+      "hardware": "Ryzen AI NPU",
+      "backend": "FastFlowLM",
+      "logical_model": "Gemma E2B",
+      "requested_model_name": "Gemma E2B",
+      "allow_model_substitution": false,
+      "allow_generation_substitution": false
+    },
+    {
+      "id": "ryzen-ai-gemma-12b-fastflowlm",
+      "requirement": "optional_experimental",
+      "hardware": "Ryzen AI NPU",
+      "backend": "FastFlowLM",
+      "logical_model": "Gemma 12B",
+      "requested_model_name": "Gemma 12B",
+      "allow_model_substitution": false,
+      "allow_generation_substitution": false
+    }
+  ],
+  "clean_provider_state": {
+    "reset_before_controlled_run": true,
+    "warm_session_reuse_allowed": false,
+    "discard_probe_state": true
+  },
+  "validation_plan": {
+    "phase_a": {
+      "required_runs": [
+        {
+          "backend_id": "quadro-m620-gemma-e2b-llamacpp",
+          "count": 1,
+          "kind": "controlled_e2e"
+        }
+      ],
+      "supplemental_diagnostics": [
+        {
+          "backend_id": "ryzen-ai-gemma-e2b-fastflowlm",
+          "optional": true
+        },
+        {
+          "backend_id": "ryzen-ai-gemma-12b-fastflowlm",
+          "optional": true
+        }
+      ]
+    },
+    "phase_b": {
+      "kind": "official_source_control",
+      "requires_frozen_phase_a": true,
+      "requires_experimental_backend": false
+    },
+    "post_freeze_comparison": {
+      "kind": "claim_by_claim",
+      "requires": [
+        "phase_a",
+        "phase_b"
+      ]
+    }
+  }
+}
