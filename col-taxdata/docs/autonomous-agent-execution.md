@@ -2,6 +2,8 @@
 
 This document defines the durable repository-side lifecycle for autonomous implementation work. The selected GitHub issue remains the task authority; this contract does not replace issue-specific scope, dependencies, acceptance criteria, production authorization, or architecture decisions.
 
+Controller-side issue creation, decomposition, dependency analysis and orchestration are governed separately by [`controller-orchestration.md`](controller-orchestration.md). Controllers must define those boundaries before launching work; implementation agents execute the selected issue and report discrepancies rather than being made responsible for inventing the global project graph. Controller-thread continuity uses [`controller-handoff-template.md`](controller-handoff-template.md).
+
 ## Lifecycle
 
 Normal implementation uses:
