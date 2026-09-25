@@ -169,22 +169,30 @@ Absence of explicit authorization means no such mutation.
 
 Validation issues that require blind/frozen inputs must not be consumed by prerequisite implementation or environment-preparation work.
 
-## 9. Handoff between controller threads
+## 9. Handoff and controller memory
 
-A controller handoff is context, not authority.
+Controller continuity uses the compact CM1 memory contract in
+[`controller-memory.md`](controller-memory.md).
+
+A controller handoff is historical context, not authority over current state.
 
 Every new controller thread MUST:
 
 1. read this policy before mutating GitHub;
-2. use the controller handoff as a starting snapshot;
-3. revalidate material facts against live GitHub/repository state;
-4. reconstruct active dependencies, blockers and execution order;
-5. preserve historical evidence and already accepted architecture;
-6. continue from the live graph, not blindly from stale handoff text.
+2. load only `controller-memory/INDEX.cm` as the default memory bootstrap;
+3. revalidate material current facts against live GitHub/repository state;
+4. use exact issue/PR/decision/topic keys to retrieve only the relevant immutable session records;
+5. reconstruct active dependencies, blockers and execution order from live state plus retrieved historical context;
+6. preserve historical session bytes and already accepted architecture;
+7. create a new immutable CM1 session capsule at a material checkpoint/handoff and rebuild/verify the derived index.
 
-If handoff and live GitHub state disagree, live state wins and the discrepancy must be resolved explicitly.
+Do not load all historical session files by default.
 
-Use `controller-handoff-template.md` for reusable handoffs.
+Do not replace CM1 with a growing human-language transcript/summary. The normal human-visible handoff should carry only the current main SHA, the latest/new session id and the memory index path.
+
+If controller memory and live GitHub state disagree about current issue/PR state, live GitHub wins. The historical session remains unchanged because it records what was known or decided at its capture time.
+
+Use `controller-handoff-template.md` for the minimal handoff envelope.
 
 ## 10. Relationship to implementation agents
 
