@@ -161,10 +161,12 @@ class Issue0076StructuredOutputCompatibilityTests(unittest.TestCase):
     def test_fenced_prose_wrapped_and_malformed_json_are_not_repaired(self):
         valid_json = json.dumps(model_payload())
         cases = {
-            "markdown_fence": f"\`\`\`json\n{valid_json}\n\`\`\`",
+            "markdown_fence": "```json\n" + valid_json + "\n```",
             "prose_wrapped": f"Here is the CaseDraft:\n{valid_json}",
             "malformed": '{"kind":"case_draft","contract_version":"3.0.0"',
         }
+        self.assertTrue(cases["markdown_fence"].startswith("```json\n"))
+        self.assertTrue(cases["markdown_fence"].endswith("\n```"))
 
         for name, content in cases.items():
             with self.subTest(name=name):
