@@ -23,6 +23,7 @@ from case_contract_validation import (
 
 CASE_STRUCTURING_UNAVAILABLE = "CASE_STRUCTURING_UNAVAILABLE"
 CASE_CONTEXT_LIMIT = "CASE_CONTEXT_LIMIT"
+CASE_OUTPUT_LIMIT = "CASE_OUTPUT_LIMIT"
 
 PROMPT_TEMPLATE_ID = "case-structuring-v3"
 PROMPT_TEMPLATE_VERSION = "4"
@@ -65,6 +66,14 @@ class LLMClientError(RuntimeError):
 class ContextLimitError(LLMClientError):
     def __init__(self, detail: str, metadata: dict[str, Any]):
         super().__init__(CASE_CONTEXT_LIMIT, detail, retryable=False)
+        self.metadata = metadata
+
+
+class OutputLimitError(LLMClientError):
+    """Provider response reached the configured output ceiling."""
+
+    def __init__(self, detail: str, metadata: dict[str, Any]):
+        super().__init__(CASE_OUTPUT_LIMIT, detail, retryable=False)
         self.metadata = metadata
 
 
@@ -310,7 +319,35 @@ class OpenAICompatibleLLMClient:
                     ),
                     retryable=False,
                 )
-            content = envelope["choices"][0]["message"]["content"]
+            choice = envelope["choices"][0]
+            finish_reason = choice.get("finish_reason")
+            usage = envelope.get("usage") or {}
+            completion_tokens = usage.get("completion_tokens")
+            output_ceiling_reached = (
+                finish_reason == "length"
+                or (
+                    isinstance(completion_tokens, int)
+                    and not isinstance(completion_tokens, bool)
+                    and completion_tokens >= route.max_output_tokens
+                )
+            )
+            if output_ceiling_reached:
+                raise OutputLimitError(
+                    (
+                        "backend response reached the configured output "
+                        f"ceiling of {route.max_output_tokens} tokens"
+                    ),
+                    {
+                        "model": route.name,
+                        "routing_role": route.routing_role,
+                        "finish_reason": finish_reason,
+                        "completion_tokens": completion_tokens,
+                        "max_output_tokens": route.max_output_tokens,
+                        "truncated": True,
+                    },
+                )
+
+            content = choice["message"]["content"]
             if not isinstance(content, str):
                 raise TypeError("message.content is not a string")
             draft_payload = json.loads(content)
