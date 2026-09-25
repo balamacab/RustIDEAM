@@ -25,7 +25,7 @@ CASE_STRUCTURING_UNAVAILABLE = "CASE_STRUCTURING_UNAVAILABLE"
 CASE_CONTEXT_LIMIT = "CASE_CONTEXT_LIMIT"
 
 PROMPT_TEMPLATE_ID = "case-structuring-v3"
-PROMPT_TEMPLATE_VERSION = "3"
+PROMPT_TEMPLATE_VERSION = "4"
 
 SYSTEM_PROMPT = """You structure a Colombian legal/tax case into the supplied JSON schema.
 The response schema pins problem_text, as_of_date, and client_reference to the
@@ -39,8 +39,13 @@ also stated verbatim inside problem_text. Every user_provided fact must use a
 source_quote copied verbatim from problem_text and requires_confirmation=false.
 llm_normalized and llm_inferred facts always use requires_confirmation=true.
 missing and ambiguous facts always use requires_confirmation=true and
-needed_information. Unknown required facts remain missing/ambiguous. Every legal
-conclusion is only a candidate_claim. Never emit canonical/persistence document,
+needed_information. If problem_text directly and unambiguously states information
+for a fact you choose to represent, never downgrade that fact to missing; represent
+the stated client information as user_provided with a verbatim source_quote. Use
+missing only for a concrete datum absent from problem_text, and needed_information
+must name that absent datum instead of generically asking what information about an
+already described topic is required. Truly ambiguous information remains ambiguous.
+Every legal conclusion is only a candidate_claim. Never emit canonical/persistence document,
 provision, evidence, manifestation, segment, relationship, source, claim, or case
 identifiers. Target hints may contain ordinary human-readable legal references or
 search phrases only. Do not assert that a candidate is validated and do not
