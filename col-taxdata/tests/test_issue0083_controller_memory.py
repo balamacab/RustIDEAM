@@ -36,6 +36,7 @@ class ControllerMemoryTests(unittest.TestCase):
         self.root = Path(self.tmp.name) / "controller-memory"
         (self.root / "sessions").mkdir(parents=True)
         (self.root / "SCHEMA.cm").write_bytes(cm.SCHEMA_BYTES)
+        (self.root / "ETHOS.cm").write_bytes(cm.ETHOS_BYTES)
         cm.rebuild_index(self.root)
 
     def tearDown(self) -> None:
@@ -161,7 +162,8 @@ class ControllerMemoryTests(unittest.TestCase):
         cm.rebuild_index(self.root)
         with mock.patch.object(cm, "load_sessions", side_effect=AssertionError("history loaded")):
             data = cm.bootstrap(self.root)
-        self.assertTrue(data.startswith(b"CM1|I|1|"))
+        self.assertTrue(data.startswith(b"CM1|B\nCM1|H|1\n"))
+        self.assertIn(b"CM1|I|1|", data)
 
     def test_exact_key_query_loads_only_indexed_sessions(self) -> None:
         relevant = self.write_session(
@@ -223,7 +225,7 @@ class ControllerMemoryTests(unittest.TestCase):
     def test_controller_docs_require_index_first_on_demand_handoff(self) -> None:
         orchestration = (ROOT / "docs" / "controller-orchestration.md").read_text(encoding="utf-8")
         handoff = (ROOT / "docs" / "controller-handoff-template.md").read_text(encoding="utf-8")
-        self.assertIn("load only `controller-memory/INDEX.cm`", orchestration)
+        self.assertIn("load `controller-memory/ETHOS.cm` and `controller-memory/INDEX.cm`", orchestration)
         self.assertIn("Do not load all historical session files by default.", orchestration)
         self.assertIn("CM: col-taxdata/controller-memory/INDEX.cm", handoff)
         self.assertIn("SID: <latest/new CM1 session id>", handoff)

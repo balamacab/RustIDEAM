@@ -179,14 +179,14 @@ A controller handoff is historical context, not authority over current state.
 Every new controller thread MUST:
 
 1. read this policy before mutating GitHub;
-2. load only `controller-memory/INDEX.cm` as the default memory bootstrap;
-3. revalidate material current facts against live GitHub/repository state;
+2. load `controller-memory/ETHOS.cm` and `controller-memory/INDEX.cm` as the bounded default memory bootstrap;
+3. apply the inherited ethos as operating guidance, then revalidate material current facts against live GitHub/repository state;
 4. use exact issue/PR/decision/topic keys to retrieve only the relevant immutable session records;
 5. reconstruct active dependencies, blockers and execution order from live state plus retrieved historical context;
 6. preserve historical session bytes and already accepted architecture;
 7. create a new immutable CM1 session capsule at a material checkpoint/handoff and rebuild/verify the derived index.
 
-Do not load all historical session files by default.
+Do not load all historical session files by default. ETHOS is always loaded; historical session detail remains on demand.
 
 Do not replace CM1 with a growing human-language transcript/summary. The normal human-visible handoff should carry only the current main SHA, the latest/new session id and the memory index path.
 

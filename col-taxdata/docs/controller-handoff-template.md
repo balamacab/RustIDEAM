@@ -11,6 +11,7 @@ Mode: CONTROLLER
 Repo: balamacab/RustIDEAM
 Scope: col-taxdata/
 Main: <40-hex SHA>
+ETHOS: col-taxdata/controller-memory/ETHOS.cm
 CM: col-taxdata/controller-memory/INDEX.cm
 SID: <latest/new CM1 session id>
 ```
@@ -20,8 +21,8 @@ Do not append a full project history to this handoff.
 ## Receiving-controller bootstrap
 
 1. Read `controller-orchestration.md`.
-2. Read only `controller-memory/INDEX.cm`.
-3. Inspect live GitHub state for the task being considered.
+2. Load `controller-memory/ETHOS.cm` plus `controller-memory/INDEX.cm` (or run `python3 tools/controller_memory.py bootstrap` when a checkout is available).
+3. Apply the ethos as operating guidance, then inspect live GitHub state for the task being considered.
 4. Query only relevant memory keys, for example:
    - `i67` for issue #67;
    - `p82` for PR #82;
@@ -30,7 +31,7 @@ Do not append a full project history to this handoff.
 5. Load only the session records returned by that exact-key query.
 6. Treat live GitHub/repository state as authoritative for current status.
 
-If the current controller does not need historical detail, it should not load session capsules.
+If the current controller does not need historical detail, it should not load session capsules. ETHOS remains part of every bootstrap.
 
 ## Creating the next handoff
 

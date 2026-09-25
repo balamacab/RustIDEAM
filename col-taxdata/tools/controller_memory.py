@@ -21,6 +21,9 @@ SCHEMA_BYTES = (
     b"R|F|5\n"
     b"R|A|5\n"
     b"R|X|4\n"
+    b"H|P|2\n"
+    b"H|R|2\n"
+    b"H|S|6\n"
     b"K|i|1\n"
     b"K|p|2\n"
     b"K|d|3\n"
@@ -32,6 +35,50 @@ TIMESTAMP_RE = re.compile(r"^[0-9]{8}T[0-9]{6}Z$")
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 KEY_RE = re.compile(r"^[a-z][A-Za-z0-9._:-]{0,63}$")
 RECORD_FIELD_COUNTS = {"D": 7, "E": 5, "F": 5, "A": 5, "X": 4}
+ETHOS_VERSION = 1
+ETHOS_TOKEN_RE = re.compile(r"^[a-z][a-z0-9-]{0,31}$")
+ETHOS_REQUIRED_PRINCIPLES = (
+    ("evidence", "fluency"),
+    ("architecture", "unblock"),
+    ("live", "stale"),
+    ("uncertainty", "guess"),
+    ("history", "rewrite"),
+    ("root", "symptom"),
+    ("ownership", "proximity"),
+    ("reversible", "premature"),
+    ("critical", "agreement"),
+    ("convergence", "closure"),
+)
+ETHOS_REQUIRED_RULES = (
+    ("absence-evidence", "not-authorization"),
+    ("speed", "subordinate-correctness"),
+    ("challenge-evidence", "preserve-history"),
+)
+ETHOS_REQUIRED_STAGES = (
+    "observation",
+    "conclusion",
+    "decision",
+    "authorization",
+    "execution",
+    "verified-integration",
+)
+ETHOS_BYTES = (
+    b"CM1|H|1\n"
+    b"P|evidence|fluency\n"
+    b"P|architecture|unblock\n"
+    b"P|live|stale\n"
+    b"P|uncertainty|guess\n"
+    b"P|history|rewrite\n"
+    b"P|root|symptom\n"
+    b"P|ownership|proximity\n"
+    b"P|reversible|premature\n"
+    b"P|critical|agreement\n"
+    b"P|convergence|closure\n"
+    b"R|absence-evidence|not-authorization\n"
+    b"R|speed|subordinate-correctness\n"
+    b"R|challenge-evidence|preserve-history\n"
+    b"S|observation|conclusion|decision|authorization|execution|verified-integration\n"
+)
 
 
 class MemoryError(ValueError):
@@ -44,6 +91,15 @@ class Record:
     fields: tuple[str, ...]
     keys: tuple[str, ...]
     raw: str
+
+
+@dataclass(frozen=True)
+class Ethos:
+    version: int
+    principles: tuple[tuple[str, str], ...]
+    rules: tuple[tuple[str, str], ...]
+    stages: tuple[str, ...]
+    raw: bytes
 
 
 @dataclass(frozen=True)
@@ -98,6 +154,82 @@ def _parse_keys(field: str) -> tuple[str, ...]:
     if tuple(sorted(set(keys))) != keys:
         raise MemoryError("record retrieval keys must be sorted and unique")
     return keys
+
+
+def _validate_ethos_token(value: str, label: str) -> None:
+    if not ETHOS_TOKEN_RE.fullmatch(value):
+        raise MemoryError(f"ethos: invalid {label} token {value!r}")
+
+
+def parse_ethos_bytes(data: bytes) -> Ethos:
+    if len(data) > 1024:
+        raise MemoryError("ethos: compact payload exceeds 1024 bytes")
+    text = _decode_canonical(data, "ethos")
+    lines = text.splitlines()
+    header = lines[0].split("|") if lines else []
+    if len(header) != 3 or header[:2] != [SCHEMA_VERSION, "H"]:
+        raise MemoryError("ethos: invalid header")
+    try:
+        version = int(header[2])
+    except ValueError as exc:
+        raise MemoryError("ethos: version must be an integer") from exc
+    if version <= 0:
+        raise MemoryError("ethos: version must be positive")
+    if version != ETHOS_VERSION:
+        raise MemoryError(
+            f"ethos: unsupported version {version}; expected {ETHOS_VERSION}"
+        )
+
+    principles: list[tuple[str, str]] = []
+    rules: list[tuple[str, str]] = []
+    stages: tuple[str, ...] | None = None
+    seen_principle_left: set[str] = set()
+    seen_rule_left: set[str] = set()
+
+    for line_no, line in enumerate(lines[1:], start=2):
+        if not line:
+            raise MemoryError(f"ethos:{line_no}: blank records are forbidden")
+        parts = line.split("|")
+        kind = parts[0]
+        fields = parts[1:]
+        if kind in {"P", "R"}:
+            if len(fields) != 2:
+                raise MemoryError(f"ethos:{line_no}: {kind} requires 2 fields")
+            left, right = fields
+            _validate_ethos_token(left, "left")
+            _validate_ethos_token(right, "right")
+            seen = seen_principle_left if kind == "P" else seen_rule_left
+            if left in seen:
+                raise MemoryError(f"ethos:{line_no}: duplicate {kind} identity {left!r}")
+            seen.add(left)
+            (principles if kind == "P" else rules).append((left, right))
+        elif kind == "S":
+            if stages is not None:
+                raise MemoryError("ethos: duplicate stage record")
+            if len(fields) != len(ETHOS_REQUIRED_STAGES):
+                raise MemoryError(
+                    f"ethos:{line_no}: S requires {len(ETHOS_REQUIRED_STAGES)} stages"
+                )
+            for value in fields:
+                _validate_ethos_token(value, "stage")
+            stages = tuple(fields)
+        else:
+            raise MemoryError(f"ethos:{line_no}: unknown record type {kind!r}")
+
+    if tuple(principles) != ETHOS_REQUIRED_PRINCIPLES:
+        raise MemoryError("ethos: required principle set/order mismatch")
+    if tuple(rules) != ETHOS_REQUIRED_RULES:
+        raise MemoryError("ethos: required rule set/order mismatch")
+    if stages != ETHOS_REQUIRED_STAGES:
+        raise MemoryError("ethos: required stage distinction mismatch")
+    return Ethos(version, tuple(principles), tuple(rules), stages, data)
+
+
+def verify_ethos(memory_root: Path) -> Ethos:
+    path = memory_root / "ETHOS.cm"
+    if not path.is_file():
+        raise MemoryError("missing ETHOS.cm")
+    return parse_ethos_bytes(path.read_bytes())
 
 
 def parse_session_bytes(data: bytes, *, expected_filename: str | None = None) -> Session:
@@ -266,6 +398,7 @@ def rebuild_index(memory_root: Path) -> bytes:
 
 def verify(memory_root: Path) -> Index:
     verify_schema(memory_root)
+    verify_ethos(memory_root)
     expected = expected_index(memory_root)
     path = memory_root / "INDEX.cm"
     if not path.is_file():
@@ -282,20 +415,25 @@ def verify(memory_root: Path) -> Index:
     return parsed
 
 
-def bootstrap(memory_root: Path) -> bytes:
-    verify_schema(memory_root)
+def _load_index(memory_root: Path) -> Index:
     path = memory_root / "INDEX.cm"
     if not path.is_file():
         raise MemoryError("missing INDEX.cm")
-    data = path.read_bytes()
-    parse_index_bytes(data)
-    return data
+    return parse_index_bytes(path.read_bytes())
+
+
+def bootstrap(memory_root: Path) -> bytes:
+    verify_schema(memory_root)
+    ethos = verify_ethos(memory_root)
+    index = _load_index(memory_root)
+    return b"CM1|B\n" + ethos.raw + index.raw
 
 
 def query(memory_root: Path, key: str) -> bytes:
     if not KEY_RE.fullmatch(key):
         raise MemoryError(f"invalid retrieval key {key!r}")
-    index = parse_index_bytes(bootstrap(memory_root))
+    verify_schema(memory_root)
+    index = _load_index(memory_root)
     sids = index.pointers.get(key, ())
     lines = [f"{SCHEMA_VERSION}|Q|{key}|{len(sids)}"]
     for sid in sids:
@@ -356,8 +494,9 @@ def main() -> int:
             _write_stdout(query(args.root, args.key))
         elif args.command == "verify":
             index = verify(args.root)
+            ethos = verify_ethos(args.root)
             print(
-                f"{SCHEMA_VERSION}|V|1|{index.session_count}|"
+                f"{SCHEMA_VERSION}|V|1|H{ethos.version}|{index.session_count}|"
                 f"{index.latest_sid}|{index.manifest_sha256}"
             )
         elif args.command == "rebuild":

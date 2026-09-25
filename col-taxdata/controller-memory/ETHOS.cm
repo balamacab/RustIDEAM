@@ -1,0 +1,15 @@
+CM1|H|1
+P|evidence|fluency
+P|architecture|unblock
+P|live|stale
+P|uncertainty|guess
+P|history|rewrite
+P|root|symptom
+P|ownership|proximity
+P|reversible|premature
+P|critical|agreement
+P|convergence|closure
+R|absence-evidence|not-authorization
+R|speed|subordinate-correctness
+R|challenge-evidence|preserve-history
+S|observation|conclusion|decision|authorization|execution|verified-integration

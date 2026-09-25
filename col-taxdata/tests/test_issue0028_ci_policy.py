@@ -78,6 +78,64 @@ class PolicyTests(unittest.TestCase):
         changed = [("M", ["col-taxdata/controller-memory/INDEX.cm"])]
         self.assertEqual(policy.validate_controller_session_immutability(changed), [])
 
+    def test_controller_ethos_requires_exact_version_increment(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+            subprocess.run(["git", "config", "user.name", "test"], cwd=root, check=True)
+            subprocess.run(["git", "config", "user.email", "test@example.invalid"], cwd=root, check=True)
+            ethos = root / policy.CONTROLLER_ETHOS_PATH
+            ethos.parent.mkdir(parents=True)
+            ethos.write_text("CM1|H|1\nP|a|b\n", encoding="utf-8")
+            subprocess.run(["git", "add", "."], cwd=root, check=True)
+            subprocess.run(["git", "commit", "-qm", "base"], cwd=root, check=True)
+            base = subprocess.check_output(
+                ["git", "rev-parse", "HEAD"], cwd=root, text=True
+            ).strip()
+            changed = [("M", [policy.CONTROLLER_ETHOS_PATH])]
+
+            ethos.write_text("CM1|H|1\nP|a|c\n", encoding="utf-8")
+            self.assertTrue(
+                policy.validate_controller_ethos_transition(root, base, changed)
+            )
+
+            ethos.write_text("CM1|H|2\nP|a|c\n", encoding="utf-8")
+            self.assertEqual(
+                policy.validate_controller_ethos_transition(root, base, changed),
+                [],
+            )
+
+            ethos.write_text("CM1|H|3\nP|a|c\n", encoding="utf-8")
+            self.assertTrue(
+                policy.validate_controller_ethos_transition(root, base, changed)
+            )
+
+    def test_controller_ethos_addition_and_deletion_policy(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+            subprocess.run(["git", "config", "user.name", "test"], cwd=root, check=True)
+            subprocess.run(["git", "config", "user.email", "test@example.invalid"], cwd=root, check=True)
+            marker = root / "marker"
+            marker.write_text("base\n", encoding="utf-8")
+            subprocess.run(["git", "add", "."], cwd=root, check=True)
+            subprocess.run(["git", "commit", "-qm", "base"], cwd=root, check=True)
+            base = subprocess.check_output(
+                ["git", "rev-parse", "HEAD"], cwd=root, text=True
+            ).strip()
+            ethos = root / policy.CONTROLLER_ETHOS_PATH
+            ethos.parent.mkdir(parents=True)
+            ethos.write_text("CM1|H|1\nP|a|b\n", encoding="utf-8")
+            added = [("A", [policy.CONTROLLER_ETHOS_PATH])]
+            self.assertEqual(
+                policy.validate_controller_ethos_transition(root, base, added),
+                [],
+            )
+            deleted = [("D", [policy.CONTROLLER_ETHOS_PATH])]
+            self.assertTrue(
+                policy.validate_controller_ethos_transition(root, base, deleted)
+            )
+
     def test_runtime_database_and_raw_artifacts_are_rejected(self):
         paths = [
             "col-taxdata/data/state/taxdata.sqlite",
