@@ -15,6 +15,7 @@ METADATA_MARKER = "col-taxdata-agent-metadata:"
 BRANCH_RE = re.compile(r"^agent/issue-(?P<issue>[1-9][0-9]*)-(?P<slug>[a-z0-9][a-z0-9-]*)$")
 CLOSING_RE = re.compile(r"(?im)\b(?:fixes|closes|resolves)\s+#([1-9][0-9]*)\b")
 SCHEMA_RE = re.compile(r"^col-taxdata/schema/[^/]+\.sql$")
+CONTROLLER_SESSION_RE = re.compile(r"^col-taxdata/controller-memory/sessions/[^/]+\.cm$")
 GLOBAL_WORKFLOW_RE = re.compile(r"^\.github/workflows/col-taxdata-[A-Za-z0-9_.-]+\.ya?ml$")
 GLOBAL_ACTION_RE = re.compile(r"^\.github/actions/col-taxdata(?:/|$)")
 FORBIDDEN_SUFFIXES = (".sqlite", ".sqlite3", ".db", ".db-wal", ".db-shm")
@@ -135,6 +136,25 @@ def validate_migration_immutability(changes: Iterable[tuple[str, list[str]]]) ->
             continue
         if not status.startswith("A"):
             violations.extend(f"{status}:{p}" for p in migration_paths)
+    return violations
+
+
+def validate_controller_session_immutability(
+    changes: Iterable[tuple[str, list[str]]],
+) -> list[str]:
+    """Allow only additive controller-memory session files.
+
+    Session capsules are historical controller evidence. INDEX.cm is derived and
+    may change, but an existing session must never be modified, deleted or
+    renamed after it lands on main.
+    """
+    violations: list[str] = []
+    for status, paths in changes:
+        session_paths = [p for p in paths if CONTROLLER_SESSION_RE.fullmatch(p)]
+        if not session_paths:
+            continue
+        if not status.startswith("A"):
+            violations.extend(f"{status}:{p}" for p in session_paths)
     return violations
 
 
@@ -282,6 +302,12 @@ def cmd_validate(args: argparse.Namespace) -> int:
     sequence = migration_sequence_violations(root, args.base, changes)
     if sequence:
         raise PolicyError("; ".join(sequence))
+    controller_sessions = validate_controller_session_immutability(changes)
+    if controller_sessions:
+        raise PolicyError(
+            "immutable controller-memory session mutation detected: "
+            + ", ".join(controller_sessions)
+        )
     artifacts = forbidden_artifacts(paths)
     if artifacts:
         raise PolicyError("runtime/database artifact committed: " + ", ".join(artifacts))

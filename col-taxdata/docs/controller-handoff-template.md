@@ -1,148 +1,57 @@
 # Controller handoff template
 
-Use this template when handing `col-taxdata` orchestration to another controller thread.
+Controller handoffs for `col-taxdata` are intentionally small. Durable detail belongs in immutable CM1 session capsules, not in an ever-growing natural-language prompt.
 
-The receiving controller MUST read `controller-orchestration.md` before mutating GitHub and MUST revalidate this snapshot against live GitHub/repository state.
+The receiving controller MUST read `controller-orchestration.md` before mutating GitHub.
 
-## Controller role
-
-```text
-Mode: CONTROLLER / ORCHESTRATION
-Repository: balamacab/RustIDEAM
-Project scope: col-taxdata/
-```
-
-The controller coordinates issues, specs, dependencies, blockers, execution order and validation boundaries. It does not assume that a proposed decomposition is correct merely because it was proposed.
-
-## Stable project invariants
-
-Record only durable invariants needed for orchestration, for example:
-
-- immutable raw evidence is never rewritten;
-- SHA-256/provenance guarantees remain intact;
-- ambiguous legal identity/state/relationships remain unresolved;
-- LLM output is not canonical legal authority;
-- historical audits/benchmarks are not rewritten to match later results.
-
-Do not duplicate large specifications here; link/reference their authoritative repository location.
-
-## Live orchestration snapshot
-
-### Current main
+## Minimal handoff envelope
 
 ```text
-main SHA:
-validated at:
+Mode: CONTROLLER
+Repo: balamacab/RustIDEAM
+Scope: col-taxdata/
+Main: <40-hex SHA>
+CM: col-taxdata/controller-memory/INDEX.cm
+SID: <latest/new CM1 session id>
 ```
 
-### Active issues
+Do not append a full project history to this handoff.
 
-For each materially active issue:
+## Receiving-controller bootstrap
 
-```text
-#N — title
-owner scope:
-state:
-branch/PR:
-hard dependencies:
-ordering dependencies:
-blocks:
-blocked by:
-parallel relationship:
-must not touch:
-next safe action:
-```
+1. Read `controller-orchestration.md`.
+2. Read only `controller-memory/INDEX.cm`.
+3. Inspect live GitHub state for the task being considered.
+4. Query only relevant memory keys, for example:
+   - `i67` for issue #67;
+   - `p82` for PR #82;
+   - `d42` for controller decision 42;
+   - a compact `t...` topic key.
+5. Load only the session records returned by that exact-key query.
+6. Treat live GitHub/repository state as authoritative for current status.
 
-### Active pull requests
+If the current controller does not need historical detail, it should not load session capsules.
 
-```text
-PR:
-issue:
-head SHA:
-base/main relationship:
-semantic/domain scope:
-known overlap:
-integration ordering:
-CI/convergence state:
-```
+## Creating the next handoff
 
-### Blocked work
+At a material controller checkpoint:
 
-```text
-work item:
-blocked by:
-exact unblock condition:
-what must NOT be done while blocked:
-```
+1. encode only durable deltas in one new `CM1|S` session;
+2. include decision/dependency/blocker/invariant/restriction/validation-boundary/conditional-action records as applicable;
+3. do not persist transcript filler;
+4. add the session create-only using:
+   `python3 tools/controller_memory.py handoff <prepared-session.cm>`;
+5. run:
+   `python3 tools/controller_memory.py verify`;
+6. commit the new session plus rebuilt `INDEX.cm`;
+7. hand the next controller only the minimal envelope above.
 
-### Validation / frozen-input boundaries
+Existing `sessions/*.cm` files are immutable. A later session supersedes prior knowledge by reference; it never edits the prior bytes.
 
-```text
-validation issue:
-frozen input/artifact:
-already consumed?:
-who may consume it:
-prerequisites:
-prohibited prerequisite actions:
-```
+## Retrieval contract
 
-### Runtime / production state relevant to orchestration
+See `controller-memory.md` for CM1 wire semantics.
 
-Include only facts that affect sequencing or authorization.
+The compact format is for token and retrieval efficiency. It is not encryption and must not contain information unsuitable for the public repository.
 
-```text
-runtime baseline:
-production mutation authorized for:
-production mutation prohibited for:
-known frozen snapshots:
-```
-
-## Decisions already made
-
-Record accepted decisions with the issue/spec/ADR that owns them.
-
-Do not convert temporary runtime facts into architecture.
-
-```text
-decision:
-owner/reference:
-scope:
-what it does NOT imply:
-```
-
-## Open controller questions
-
-Only unresolved orchestration decisions belong here.
-
-```text
-question:
-why it matters:
-affected issues:
-safe state until resolved:
-```
-
-## Next safe actions
-
-List actions in dependency order.
-
-```text
-1.
-2.
-3.
-```
-
-Do not list a blocked action as executable.
-
-## Mandatory receiving-controller preflight
-
-Before creating, closing, splitting, modifying or launching an issue, the receiving controller must:
-
-- inspect live related issues and PRs;
-- verify whether the proposed work already has an owner;
-- verify hard and ordering dependencies;
-- verify concurrent work and ownership boundaries;
-- determine allowed/conditional/prohibited parallelism;
-- distinguish user analysis questions from mutation instructions;
-- challenge the handoff itself if live evidence shows its decomposition is wrong.
-
-The handoff is a convenience for continuity. It never overrides current repository truth.
+The handoff is a pointer into controller memory. It never overrides current repository truth.

@@ -56,6 +56,28 @@ class PolicyTests(unittest.TestCase):
         self.assertEqual(policy.validate_migration_immutability(added), [])
         self.assertTrue(policy.validate_migration_immutability(modified))
 
+    def test_controller_memory_sessions_are_append_only(self):
+        added = [("A", ["col-taxdata/controller-memory/sessions/C260925T181700Z00.cm"])]
+        modified = [("M", ["col-taxdata/controller-memory/sessions/C260925T181700Z00.cm"])]
+        deleted = [("D", ["col-taxdata/controller-memory/sessions/C260925T181700Z00.cm"])]
+        renamed = [
+            (
+                "R100",
+                [
+                    "col-taxdata/controller-memory/sessions/C260925T181700Z00.cm",
+                    "col-taxdata/controller-memory/sessions/C260925T181800Z00.cm",
+                ],
+            )
+        ]
+        self.assertEqual(policy.validate_controller_session_immutability(added), [])
+        self.assertTrue(policy.validate_controller_session_immutability(modified))
+        self.assertTrue(policy.validate_controller_session_immutability(deleted))
+        self.assertEqual(len(policy.validate_controller_session_immutability(renamed)), 2)
+
+    def test_controller_memory_index_remains_rebuildable(self):
+        changed = [("M", ["col-taxdata/controller-memory/INDEX.cm"])]
+        self.assertEqual(policy.validate_controller_session_immutability(changed), [])
+
     def test_runtime_database_and_raw_artifacts_are_rejected(self):
         paths = [
             "col-taxdata/data/state/taxdata.sqlite",
