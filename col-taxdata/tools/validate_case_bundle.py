@@ -6,6 +6,7 @@ import json
 import sqlite3
 from pathlib import Path
 
+from case_claim_review import case_claim_requires_human_review
 from materialize_case_report import render_report
 from materialize_case_sources import render_source_manifest
 
@@ -34,7 +35,7 @@ def validate_case(
 
     claims = con.execute(
         """
-        SELECT c.claim_id, c.status
+        SELECT c.claim_id, c.status, c.requires_human_review
         FROM claims c
         JOIN case_items ci
           ON ci.item_type = 'claim'
@@ -47,8 +48,50 @@ def validate_case(
 
     claim_ids = {row[0] for row in claims}
 
+    bundle = json.loads(
+        (case_dir / "evidence.json").read_text(encoding="utf-8")
+    )
+    bundle_claims = {
+        item["id"]: item
+        for item in bundle.get("claims", [])
+    }
+    claim_review_state_mismatches = []
+    for claim_id, status, requires_human_review in claims:
+        bundle_claim = bundle_claims.get(claim_id)
+        if bundle_claim is None:
+            continue
+        try:
+            expected = case_claim_requires_human_review(
+                bundle_claim,
+                persisted_status=status,
+            )
+        except ValueError as exc:
+            claim_review_state_mismatches.append(
+                {
+                    "claim_id": claim_id,
+                    "status": status,
+                    "persisted_requires_human_review": bool(
+                        requires_human_review
+                    ),
+                    "expected_requires_human_review": None,
+                    "reason": str(exc),
+                }
+            )
+            continue
+
+        actual = bool(requires_human_review)
+        if actual != expected:
+            claim_review_state_mismatches.append(
+                {
+                    "claim_id": claim_id,
+                    "status": status,
+                    "persisted_requires_human_review": actual,
+                    "expected_requires_human_review": expected,
+                }
+            )
+
     unsupported_validated_claims = []
-    for claim_id, status in claims:
+    for claim_id, status, _requires_human_review in claims:
         if status not in {"validated", "human_verified"}:
             continue
 
@@ -228,7 +271,7 @@ def validate_case(
     manifest_matches_sqlite = manifest_sources == db_sources
     all_claims_validated = bool(claims) and all(
         status in {"validated", "human_verified"}
-        for _, status in claims
+        for _, status, _requires_human_review in claims
     )
 
     report_path = case_dir / "report.md"
@@ -259,6 +302,8 @@ def validate_case(
         errors.append("validated_claim_without_canonical_support")
     if duplicate_claim_evidence:
         errors.append("duplicate_claim_evidence")
+    if claim_review_state_mismatches:
+        errors.append("claim_review_state_mismatch")
     if not report_matches_materializer:
         errors.append("report_not_materialized_from_canonical_state")
 
@@ -269,7 +314,7 @@ def validate_case(
         "claims_total": len(claims),
         "claims_validated_or_human_verified": sum(
             status in {"validated", "human_verified"}
-            for _, status in claims
+            for _, status, _requires_human_review in claims
         ),
         "all_claims_validated_or_human_verified":
             all_claims_validated,
@@ -288,6 +333,8 @@ def validate_case(
         ],
         "unsupported_validated_claims":
             unsupported_validated_claims,
+        "claim_review_state_mismatches":
+            claim_review_state_mismatches,
         "duplicate_claim_evidence": [
             {
                 "claim_id": row[0],
