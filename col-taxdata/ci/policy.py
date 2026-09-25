@@ -138,6 +138,25 @@ def validate_migration_immutability(changes: Iterable[tuple[str, list[str]]]) ->
     return violations
 
 
+def validate_controller_session_immutability(
+    changes: Iterable[tuple[str, list[str]]],
+) -> list[str]:
+    """Allow only additive controller-memory session files.
+
+    Session capsules are historical controller evidence. INDEX.cm is derived and
+    may change, but an existing session must never be modified, deleted or
+    renamed after it lands on main.
+    """
+    violations: list[str] = []
+    for status, paths in changes:
+        session_paths = [p for p in paths if CONTROLLER_SESSION_RE.fullmatch(p)]
+        if not session_paths:
+            continue
+        if not status.startswith("A"):
+            violations.extend(f"{status}:{p}" for p in session_paths)
+    return violations
+
+
 def forbidden_artifacts(paths: Iterable[str]) -> list[str]:
     bad: list[str] = []
     for path in paths:
@@ -282,6 +301,12 @@ def cmd_validate(args: argparse.Namespace) -> int:
     sequence = migration_sequence_violations(root, args.base, changes)
     if sequence:
         raise PolicyError("; ".join(sequence))
+    controller_sessions = validate_controller_session_immutability(changes)
+    if controller_sessions:
+        raise PolicyError(
+            "immutable controller-memory session mutation detected: "
+            + ", ".join(controller_sessions)
+        )
     artifacts = forbidden_artifacts(paths)
     if artifacts:
         raise PolicyError("runtime/database artifact committed: " + ", ".join(artifacts))
