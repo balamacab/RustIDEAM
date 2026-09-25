@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from dataclasses import replace
 import json
 from pathlib import Path
 import sys
@@ -352,8 +351,14 @@ class Issue0076StructuredOutputCompatibilityTests(unittest.TestCase):
                     make_config(model=model),
                     client,
                 ).structure(case_input())
-                self.assertEqual(outcome.draft["model_metadata"]["provider"], provider_id)
-                self.assertEqual(outcome.draft["model_metadata"]["model"], model)
+                self.assertEqual(
+                    outcome.draft["model_metadata"]["provider"],
+                    provider_id,
+                )
+                self.assertEqual(
+                    outcome.draft["model_metadata"]["model"],
+                    model,
+                )
 
     def test_backend_rejection_of_required_structured_request_is_incompatible(self):
         config = make_config()
