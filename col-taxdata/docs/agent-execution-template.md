@@ -2,6 +2,8 @@
 
 Use this template for repository implementation work when the selected issue does not define a stricter workflow.
 
+Controller governance is defined in [`controller-orchestration.md`](controller-orchestration.md). The controller owns issue decomposition, global dependency/blocker analysis, concurrency decisions and authorization before this implementation template begins. An implementation agent should report materially incorrect/stale controller assumptions, but it is not responsible for reconstructing the global project graph omitted by the controller.
+
 ## Admission
 
 Read the selected issue, current repository contracts, dependencies, blockers, environment/authority requirements, and writable scope. Record the accepted `main` SHA and classify `parallel_safe`, `semantic_domains`, `likely_touched`, and `depends_on`. Stop unsafe or unauthorized portions rather than inventing approval.
