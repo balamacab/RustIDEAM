@@ -469,12 +469,12 @@ class CaseStructuringService:
                     attempts=attempts,
                     used_review=False,
                 )
-            except ContextLimitError:
+            except (ContextLimitError, OutputLimitError):
                 raise
             except CaseContractError as exc:
                 last_invalid = exc
             except LLMClientError as exc:
-                if exc.code == CASE_CONTEXT_LIMIT:
+                if exc.code in (CASE_CONTEXT_LIMIT, CASE_OUTPUT_LIMIT):
                     raise
                 if exc.code == INVALID_CASE_DRAFT:
                     last_invalid = exc
@@ -497,7 +497,7 @@ class CaseStructuringService:
                     attempts=attempts,
                     used_review=True,
                 )
-            except ContextLimitError:
+            except (ContextLimitError, OutputLimitError):
                 raise
             except (CaseContractError, LLMClientError) as exc:
                 last_invalid = exc
