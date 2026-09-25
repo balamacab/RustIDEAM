@@ -1057,6 +1057,57 @@ class Issue0016ApplicationTests(unittest.TestCase):
             con.close()
         self.assertEqual(rerun_row, ("candidate", 1))
 
+    def test_issue64_rerun_repairs_stale_candidate_review_state(self):
+        paraphrase = (
+            "Las obligaciones tributarias deben examinarse mediante una "
+            "conclusión diferente que no aparece literalmente en la fuente."
+        )
+        payload = model_payload(claim_text=paraphrase)
+        first = analyze_case(
+            case_input=case_input(),
+            db_path=self.db,
+            case_root=self.case_root,
+            structurer=self._structurer(payload),
+        )
+
+        con = sqlite3.connect(self.db)
+        try:
+            con.execute(
+                """
+                UPDATE claims
+                SET requires_human_review = 0
+                WHERE subject_id = ?
+                """,
+                (first.case_id,),
+            )
+            con.commit()
+        finally:
+            con.close()
+
+        repaired = analyze_case(
+            case_input=case_input(),
+            db_path=self.db,
+            case_root=self.case_root,
+            structurer=self._structurer(payload),
+        )
+        self.assertTrue(repaired.validation["valid"])
+        self.assertEqual(repaired.registration["claims_inserted"], 0)
+        self.assertEqual(repaired.registration["claims_reused"], 1)
+
+        con = sqlite3.connect(self.db)
+        try:
+            row = con.execute(
+                """
+                SELECT status, requires_human_review
+                FROM claims
+                WHERE subject_id = ?
+                """,
+                (first.case_id,),
+            ).fetchone()
+        finally:
+            con.close()
+        self.assertEqual(row, ("candidate", 1))
+
     def test_issue64_validator_detects_review_state_disagreement(self):
         paraphrase = (
             "Las obligaciones tributarias deben examinarse mediante una "
