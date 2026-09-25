@@ -193,10 +193,11 @@ Before deterministic corpus work, the application MUST:
 2. compare the returned `CaseDraft` with the exact `CaseInput` used for that model execution and enforce the immutable-client-payload rules in §4.1;
 3. reject unknown required semantics rather than silently dropping them;
 4. verify that every fact marked `user_provided` and carrying a `source_quote` is traceable to the `CaseInput` text;
-5. preserve missing/ambiguous information as unresolved state;
-6. verify every `CandidateClaim` still has status `candidate`;
-7. reject attempts by model output to inject canonical IDs, evidence IDs, hashes, sequence numbers, or a `validated` claim state into candidate structures;
-8. validate the typed CaseDraft reference graph and ref uniqueness rules defined in §14 before deterministic corpus work.
+5. preserve genuinely missing/ambiguous information as unresolved state;
+6. reject a `missing` classification when a conservative deterministic intake-fidelity check can establish that the model is generically requesting information about a fact/topic already directly stated in assertive client text; rejection MUST NOT auto-promote, normalize, infer, or manufacture a fact/source quote and instead follows the normal structuring retry/review path;
+7. verify every `CandidateClaim` still has status `candidate`;
+8. reject attempts by model output to inject canonical IDs, evidence IDs, hashes, sequence numbers, or a `validated` claim state into candidate structures;
+9. validate the typed CaseDraft reference graph and ref uniqueness rules defined in §14 before deterministic corpus work.
 
 A mismatch in `problem_text`, `as_of_date`, or `client_reference` — including a missing optional field that was supplied or a manufactured optional field that was absent — is a semantic validation failure and MUST produce `INVALID_CASE_DRAFT`. The application MUST reject the draft before deterministic corpus work or case/canonical mutation. It MUST NOT repair the mismatch by accepting the model's value as a replacement for the client payload.
 

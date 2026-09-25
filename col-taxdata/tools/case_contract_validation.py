@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 import re
 from typing import Any
+import unicodedata
 from urllib.parse import urlparse
 
 
@@ -21,6 +22,119 @@ _FORBIDDEN_INTERNAL_HINT = re.compile(
     r"^(?:CASE|CLM|DOC|PROV|EVD|MAN|SEG|REL|EXT|SRC)-[A-Za-z0-9._-]+$",
     re.IGNORECASE,
 )
+
+_TOPIC_STOP_WORDS = frozenset(
+    {
+        "a",
+        "acerca",
+        "al",
+        "de",
+        "del",
+        "e",
+        "el",
+        "en",
+        "la",
+        "las",
+        "los",
+        "para",
+        "por",
+        "que",
+        "se",
+        "sobre",
+        "un",
+        "una",
+        "unos",
+        "unas",
+        "y",
+    }
+)
+_GENERIC_MISSING_TOPIC_PATTERNS = (
+    "que informacion sobre",
+    "que informacion acerca de",
+)
+_UNAVAILABLE_INFORMATION_PATTERNS = (
+    "no consta",
+    "no esta disponible",
+    "no esta informad",
+    "no fue aportad",
+    "no fue informad",
+    "no fue suministrad",
+    "no se conoce",
+    "no se informo",
+    "se desconoce",
+    "sin informacion",
+)
+
+
+def _fold_lexical_text(value: str) -> str:
+    """Case/accent-fold text only for conservative lexical comparisons."""
+    normalized = unicodedata.normalize("NFKD", value.lower())
+    return "".join(
+        char for char in normalized if not unicodedata.combining(char)
+    )
+
+
+def _topic_signature(value: str) -> set[str]:
+    """Return stable lexical anchors while tolerating common Spanish inflection."""
+    tokens = re.findall(r"[a-z0-9]+", _fold_lexical_text(value))
+    signature: set[str] = set()
+    for token in tokens:
+        if token in _TOPIC_STOP_WORDS or len(token) < 4:
+            continue
+        # Five-character stems are intentionally shallow: this is only a
+        # contradiction guard, not semantic fact extraction.
+        signature.add(token[:5] if len(token) >= 6 else token)
+    return signature
+
+
+def _assertive_client_spans(problem_text: str) -> list[str]:
+    """Return declarative spans that can safely prove only lexical presence."""
+    spans = re.split(r"(?<=[.!?])\s+|\n+", problem_text)
+    result: list[str] = []
+    for span in spans:
+        span = span.strip()
+        if not span or "?" in span or "¿" in span:
+            continue
+        folded = _fold_lexical_text(span)
+        if any(marker in folded for marker in _UNAVAILABLE_INFORMATION_PATTERNS):
+            # Statements that explicitly say information is unknown/unavailable
+            # must not be treated as supplying the missing fact.
+            continue
+        result.append(span)
+    return result
+
+
+def _missing_fact_conflicts_with_explicit_text(
+    fact: dict[str, Any],
+    problem_text: str,
+) -> bool:
+    """Detect only high-confidence generic missing requests contradicted by input.
+
+    Rejection is deliberately narrower than semantic interpretation. It never
+    promotes a fact or fabricates a quote; it merely sends a contradictory
+    model draft through the existing retry/review path.
+    """
+    if fact.get("state") != "missing":
+        return False
+
+    label_signature = _topic_signature(str(fact.get("label", "")))
+    if len(label_signature) < 2:
+        return False
+
+    needed_information = str(fact.get("needed_information", ""))
+    folded_needed = _fold_lexical_text(needed_information)
+    if not any(
+        marker in folded_needed
+        for marker in _GENERIC_MISSING_TOPIC_PATTERNS
+    ):
+        return False
+    if not label_signature.issubset(_topic_signature(needed_information)):
+        return False
+
+    return any(
+        label_signature.issubset(_topic_signature(span))
+        for span in _assertive_client_spans(problem_text)
+    )
 
 
 class CaseContractError(ValueError):
@@ -285,6 +399,19 @@ def validate_case_draft(
             _fail(INVALID_CASE_DRAFT, f"$.{name}", "client field value was modified")
 
     for index, fact in enumerate(draft["facts"]):
+        if _missing_fact_conflicts_with_explicit_text(
+            fact,
+            case_input["problem_text"],
+        ):
+            _fail(
+                INVALID_CASE_DRAFT,
+                f"$.facts[{index}].state",
+                (
+                    "missing fact generically requests information about "
+                    "a topic already stated in explicit client text"
+                ),
+            )
+
         if fact["state"] == "user_provided":
             quote = fact["source_quote"]
             if quote not in case_input["problem_text"]:
