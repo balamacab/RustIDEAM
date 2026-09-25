@@ -16,6 +16,8 @@ BRANCH_RE = re.compile(r"^agent/issue-(?P<issue>[1-9][0-9]*)-(?P<slug>[a-z0-9][a
 CLOSING_RE = re.compile(r"(?im)\b(?:fixes|closes|resolves)\s+#([1-9][0-9]*)\b")
 SCHEMA_RE = re.compile(r"^col-taxdata/schema/[^/]+\.sql$")
 CONTROLLER_SESSION_RE = re.compile(r"^col-taxdata/controller-memory/sessions/[^/]+\.cm$")
+CONTROLLER_ETHOS_PATH = "col-taxdata/controller-memory/ETHOS.cm"
+CONTROLLER_ETHOS_HEADER_RE = re.compile(r"^CM1\\|H\\|([1-9][0-9]*)$")
 GLOBAL_WORKFLOW_RE = re.compile(r"^\.github/workflows/col-taxdata-[A-Za-z0-9_.-]+\.ya?ml$")
 GLOBAL_ACTION_RE = re.compile(r"^\.github/actions/col-taxdata(?:/|$)")
 FORBIDDEN_SUFFIXES = (".sqlite", ".sqlite3", ".db", ".db-wal", ".db-shm")
@@ -155,6 +157,54 @@ def validate_controller_session_immutability(
             continue
         if not status.startswith("A"):
             violations.extend(f"{status}:{p}" for p in session_paths)
+    return violations
+
+
+def parse_controller_ethos_version(text: str) -> int:
+    first = text.splitlines()[0] if text.splitlines() else ""
+    match = CONTROLLER_ETHOS_HEADER_RE.fullmatch(first)
+    if not match:
+        raise PolicyError("ETHOS.cm must begin with CM1|H|<positive-version>")
+    return int(match.group(1))
+
+
+def validate_controller_ethos_transition(
+    repo_root: Path,
+    base: str,
+    changes: Iterable[tuple[str, list[str]]],
+) -> list[str]:
+    """Require create-valid or exact +1 version transitions for ETHOS.cm."""
+    violations: list[str] = []
+    for status, paths in changes:
+        if CONTROLLER_ETHOS_PATH not in paths:
+            continue
+        if status.startswith("A"):
+            try:
+                parse_controller_ethos_version(
+                    (repo_root / CONTROLLER_ETHOS_PATH).read_text(encoding="utf-8")
+                )
+            except (OSError, UnicodeDecodeError, PolicyError) as exc:
+                violations.append(f"{status}:{CONTROLLER_ETHOS_PATH}:{exc}")
+            continue
+        if status.startswith("M"):
+            try:
+                old_text = git_output(
+                    ["show", f"{base}:{CONTROLLER_ETHOS_PATH}"],
+                    repo_root,
+                )
+                new_text = (repo_root / CONTROLLER_ETHOS_PATH).read_text(encoding="utf-8")
+                old_version = parse_controller_ethos_version(old_text)
+                new_version = parse_controller_ethos_version(new_text)
+            except (OSError, UnicodeDecodeError, PolicyError, subprocess.CalledProcessError) as exc:
+                violations.append(f"{status}:{CONTROLLER_ETHOS_PATH}:{exc}")
+                continue
+            if new_version != old_version + 1:
+                violations.append(
+                    f"{status}:{CONTROLLER_ETHOS_PATH}:version {old_version}->{new_version}; "
+                    f"expected {old_version + 1}"
+                )
+            continue
+        violations.append(f"{status}:{CONTROLLER_ETHOS_PATH}:delete/rename forbidden")
     return violations
 
 
@@ -307,6 +357,12 @@ def cmd_validate(args: argparse.Namespace) -> int:
         raise PolicyError(
             "immutable controller-memory session mutation detected: "
             + ", ".join(controller_sessions)
+        )
+    ethos_transition = validate_controller_ethos_transition(root, args.base, changes)
+    if ethos_transition:
+        raise PolicyError(
+            "controller ETHOS version transition violation: "
+            + ", ".join(ethos_transition)
         )
     artifacts = forbidden_artifacts(paths)
     if artifacts:
