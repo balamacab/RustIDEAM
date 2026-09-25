@@ -15,6 +15,7 @@ METADATA_MARKER = "col-taxdata-agent-metadata:"
 BRANCH_RE = re.compile(r"^agent/issue-(?P<issue>[1-9][0-9]*)-(?P<slug>[a-z0-9][a-z0-9-]*)$")
 CLOSING_RE = re.compile(r"(?im)\b(?:fixes|closes|resolves)\s+#([1-9][0-9]*)\b")
 SCHEMA_RE = re.compile(r"^col-taxdata/schema/[^/]+\.sql$")
+CONTROLLER_SESSION_RE = re.compile(r"^col-taxdata/controller-memory/sessions/[^/]+\.cm$")
 GLOBAL_WORKFLOW_RE = re.compile(r"^\.github/workflows/col-taxdata-[A-Za-z0-9_.-]+\.ya?ml$")
 GLOBAL_ACTION_RE = re.compile(r"^\.github/actions/col-taxdata(?:/|$)")
 FORBIDDEN_SUFFIXES = (".sqlite", ".sqlite3", ".db", ".db-wal", ".db-shm")
