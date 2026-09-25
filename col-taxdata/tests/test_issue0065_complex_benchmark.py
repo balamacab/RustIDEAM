@@ -213,6 +213,30 @@ class Issue65BenchmarkTests(unittest.TestCase):
             benchmark.score_suite(concordance, self.spec)["failures"],
         )
 
+    def test_http_contract_matches_merged_issue66_adapter(self) -> None:
+        contract = self.spec["application_contract"]
+        self.assertEqual(
+            contract["http_transport"],
+            {
+                "adapter": "tools/case_http.py",
+                "method": "POST",
+                "endpoint": "/v1/cases",
+                "required_success_fingerprints": [
+                    "raw_request_sha256",
+                    "case_input_sha256",
+                ],
+            },
+        )
+        self.assertEqual(
+            contract["failure_codes"],
+            {
+                "provider_timeout": "CASE_PROVIDER_TIMEOUT",
+                "output_ceiling": "CASE_OUTPUT_LIMIT",
+                "context_budget_rejection": "CASE_CONTEXT_LIMIT",
+                "malformed_or_contract_failure": "INVALID_CASE_DRAFT",
+            },
+        )
+
     def test_issue65_never_authorizes_benchmark_execution(self) -> None:
         self.assertFalse(self.spec["complex_benchmark_execution_authorized"])
         self.assertEqual(self.spec["purpose"], "preparation_only")
