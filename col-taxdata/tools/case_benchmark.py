@@ -123,6 +123,26 @@ def verify_package(spec_path: Path = DEFAULT_SPEC) -> dict[str, Any]:
     if parsed != {"as_of_date": case["as_of_date"], "problem_text": problem_text}:
         errors.append("http_request_semantics_mismatch")
 
+    transport = spec["application_contract"].get("http_transport", {})
+    if transport.get("adapter") != "tools/case_http.py":
+        errors.append("http_transport:adapter")
+    if transport.get("method") != "POST" or transport.get("endpoint") != "/v1/cases":
+        errors.append("http_transport:route")
+    if transport.get("required_success_fingerprints") != [
+        "raw_request_sha256", "case_input_sha256"
+    ]:
+        errors.append("http_transport:fingerprints")
+
+    failure_codes = spec["application_contract"].get("failure_codes", {})
+    expected_failure_codes = {
+        "provider_timeout": "CASE_PROVIDER_TIMEOUT",
+        "output_ceiling": "CASE_OUTPUT_LIMIT",
+        "context_budget_rejection": "CASE_CONTEXT_LIMIT",
+        "malformed_or_contract_failure": "INVALID_CASE_DRAFT",
+    }
+    if failure_codes != expected_failure_codes:
+        errors.append("http_transport:failure_codes")
+
     generation = spec["generation"]
     fixed = {
         "temperature": 0, "thinking": False, "context_tokens": 16384,
