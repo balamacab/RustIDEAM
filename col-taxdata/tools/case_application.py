@@ -3,6 +3,7 @@ from __future__ import annotations
 from copy import deepcopy
 from dataclasses import dataclass
 from datetime import datetime, timezone
+import hashlib
 import json
 from pathlib import Path
 import shutil
@@ -33,8 +34,38 @@ ANALYZER_NAME = "natural_language_case_orchestrator"
 ANALYZER_VERSION = "1"
 
 
+CASE_ANALYSIS_INTEGRITY_FAILURE = "CASE_ANALYSIS_INTEGRITY_FAILURE"
+CASE_PERSISTENCE_FAILURE = "CASE_PERSISTENCE_FAILURE"
+CASE_MATERIALIZATION_FAILURE = "CASE_MATERIALIZATION_FAILURE"
+CASE_VALIDATION_FAILURE = "CASE_VALIDATION_FAILURE"
+
+
 class CaseAnalysisIntegrityError(RuntimeError):
-    """Canonical evidence or generated case materialization failed validation."""
+    """Base failure for deterministic CASE analysis/application integrity."""
+
+    code = CASE_ANALYSIS_INTEGRITY_FAILURE
+
+    def __init__(self, detail: str):
+        super().__init__(f"{self.code}: {detail}")
+        self.detail = detail
+
+
+class CasePersistenceError(CaseAnalysisIntegrityError):
+    """CASE registration or writable-state preparation failed safely."""
+
+    code = CASE_PERSISTENCE_FAILURE
+
+
+class CaseMaterializationError(CaseAnalysisIntegrityError):
+    """Deterministic CASE materialization failed safely."""
+
+    code = CASE_MATERIALIZATION_FAILURE
+
+
+class CaseValidationError(CaseAnalysisIntegrityError):
+    """Generated/persisted CASE state failed canonical validation."""
+
+    code = CASE_VALIDATION_FAILURE
 
 
 @dataclass(frozen=True)
@@ -61,6 +92,18 @@ def _compact_json(value: Any) -> str:
     )
 
 
+def canonical_case_input_json(case_input: dict[str, Any]) -> str:
+    """Return the deterministic serialized CaseInput used by CASE identity."""
+    validate_case_input(case_input)
+    return _compact_json(case_input)
+
+
+def case_input_sha256(case_input: dict[str, Any]) -> str:
+    """Fingerprint the canonical v3 CaseInput without changing its contents."""
+    canonical = canonical_case_input_json(case_input).encode("utf-8")
+    return hashlib.sha256(canonical).hexdigest()
+
+
 def _app_ref(kind: str, material: str) -> str:
     return f"{kind}:{uuid.uuid5(uuid.NAMESPACE_URL, material).hex}"
 
@@ -68,7 +111,10 @@ def _app_ref(kind: str, material: str) -> str:
 def _internal_case_id(case_input: dict[str, Any]) -> str:
     return deterministic_id(
         "CASE",
-        f"col-taxdata:case-input:v3:{_compact_json(case_input)}",
+        (
+            "col-taxdata:case-input:v3:"
+            f"{canonical_case_input_json(case_input)}"
+        ),
     )
 
 
@@ -482,38 +528,60 @@ def _persist_to_target(
     result: dict[str, Any],
     support_hits: dict[str, list[RetrievalHit]],
 ) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
-    _write_internal_bundle(
-        case_dir=case_dir,
-        case_id=case_id,
-        case_input=case_input,
-        draft=draft,
-        result=result,
-        support_hits=support_hits,
-    )
-    registration = register_case(
-        case_dir=case_dir,
-        as_of_date=case_input.get("as_of_date"),
-        db_path=db_path,
-    )
-
-    con = sqlite3.connect(db_path)
     try:
-        materialization = refresh_case_materializations(
-            con,
-            case_id=case_id,
+        _write_internal_bundle(
             case_dir=case_dir,
-            write=True,
-        )
-        validation = validate_case(
-            con=con,
             case_id=case_id,
-            case_dir=case_dir,
+            case_input=case_input,
+            draft=draft,
+            result=result,
+            support_hits=support_hits,
         )
+        registration = register_case(
+            case_dir=case_dir,
+            as_of_date=case_input.get("as_of_date"),
+            db_path=db_path,
+        )
+    except (OSError, sqlite3.Error, ValueError, RuntimeError) as exc:
+        raise CasePersistenceError(
+            f"CASE registration failed safely: {exc}"
+        ) from exc
+
+    try:
+        con = sqlite3.connect(db_path)
+    except sqlite3.Error as exc:
+        raise CasePersistenceError(
+            f"CASE database could not be opened for materialization: {exc}"
+        ) from exc
+
+    try:
+        try:
+            materialization = refresh_case_materializations(
+                con,
+                case_id=case_id,
+                case_dir=case_dir,
+                write=True,
+            )
+        except (OSError, sqlite3.Error, ValueError, RuntimeError) as exc:
+            raise CaseMaterializationError(
+                f"CASE materialization failed safely: {exc}"
+            ) from exc
+
+        try:
+            validation = validate_case(
+                con=con,
+                case_id=case_id,
+                case_dir=case_dir,
+            )
+        except (OSError, sqlite3.Error, ValueError, RuntimeError) as exc:
+            raise CaseValidationError(
+                f"CASE validation could not complete safely: {exc}"
+            ) from exc
     finally:
         con.close()
 
     if not validation["valid"]:
-        raise CaseAnalysisIntegrityError(
+        raise CaseValidationError(
             "generated case bundle failed canonical validation: "
             + ",".join(validation["errors"])
         )
