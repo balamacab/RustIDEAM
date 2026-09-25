@@ -30,7 +30,9 @@ from case_contract_validation import (
 from case_http import (
     CaseHTTPApplication,
     CaseHTTPServer,
+    DEFAULT_CONFIG,
     DEFAULT_ENDPOINT,
+    build_runtime_application,
     error_response,
     prepare_case_request,
 )
@@ -224,6 +226,39 @@ class Issue0066TransportParityTests(unittest.TestCase):
         self.assertEqual(captured[0]["problem_text"], PROBLEM)
         self.assertEqual(outcome.case_id, "CASE-http-smoke")
 
+    def test_runtime_application_delegates_to_existing_orchestrator(self):
+        raw = json.dumps(
+            {
+                "problem_text": PROBLEM,
+                "as_of_date": AS_OF_DATE,
+            },
+            ensure_ascii=False,
+        ).encode("utf-8")
+        prepared = prepare_case_request(raw)
+        expected = fake_outcome(prepared.case_input)
+
+        with mock.patch(
+            "case_http.analyze_case",
+            return_value=expected,
+        ) as mocked:
+            application, _provider, _model = build_runtime_application(
+                db_path=Path("data/state/test.sqlite"),
+                case_root=Path("data/cases"),
+                config_path=DEFAULT_CONFIG,
+                dry_run=True,
+            )
+            actual = application.analyze(prepared.case_input)
+
+        self.assertIs(actual, expected)
+        kwargs = mocked.call_args.kwargs
+        self.assertEqual(kwargs["case_input"], prepared.case_input)
+        self.assertTrue(kwargs["dry_run"])
+        self.assertFalse(kwargs["include_debug_provenance"])
+        self.assertEqual(
+            kwargs["structurer"].config.primary.name,
+            _model,
+        )
+
     def test_same_request_contract_is_backend_agnostic(self):
         raw = json.dumps(
             {
@@ -281,7 +316,8 @@ class Issue0066TransportParityTests(unittest.TestCase):
                 headers={"Content-Type": "application/json"},
                 method="POST",
             )
-            with mock.patch("case_http.sys.stderr", io.StringIO()):
+            audit_log = io.StringIO()
+            with mock.patch("case_http.sys.stderr", audit_log):
                 with urlrequest.urlopen(req, timeout=3) as response:
                     payload = json.loads(response.read())
 
@@ -298,6 +334,13 @@ class Issue0066TransportParityTests(unittest.TestCase):
             self.assertEqual(
                 captured[0]["problem_text"],
                 "Consulta HTTP mínima de humo.",
+            )
+            audit = json.loads(audit_log.getvalue().strip())
+            self.assertEqual(audit["event"], "case_http_request")
+            self.assertEqual(audit["case_id"], "CASE-http-smoke")
+            self.assertEqual(
+                audit["request_fingerprints"],
+                payload["request_fingerprints"],
             )
         finally:
             server.shutdown()
