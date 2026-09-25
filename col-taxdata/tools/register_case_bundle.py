@@ -9,11 +9,12 @@ import sqlite3
 import uuid
 from pathlib import Path
 
+from case_claim_review import case_claim_requires_human_review
 from case_support_graph import canonical_case_source_records
 
 
 REGISTRAR_NAME = "case_bundle_registry"
-REGISTRAR_VERSION = "5"
+REGISTRAR_VERSION = "6"
 
 
 def utc_now() -> str:
@@ -457,6 +458,13 @@ def register_case(
                         f"{desired_status}"
                     )
 
+                desired_review_required = (
+                    case_claim_requires_human_review(
+                        entry,
+                        persisted_status=desired_status,
+                    )
+                )
+
                 existing = con.execute(
                     """
                     SELECT status
@@ -487,7 +495,7 @@ def register_case(
                         VALUES (
                             ?, 'case', ?, 'legal_conclusion',
                             NULL, NULL, ?, 'case_legal_conclusion',
-                            ?, ?, 1.0, 0, ?
+                            ?, ?, 1.0, ?, ?
                         )
                         """,
                         (
@@ -496,6 +504,7 @@ def register_case(
                             entry["claim"],
                             desired_status,
                             f"{REGISTRAR_NAME}:{REGISTRAR_VERSION}",
+                            int(desired_review_required),
                             now,
                         ),
                     )
@@ -512,13 +521,14 @@ def register_case(
                                 object_literal = ?,
                                 extraction_method = ?,
                                 confidence_extraction = 1.0,
-                                requires_human_review = 0
+                                requires_human_review = ?
                             WHERE claim_id = ?
                             """,
                             (
                                 desired_status,
                                 entry["claim"],
                                 f"{REGISTRAR_NAME}:{REGISTRAR_VERSION}",
+                                int(desired_review_required),
                                 claim_id,
                             ),
                         )
@@ -543,6 +553,27 @@ def register_case(
                 case_items_inserted += int(bool(cur.rowcount))
 
                 if not binding:
+                    persisted_status = (
+                        desired_status
+                        if existing is None
+                        else existing[0]
+                    )
+                    con.execute(
+                        """
+                        UPDATE claims
+                        SET requires_human_review = ?
+                        WHERE claim_id = ?
+                        """,
+                        (
+                            int(
+                                case_claim_requires_human_review(
+                                    entry,
+                                    persisted_status=persisted_status,
+                                )
+                            ),
+                            claim_id,
+                        ),
+                    )
                     continue
 
                 relationship_ids = binding.get("relationship_ids", [])
@@ -763,10 +794,19 @@ def register_case(
                     """
                     UPDATE claims
                     SET status = ?,
-                        requires_human_review = 0
+                        requires_human_review = ?
                     WHERE claim_id = ?
                     """,
-                    (desired_status, claim_id),
+                    (
+                        desired_status,
+                        int(
+                            case_claim_requires_human_review(
+                                entry,
+                                persisted_status=desired_status,
+                            )
+                        ),
+                        claim_id,
+                    ),
                 )
                 if desired_status in {"validated", "human_verified"}:
                     claims_validated += 1
