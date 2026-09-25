@@ -29,6 +29,32 @@ The 2026-09-22 corpus audit remains a **historical baseline**, not a statement t
 
 SQLite is the authoritative operational store for the MVP. Runtime corpus data is intentionally excluded from Git.
 
+## External HTTP CaseInput endpoint
+
+The supported v3 CASE application can also be invoked without a host input file. The HTTP process is a thin transport over the same `case_application.analyze_case` orchestrator used by `tools/analyze_case.py`:
+
+```bash
+python3 tools/case_http.py \
+  --host 127.0.0.1 \
+  --port 8765 \
+  --config config/llm/local-platform.yaml
+```
+
+Submit only client-owned input fields to `POST /v1/cases`:
+
+```bash
+curl --fail-with-body -sS \
+  -H 'Content-Type: application/json' \
+  -X POST http://127.0.0.1:8765/v1/cases \
+  --data-binary '{"problem_text":"Una sociedad colombiana consulta el tratamiento tributario de un servicio.","as_of_date":"2026-09-24","client_reference":"matter-123"}'
+```
+
+`problem_text` and `as_of_date` are required by the HTTP contract; `client_reference` is optional. The caller cannot set model/backend selection, contract metadata, CASE/corpus IDs, source hints, evidence bindings, or expected conclusions. Model/backend choice remains server configuration through the existing LLM profile (and its supported environment overrides). HTTP host/port, database path and case-root are likewise process configuration; `--dry-run` uses the normal non-mutating CASE preview path.
+
+Successful responses include the normal deterministic `CASE-<hash>`, the v3 CaseResult, persistence summary, and two audit fingerprints: SHA-256 of the exact raw request bytes and SHA-256 of the canonical server-constructed CaseInput. The server also emits those fingerprints in a structured audit event without logging `problem_text`. Errors remain JSON and distinguish invalid input, provider timeout/unavailability, malformed structured output, context/output limits, and CASE persistence/materialization/validation failures.
+
+The server defaults to loopback. A deployment that binds it to another interface is responsible for its surrounding network/authentication controls; those controls are not encoded in CaseInput.
+
 ## Architecture and specifications
 
 Start with:

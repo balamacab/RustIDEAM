@@ -14,6 +14,7 @@ from case_contract_validation import CaseContractError, CONTRACT_VERSION
 from case_retrieval import RetrievalIntegrityError
 from llm_client import (
     ContextLimitError,
+    OutputLimitError,
     LLMClientError,
     OpenAICompatibleLLMClient,
     CaseStructuringService,
@@ -26,7 +27,7 @@ DEFAULT_CONFIG = ROOT / "config" / "llm" / "local-platform.yaml"
 
 
 def _error_payload(exc: Exception) -> dict[str, object]:
-    if isinstance(exc, ContextLimitError):
+    if isinstance(exc, (ContextLimitError, OutputLimitError)):
         return {
             "error": exc.code,
             "detail": exc.detail,
@@ -41,6 +42,8 @@ def _error_payload(exc: Exception) -> dict[str, object]:
             "error": "CASE_EVIDENCE_INTEGRITY_FAILURE",
             "detail": str(exc),
         }
+    if isinstance(exc, CaseAnalysisIntegrityError):
+        return {"error": exc.code, "detail": exc.detail}
     return {
         "error": "CASE_ANALYSIS_INTEGRITY_FAILURE",
         "detail": str(exc),
