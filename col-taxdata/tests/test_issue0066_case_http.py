@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from dataclasses import replace
 from http import HTTPStatus
 import io
 import json
@@ -9,6 +8,7 @@ import sys
 import threading
 import unittest
 from unittest import mock
+from urllib import error as urlerror
 from urllib import request as urlrequest
 
 
@@ -330,7 +330,7 @@ class Issue0066TransportParityTests(unittest.TestCase):
                 method="POST",
             )
             with mock.patch("case_http.sys.stderr", io.StringIO()):
-                with self.assertRaises(Exception) as raised:
+                with self.assertRaises(urlerror.HTTPError) as raised:
                     urlrequest.urlopen(req, timeout=3)
             http_error = raised.exception
             self.assertEqual(http_error.code, HTTPStatus.BAD_REQUEST)
