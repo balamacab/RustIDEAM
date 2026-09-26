@@ -40,6 +40,7 @@ CASE_STRUCTURING_UNAVAILABLE = "CASE_STRUCTURING_UNAVAILABLE"
 CASE_PROVIDER_TIMEOUT = "CASE_PROVIDER_TIMEOUT"
 CASE_CONTEXT_LIMIT = "CASE_CONTEXT_LIMIT"
 CASE_OUTPUT_LIMIT = "CASE_OUTPUT_LIMIT"
+CASE_EVIDENCE_PERSISTENCE_FAILED = "CASE_EVIDENCE_PERSISTENCE_FAILED"
 
 PROMPT_TEMPLATE_ID = "case-structuring-v3"
 PROMPT_TEMPLATE_VERSION = "4"
@@ -89,6 +90,36 @@ class LLMClientError(RuntimeError):
         self.generation_evidence = generation_evidence
         self.failure_stage = failure_stage
         self.failure_path = failure_path
+
+
+class EvidencePersistenceError(LLMClientError):
+    """Fail-closed error raised when rejected-attempt evidence cannot be stored."""
+
+    def __init__(
+        self,
+        *,
+        original_failure_code: str,
+        original_failure_stage: str,
+        original_failure_path: str | None,
+        original_failure_detail: str,
+        persistence_error: Exception,
+    ):
+        super().__init__(
+            CASE_EVIDENCE_PERSISTENCE_FAILED,
+            (
+                "rejected-attempt evidence persistence failed; original "
+                f"failure={original_failure_code} stage={original_failure_stage}"
+            ),
+            retryable=False,
+            failure_stage=original_failure_stage,
+            failure_path=original_failure_path,
+        )
+        self.original_failure_code = original_failure_code
+        self.original_failure_stage = original_failure_stage
+        self.original_failure_path = original_failure_path
+        self.original_failure_detail = original_failure_detail
+        self.persistence_error_type = type(persistence_error).__name__
+        self.persistence_error = persistence_error
 
 
 class ContextLimitError(LLMClientError):
@@ -361,10 +392,19 @@ class OpenAICompatibleLLMClient:
         }
         body = _compact_json(payload).encode("utf-8")
         provider_request_sha256 = sha256_hex(body)
+        authorization_headers = self._authorization_header()
+        configured_secret_values: tuple[bytes, ...] = ()
+        if self.config.api_key_env and authorization_headers:
+            # Capture only the exact credential value actually resolved for this
+            # outbound request. It is carried in memory solely for deterministic
+            # evidence suppression and is never serialized into the audit store.
+            api_key_value = os.environ.get(self.config.api_key_env)
+            if api_key_value:
+                configured_secret_values = (api_key_value.encode("utf-8"),)
         headers = {
             "Content-Type": "application/json",
             "Accept": "application/json",
-            **self._authorization_header(),
+            **authorization_headers,
         }
         req = urlrequest.Request(
             f"{self.config.base_url}/chat/completions",
@@ -400,6 +440,7 @@ class OpenAICompatibleLLMClient:
                 usage=deepcopy(usage) if usage is not None else None,
                 assistant_content=content,
                 candidate_json_bytes=candidate_bytes,
+                configured_secret_values=configured_secret_values,
             )
 
         try:
@@ -704,34 +745,47 @@ class CaseStructuringService:
         failure_stage: str,
         failure_path: str | None,
         failure_detail: str,
+        original_error: BaseException | None = None,
     ) -> None:
-        """Write one non-canonical failure artifact when a provider was reached."""
+        """Persist one rejection, surfacing deterministic audit failure on error."""
         if (
             self.evidence_store is None
             or generation is None
             or not generation.provider_contacted
         ):
             return
-        self.evidence_store.write_rejected_attempt(
-            attempt_id=attempt_id,
-            run_reference=run_reference,
-            started_at=started_at,
-            ended_at=utc_audit_now(),
-            case_input_sha256=sha256_hex(canonical_json_bytes(case_input)),
-            request_fingerprints=deepcopy(request_fingerprints),
-            adapter=self.client.adapter_id,
-            provider=self.client.provider_id,
-            requested_model=route.name,
-            routing_role=route.routing_role,
-            contract_version=CONTRACT_VERSION,
-            prompt_template_id=PROMPT_TEMPLATE_ID,
-            prompt_template_version=PROMPT_TEMPLATE_VERSION,
-            failure_code=failure_code,
-            failure_stage=failure_stage,
-            failure_path=failure_path,
-            failure_detail=failure_detail,
-            generation=generation,
-        )
+        try:
+            self.evidence_store.write_rejected_attempt(
+                attempt_id=attempt_id,
+                run_reference=run_reference,
+                started_at=started_at,
+                ended_at=utc_audit_now(),
+                case_input_sha256=sha256_hex(canonical_json_bytes(case_input)),
+                request_fingerprints=deepcopy(request_fingerprints),
+                adapter=self.client.adapter_id,
+                provider=self.client.provider_id,
+                requested_model=route.name,
+                routing_role=route.routing_role,
+                contract_version=CONTRACT_VERSION,
+                prompt_template_id=PROMPT_TEMPLATE_ID,
+                prompt_template_version=PROMPT_TEMPLATE_VERSION,
+                failure_code=failure_code,
+                failure_stage=failure_stage,
+                failure_path=failure_path,
+                failure_detail=failure_detail,
+                generation=generation,
+            )
+        except Exception as persistence_error:
+            audit_error = EvidencePersistenceError(
+                original_failure_code=failure_code,
+                original_failure_stage=failure_stage,
+                original_failure_path=failure_path,
+                original_failure_detail=failure_detail,
+                persistence_error=persistence_error,
+            )
+            if original_error is not None:
+                raise audit_error from original_error
+            raise audit_error from persistence_error
 
     def _attempt(
         self,
@@ -762,6 +816,7 @@ class CaseStructuringService:
                 failure_stage=exc.failure_stage or FAILURE_TRANSPORT,
                 failure_path=exc.failure_path,
                 failure_detail=exc.detail,
+                original_error=exc,
             )
             raise
 
@@ -773,6 +828,7 @@ class CaseStructuringService:
 
         if "model_metadata" in payload:
             detail = "$.model_metadata: model must not supply app-owned model_metadata"
+            rejection = CaseContractError(INVALID_CASE_DRAFT, detail)
             self._persist_rejection(
                 attempt_id=attempt_id,
                 run_reference=run_reference,
@@ -785,8 +841,9 @@ class CaseStructuringService:
                 failure_stage=FAILURE_SEMANTIC_VALIDATION,
                 failure_path="$.model_metadata",
                 failure_detail=detail,
+                original_error=rejection,
             )
-            raise CaseContractError(INVALID_CASE_DRAFT, detail)
+            raise rejection
 
         # Convert to a plain dict before adding application-owned metadata. The
         # non-canonical generation evidence must never enter a CaseDraft.
@@ -829,6 +886,7 @@ class CaseStructuringService:
                 failure_stage=failure_stage,
                 failure_path=failure_path,
                 failure_detail=exc.detail,
+                original_error=exc,
             )
             raise
         return draft
