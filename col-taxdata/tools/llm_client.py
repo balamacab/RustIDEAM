@@ -3,8 +3,10 @@ from __future__ import annotations
 from copy import deepcopy
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+import hashlib
 import json
 import math
+import re
 import os
 from pathlib import Path
 from typing import Any, Protocol
@@ -12,12 +14,18 @@ from urllib import error as urlerror
 from urllib import request as urlrequest
 import uuid
 
+from case_attempt_evidence import (
+    GenerationEvidence,
+    GenerationResult,
+    RejectedAttemptEvidenceStore,
+)
 from case_contract_validation import (
     CONTRACT_VERSION,
     CaseContractError,
     INVALID_CASE_DRAFT,
     case_draft_response_schema,
     validate_case_draft,
+    validate_schema_object,
 )
 
 
@@ -57,11 +65,21 @@ invent evidence."""
 class LLMClientError(RuntimeError):
     """Operational failure in an LLM backend adapter."""
 
-    def __init__(self, code: str, detail: str, *, retryable: bool = False):
+    def __init__(
+        self,
+        code: str,
+        detail: str,
+        *,
+        retryable: bool = False,
+        evidence: GenerationEvidence | None = None,
+        failure_stage: str | None = None,
+    ):
         super().__init__(f"{code}: {detail}")
         self.code = code
         self.detail = detail
         self.retryable = retryable
+        self.evidence = evidence
+        self.failure_stage = failure_stage
 
 
 class ContextLimitError(LLMClientError):
@@ -73,8 +91,20 @@ class ContextLimitError(LLMClientError):
 class OutputLimitError(LLMClientError):
     """Provider response reached the configured output ceiling."""
 
-    def __init__(self, detail: str, metadata: dict[str, Any]):
-        super().__init__(CASE_OUTPUT_LIMIT, detail, retryable=False)
+    def __init__(
+        self,
+        detail: str,
+        metadata: dict[str, Any],
+        *,
+        evidence: GenerationEvidence | None = None,
+    ):
+        super().__init__(
+            CASE_OUTPUT_LIMIT,
+            detail,
+            retryable=False,
+            evidence=evidence,
+            failure_stage="output_ceiling",
+        )
         self.metadata = metadata
 
 
@@ -244,7 +274,7 @@ class OpenAICompatibleLLMClient:
         *,
         case_input: dict[str, Any],
         route: ModelRoute,
-    ) -> dict[str, Any]:
+    ) -> GenerationResult:
         response_schema = case_draft_response_schema(case_input)
         model_input = _model_input_context(case_input)
         char_count, estimated_tokens = _estimate_request_tokens(
@@ -292,10 +322,7 @@ class OpenAICompatibleLLMClient:
             "max_tokens": route.max_output_tokens,
             "messages": [
                 {"role": "system", "content": SYSTEM_PROMPT},
-                {
-                    "role": "user",
-                    "content": _compact_json(model_input),
-                },
+                {"role": "user", "content": _compact_json(model_input)},
             ],
             "response_format": {
                 "type": "json_schema",
@@ -308,6 +335,7 @@ class OpenAICompatibleLLMClient:
             **deepcopy(self.config.request_options),
         }
         body = _compact_json(payload).encode("utf-8")
+        request_sha256 = hashlib.sha256(body).hexdigest()
         headers = {
             "Content-Type": "application/json",
             "Accept": "application/json",
@@ -320,21 +348,28 @@ class OpenAICompatibleLLMClient:
             method="POST",
         )
         try:
-            with urlrequest.urlopen(
-                req,
-                timeout=self.config.timeout_seconds,
-            ) as response:
+            with urlrequest.urlopen(req, timeout=self.config.timeout_seconds) as response:
                 raw = response.read()
         except TimeoutError as exc:
             raise LLMClientError(
                 CASE_PROVIDER_TIMEOUT,
                 f"OpenAI-compatible backend timed out: {exc}",
                 retryable=True,
+                evidence=GenerationEvidence(provider_request_sha256=request_sha256),
+                failure_stage="transport",
             ) from exc
         except urlerror.HTTPError as exc:
-            # A client-side rejection of the required structured-generation
-            # request means this backend cannot satisfy the CASE contract as
-            # configured. Do not relax response_format or repair prose instead.
+            # Preserve response body when the provider returned one. Transport
+            # headers are deliberately excluded so Authorization/API keys can
+            # never enter rejected-attempt evidence.
+            try:
+                raw_error = exc.read()
+            except (AttributeError, OSError):
+                raw_error = None
+            evidence = GenerationEvidence(
+                provider_request_sha256=request_sha256,
+                raw_response=raw_error,
+            )
             if 400 <= exc.code < 500:
                 raise LLMClientError(
                     CASE_STRUCTURING_UNAVAILABLE,
@@ -343,33 +378,54 @@ class OpenAICompatibleLLMClient:
                         f"request with HTTP {exc.code}"
                     ),
                     retryable=False,
+                    evidence=evidence,
+                    failure_stage="transport",
                 ) from exc
             raise LLMClientError(
                 CASE_STRUCTURING_UNAVAILABLE,
                 f"OpenAI-compatible backend unavailable: HTTP {exc.code}",
                 retryable=True,
+                evidence=evidence,
+                failure_stage="transport",
             ) from exc
         except urlerror.URLError as exc:
-            if isinstance(exc.reason, TimeoutError):
-                raise LLMClientError(
-                    CASE_PROVIDER_TIMEOUT,
-                    f"OpenAI-compatible backend timed out: {exc.reason}",
-                    retryable=True,
-                ) from exc
+            code = (
+                CASE_PROVIDER_TIMEOUT
+                if isinstance(exc.reason, TimeoutError)
+                else CASE_STRUCTURING_UNAVAILABLE
+            )
             raise LLMClientError(
-                CASE_STRUCTURING_UNAVAILABLE,
+                code,
                 f"OpenAI-compatible backend unavailable: {exc}",
                 retryable=True,
+                evidence=GenerationEvidence(provider_request_sha256=request_sha256),
+                failure_stage="transport",
             ) from exc
         except OSError as exc:
             raise LLMClientError(
                 CASE_STRUCTURING_UNAVAILABLE,
                 f"OpenAI-compatible backend unavailable: {exc}",
                 retryable=True,
+                evidence=GenerationEvidence(provider_request_sha256=request_sha256),
+                failure_stage="transport",
+            ) from exc
+
+        base_evidence = GenerationEvidence(
+            provider_request_sha256=request_sha256,
+            raw_response=raw,
+        )
+        try:
+            envelope = json.loads(raw)
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise LLMClientError(
+                INVALID_CASE_DRAFT,
+                f"backend returned malformed provider envelope: {exc}",
+                retryable=True,
+                evidence=base_evidence,
+                failure_stage="provider_envelope_parse",
             ) from exc
 
         try:
-            envelope = json.loads(raw)
             served_model = envelope["model"]
             if not isinstance(served_model, str):
                 raise TypeError("response.model is not a string")
@@ -381,53 +437,87 @@ class OpenAICompatibleLLMClient:
                         f"route {route.name!r}"
                     ),
                     retryable=False,
+                    evidence=base_evidence,
+                    failure_stage="provider_envelope_parse",
                 )
             choice = envelope["choices"][0]
             finish_reason = choice.get("finish_reason")
             usage = envelope.get("usage") or {}
-            completion_tokens = usage.get("completion_tokens")
-            output_ceiling_reached = (
-                finish_reason == "length"
-                or (
-                    isinstance(completion_tokens, int)
-                    and not isinstance(completion_tokens, bool)
-                    and completion_tokens >= route.max_output_tokens
-                )
-            )
-            if output_ceiling_reached:
-                raise OutputLimitError(
-                    (
-                        "backend response reached the configured output "
-                        f"ceiling of {route.max_output_tokens} tokens"
-                    ),
-                    {
-                        "model": route.name,
-                        "routing_role": route.routing_role,
-                        "finish_reason": finish_reason,
-                        "completion_tokens": completion_tokens,
-                        "max_output_tokens": route.max_output_tokens,
-                        "truncated": True,
-                    },
-                )
-
             content = choice["message"]["content"]
             if not isinstance(content, str):
                 raise TypeError("message.content is not a string")
+        except (KeyError, IndexError, TypeError) as exc:
+            raise LLMClientError(
+                INVALID_CASE_DRAFT,
+                f"backend returned malformed structured envelope: {exc}",
+                retryable=True,
+                evidence=base_evidence,
+                failure_stage="provider_envelope_parse",
+            ) from exc
+
+        content_evidence = GenerationEvidence(
+            provider_request_sha256=request_sha256,
+            raw_response=raw,
+            finish_reason=finish_reason,
+            usage=usage,
+            assistant_content=content,
+        )
+        completion_tokens = usage.get("completion_tokens")
+        output_ceiling_reached = (
+            finish_reason == "length"
+            or (
+                isinstance(completion_tokens, int)
+                and not isinstance(completion_tokens, bool)
+                and completion_tokens >= route.max_output_tokens
+            )
+        )
+        if output_ceiling_reached:
+            raise OutputLimitError(
+                (
+                    "backend response reached the configured output "
+                    f"ceiling of {route.max_output_tokens} tokens"
+                ),
+                {
+                    "model": route.name,
+                    "routing_role": route.routing_role,
+                    "finish_reason": finish_reason,
+                    "completion_tokens": completion_tokens,
+                    "max_output_tokens": route.max_output_tokens,
+                    "truncated": True,
+                },
+                evidence=content_evidence,
+            )
+
+        try:
             draft_payload = json.loads(content)
-        except (KeyError, IndexError, TypeError, json.JSONDecodeError) as exc:
+        except json.JSONDecodeError as exc:
             raise LLMClientError(
                 INVALID_CASE_DRAFT,
                 f"backend returned malformed structured output: {exc}",
                 retryable=True,
+                evidence=content_evidence,
+                failure_stage="json_parse",
             ) from exc
-
         if not isinstance(draft_payload, dict):
             raise LLMClientError(
                 INVALID_CASE_DRAFT,
                 "structured output root is not an object",
                 retryable=True,
+                evidence=content_evidence,
+                failure_stage="json_parse",
             )
-        return draft_payload
+
+        return GenerationResult(
+            payload=draft_payload,
+            evidence=GenerationEvidence(
+                provider_request_sha256=request_sha256,
+                raw_response=raw,
+                finish_reason=finish_reason,
+                usage=usage,
+                assistant_content=content,
+                candidate_payload=deepcopy(draft_payload),
+            ),
+        )
 
 
 class FakeLLMClient:
@@ -477,19 +567,25 @@ class StructuringOutcome:
 
 
 class CaseStructuringService:
-    """Apply configured retry/escalation policy around a provider-neutral LLM client."""
+    """Apply retry policy and preserve immutable evidence for every rejected attempt."""
 
-    def __init__(self, config: LLMPlatformConfig, client: LLMClient):
+    def __init__(
+        self,
+        config: LLMPlatformConfig,
+        client: LLMClient,
+        *,
+        evidence_root: Path | None = None,
+    ):
         self.config = config
         self.client = client
+        self.evidence_store = (
+            RejectedAttemptEvidenceStore(evidence_root)
+            if evidence_root is not None
+            else None
+        )
 
     def _require_generation_compatibility(self) -> None:
-        """Fail closed before invoking a backend that cannot honor CASE structure."""
-        capability = getattr(
-            self.client,
-            "structured_generation_capability",
-            None,
-        )
+        capability = getattr(self.client, "structured_generation_capability", None)
         if (
             capability is None
             or not isinstance(capability, StructuredGenerationCapability)
@@ -505,35 +601,150 @@ class CaseStructuringService:
                 retryable=False,
             )
 
-    def _attempt(
+    @staticmethod
+    def _case_input_sha256(case_input: dict[str, Any]) -> str:
+        canonical = json.dumps(
+            case_input,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        return hashlib.sha256(canonical).hexdigest()
+
+    @staticmethod
+    def _failure_path(detail: str) -> str | None:
+        match = re.match(r"^(\$[^:]*):", detail)
+        return match.group(1) if match else None
+
+    def _record_rejection(
         self,
+        *,
+        attempt_id: str,
         case_input: dict[str, Any],
         route: ModelRoute,
-    ) -> dict[str, Any]:
-        payload = self.client.complete_case_draft(
-            case_input=case_input,
-            route=route,
+        started_at: str,
+        failure_stage: str,
+        failure_code: str,
+        failure_detail: str,
+        evidence: GenerationEvidence | None,
+    ) -> None:
+        if self.evidence_store is None:
+            return
+        self.evidence_store.record(
+            attempt_id=attempt_id,
+            case_input_sha256=self._case_input_sha256(case_input),
+            adapter=self.client.adapter_id,
+            provider=self.client.provider_id,
+            model=route.name,
+            routing_role=route.routing_role,
+            contract_version=CONTRACT_VERSION,
+            prompt_template_id=PROMPT_TEMPLATE_ID,
+            prompt_template_version=PROMPT_TEMPLATE_VERSION,
+            schema_version=CONTRACT_VERSION,
+            started_at=started_at,
+            ended_at=utc_now(),
+            failure_stage=failure_stage,
+            failure_code=failure_code,
+            failure_detail=failure_detail,
+            failure_path=self._failure_path(failure_detail),
+            evidence=evidence,
         )
-        if "model_metadata" in payload:
-            raise CaseContractError(
-                INVALID_CASE_DRAFT,
-                "model must not supply app-owned model_metadata",
-            )
 
-        draft = deepcopy(payload)
-        draft["model_metadata"] = {
-            "adapter": self.client.adapter_id,
-            "provider": self.client.provider_id,
-            "model": route.name,
-            "schema_version": CONTRACT_VERSION,
-            "prompt_template_id": PROMPT_TEMPLATE_ID,
-            "prompt_template_version": PROMPT_TEMPLATE_VERSION,
-            "run_reference": f"run:{uuid.uuid4().hex}",
-            "generated_at": utc_now(),
-            "routing_role": route.routing_role,
-        }
-        validate_case_draft(case_input, draft)
-        return draft
+    def _attempt(self, case_input: dict[str, Any], route: ModelRoute) -> dict[str, Any]:
+        attempt_id = f"attempt-{uuid.uuid4().hex}"
+        started_at = utc_now()
+        evidence: GenerationEvidence | None = None
+        try:
+            generated = self.client.complete_case_draft(
+                case_input=case_input,
+                route=route,
+            )
+            if isinstance(generated, GenerationResult):
+                payload = generated.payload
+                evidence = generated.evidence
+            else:
+                # Third-party/provider adapters can continue returning a direct
+                # object; exact provider bytes are then explicitly unavailable.
+                payload = generated
+
+            if "model_metadata" in payload:
+                raise CaseContractError(
+                    INVALID_CASE_DRAFT,
+                    "model must not supply app-owned model_metadata",
+                )
+
+            draft = deepcopy(payload)
+            draft["model_metadata"] = {
+                "adapter": self.client.adapter_id,
+                "provider": self.client.provider_id,
+                "model": route.name,
+                "schema_version": CONTRACT_VERSION,
+                "prompt_template_id": PROMPT_TEMPLATE_ID,
+                "prompt_template_version": PROMPT_TEMPLATE_VERSION,
+                "run_reference": f"run:{uuid.uuid4().hex}",
+                "generated_at": utc_now(),
+                "routing_role": route.routing_role,
+            }
+            if evidence is None:
+                evidence = GenerationEvidence(candidate_payload=deepcopy(payload))
+            elif evidence.candidate_payload is None:
+                evidence = GenerationEvidence(
+                    provider_request_sha256=evidence.provider_request_sha256,
+                    raw_response=evidence.raw_response,
+                    finish_reason=evidence.finish_reason,
+                    usage=evidence.usage,
+                    assistant_content=evidence.assistant_content,
+                    candidate_payload=deepcopy(payload),
+                )
+
+            # Separate schema from semantic validation only to classify forensic
+            # failure stage. validate_case_draft remains the authoritative final
+            # validator and no repair/normalization is introduced.
+            try:
+                validate_schema_object(draft, "CaseDraft", INVALID_CASE_DRAFT)
+            except CaseContractError as exc:
+                self._record_rejection(
+                    attempt_id=attempt_id,
+                    case_input=case_input,
+                    route=route,
+                    started_at=started_at,
+                    failure_stage="schema_validation",
+                    failure_code=exc.code,
+                    failure_detail=exc.detail,
+                    evidence=evidence,
+                )
+                raise
+            try:
+                validate_case_draft(case_input, draft)
+            except CaseContractError as exc:
+                self._record_rejection(
+                    attempt_id=attempt_id,
+                    case_input=case_input,
+                    route=route,
+                    started_at=started_at,
+                    failure_stage="semantic_validation",
+                    failure_code=exc.code,
+                    failure_detail=exc.detail,
+                    evidence=evidence,
+                )
+                raise
+            return draft
+        except LLMClientError as exc:
+            self._record_rejection(
+                attempt_id=attempt_id,
+                case_input=case_input,
+                route=route,
+                started_at=started_at,
+                failure_stage=exc.failure_stage or "transport",
+                failure_code=exc.code,
+                failure_detail=exc.detail,
+                evidence=exc.evidence or evidence,
+            )
+            raise
+        except CaseContractError:
+            # Validation failures above are already recorded with the exact
+            # schema/semantic stage and must not create a second artifact.
+            raise
 
     def structure(self, case_input: dict[str, Any]) -> StructuringOutcome:
         self._require_generation_compatibility()
@@ -563,12 +774,13 @@ class CaseStructuringService:
                 if not exc.retryable:
                     break
 
-        should_review = False
-        if last_invalid is not None:
-            should_review = self.config.review_on_invalid_output
-        elif provider_error is not None:
-            should_review = self.config.review_on_provider_error
-
+        should_review = (
+            self.config.review_on_invalid_output
+            if last_invalid is not None
+            else self.config.review_on_provider_error
+            if provider_error is not None
+            else False
+        )
         if should_review and self.config.review is not None:
             attempts += 1
             try:
@@ -596,3 +808,4 @@ class CaseStructuringService:
             CASE_STRUCTURING_UNAVAILABLE,
             "no structuring attempt produced a result",
         )
+
