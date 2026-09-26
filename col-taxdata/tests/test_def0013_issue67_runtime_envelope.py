@@ -93,10 +93,15 @@ class Def0013Issue67RuntimeEnvelopeTests(unittest.TestCase):
         mutated = deepcopy(self.profile)
         mutated["generation"]["max_output_tokens"] = 6144
         mutated["generation"]["provider_timeout_seconds"] = 900
-        with tempfile.TemporaryDirectory(dir=ROOT / "config" / "validation") as tmp:
-            path = Path(tmp) / "profile.json"
-            path.write_text(json.dumps(mutated), encoding="utf-8")
-            result = case_validation.verify_profile(path)
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            suffix=".json",
+            dir=ROOT / "config" / "validation",
+            encoding="utf-8",
+        ) as handle:
+            json.dump(mutated, handle)
+            handle.flush()
+            result = case_validation.verify_profile(Path(handle.name))
         self.assertFalse(result["valid"])
         self.assertIn("generation:strict_envelope", result["errors"])
 
@@ -114,19 +119,29 @@ class Def0013Issue67RuntimeEnvelopeTests(unittest.TestCase):
             with self.subTest(field=field):
                 mutated = deepcopy(self.profile)
                 mutated["generation"][field] = value
-                with tempfile.TemporaryDirectory(dir=ROOT / "config" / "validation") as tmp:
-                    path = Path(tmp) / "profile.json"
-                    path.write_text(json.dumps(mutated), encoding="utf-8")
-                    result = case_validation.verify_profile(path)
+                with tempfile.NamedTemporaryFile(
+            mode="w",
+            suffix=".json",
+            dir=ROOT / "config" / "validation",
+            encoding="utf-8",
+        ) as handle:
+            json.dump(mutated, handle)
+            handle.flush()
+            result = case_validation.verify_profile(Path(handle.name))
                 self.assertFalse(result["valid"])
                 self.assertIn("generation:strict_envelope", result["errors"])
 
         mutated = deepcopy(self.profile)
         mutated["reference_backend"]["requested_model_name"] = "other-model"
-        with tempfile.TemporaryDirectory(dir=ROOT / "config" / "validation") as tmp:
-            path = Path(tmp) / "profile.json"
-            path.write_text(json.dumps(mutated), encoding="utf-8")
-            result = case_validation.verify_profile(path)
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            suffix=".json",
+            dir=ROOT / "config" / "validation",
+            encoding="utf-8",
+        ) as handle:
+            json.dump(mutated, handle)
+            handle.flush()
+            result = case_validation.verify_profile(Path(handle.name))
         self.assertFalse(result["valid"])
         self.assertIn("reference_backend:model", result["errors"])
 
