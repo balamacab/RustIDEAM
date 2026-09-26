@@ -52,10 +52,12 @@ def validate_attempt_manifest(manifest: dict[str, Any]) -> list[str]:
     required = {
         "parent_validation_issue",
         "attempt_id",
+        "artifact_root",
         "status",
         "designation",
         "started_at",
         "git_sha",
+        "image_identity",
         "execution_profile_id",
         "execution_profile_sha256",
         "request_sha256",
@@ -124,9 +126,11 @@ def post_fix_rerun_allowed(
 ) -> tuple[bool, list[str]]:
     """Check the minimum gate for a declared post-fix controlled rerun."""
     errors = validate_attempt_manifest(current)
+    if current.get("status") != "running":
+        errors.append("rerun:status_must_be_running")
     if current.get("attempt_id") == previous.get("attempt_id"):
         errors.append("rerun:attempt_id_must_change")
-    if current.get("artifact_root") and current.get("artifact_root") == previous.get("artifact_root"):
+    if current.get("artifact_root") == previous.get("artifact_root"):
         errors.append("rerun:artifact_root_must_change")
     if current.get("previous_attempt") != previous.get("attempt_id"):
         errors.append("rerun:previous_attempt_mismatch")
