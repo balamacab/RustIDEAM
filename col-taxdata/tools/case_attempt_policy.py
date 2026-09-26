@@ -481,6 +481,7 @@ _SAME_CONTRACT_POST_FIX_FIELDS = (
     ("input", "raw_evidence_manifest_sha256"),
     ("provider", "name"),
     ("provider", "model"),
+    ("provider", "artifact_or_build_identity"),
     ("provider", "generation_parameters"),
 )
 
