@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "profile_id": "case-validation-issue67-canonical-v2",
+  "profile_id": "case-validation-reference-v2",
   "adapter": "openai-compatible",
   "provider": "local-llama-cpp",
   "base_url": "http://127.0.0.1:8080/v1",

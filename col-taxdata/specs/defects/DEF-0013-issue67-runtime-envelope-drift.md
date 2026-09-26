@@ -61,8 +61,8 @@ The #67 validation plan reused a reference runtime profile whose 900/6144 values
 
 1. Preserve `config/benchmarks/issue65/benchmark.json` unchanged.
 2. Preserve the existing generic/reference LLM profile rather than silently changing its historical meaning.
-3. Add a dedicated versioned #67 canonical runtime profile containing 7200/9000 and all unchanged generation/model parameters.
-4. Version the #67 validation profile and bind it explicitly to the dedicated runtime profile.
+3. Add a dedicated versioned reference runtime profile containing 7200/9000 and all unchanged generation/model parameters, without mutating the historical v1 profile.
+4. Version the #67 validation profile and bind it explicitly to the versioned reference runtime while keeping #67 validation/run identity distinct from reusable runtime identity.
 5. Make `verify-profile` validate the current #67 envelope while independently verifying the historical #65 envelope.
 6. Make plan/verification output expose historical-versus-current envelope roles and record deterministic validation/runtime profile identities and SHA-256 values.
 7. Reject fallback to 900/6144 and reject unapproved drift in model, context, T0, top-p, top-k, thinking, stream or n.
@@ -109,10 +109,30 @@ The `tools/case_validation.py verify-profile` and `plan` commands are read-only 
 - historical/current plan labeling;
 - committed profile selection and SHA recording;
 - rejection of historical-envelope fallback;
-- rejection of generation/model drift;
+- rejection of generation/model drift in both the validation profile and the selected LLM runtime profile;
+- external validation-profile path resolution from an explicit project root;
+- exact-byte profile SHA sensitivity;
+- clean-provider-state drift rejection;
 - issue #75 reference-runtime suite;
 - issue #76 structured-output compatibility suite.
+
+## Cross-validation identity boundary
+
+DEF-0013 makes the amended **reference runtime** durable, but the `issue67-controlled-validation-v2` profile and `issue67-phase-a-reference` run ID remain intentionally specific to issue #67. CASE-0003/#95 must not reuse those identifiers as its execution identity. It must create its own validation/admission profile and run IDs, while it may reference `config/llm/case-validation-reference-v2.yaml` if #95 confirms that runtime is still the explicitly authorized reference envelope.
+
+This boundary avoids turning an observation from #67 into a universal application default and satisfies #93's requirement that amended/controlled attempts record truthful profile identity and SHA.
 
 ## Dependencies / ordering
 
 No blocking implementation dependency is required. The next canonical #67 Phase A rerun is gated on this defect being integrated so repository tooling can produce the amended plan directly from committed configuration.
+
+## Verification evidence from initial implementation
+
+- Implementation PR: #96, merged as `1cb053042b90b1035ba2fd9d7585f81166a7cbab`.
+- Candidate `CI Gate`: passed.
+- Post-merge col-taxdata suite: 280 tests passed, including issue #75 reference-runtime and issue #76 structured-output compatibility coverage.
+- Post-merge `Convergence Gate`: passed.
+- Historical #65 benchmark blob SHA remained `3e9da9c37eed8abfd036d7ccb722a6c6d4459f27` across the #92 implementation.
+- Generic `config/llm/case-validation-reference.yaml` blob SHA remained `36a814481fe0540e0f28d8b18cc27c9e7747f613` across the #92 implementation.
+- Reprocessing, schema migration, production mutation, runtime access, and raw-evidence changes: N/A.
+- A later high-rigor review reopened #92 before final verification because external profile-path resolution, selected-runtime-profile drift coverage, and runtime documentation required correction. This section is therefore historical evidence for PR #96, not the final DEF-0013 verification state.
