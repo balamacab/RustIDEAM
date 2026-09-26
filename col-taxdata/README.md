@@ -67,7 +67,6 @@ Start with:
 - [`specs/architecture/adr/`](specs/architecture/adr/) — durable architectural decisions.
 - [`specs/README.md`](specs/README.md) — specification-driven development workflow.
 - [`specs/manifest.yaml`](specs/manifest.yaml) — tracked defect/gap state.
-- [`docs/case-controlled-failure-protocol.md`](docs/case-controlled-failure-protocol.md) — mandatory failure classification, retry/amendment, evidence, blindness, and post-fix rerun rules for controlled CASE validations.
 - [`docs/DATA_MODEL.md`](docs/DATA_MODEL.md) — older implementation-oriented data-model notes; architecture specs above are authoritative for cross-cutting semantics.
 
 Documentation roles:

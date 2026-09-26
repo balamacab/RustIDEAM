@@ -75,8 +75,8 @@ class Issue75ReferenceRuntimeTests(unittest.TestCase):
         self.assertEqual(config.primary.name, "gemma-4-E2B-it-Q4_K_M")
         self.assertEqual(config.primary.routing_role, "primary")
         self.assertEqual(config.primary.context_tokens, 16384)
-        self.assertEqual(config.primary.max_output_tokens, 9000)
-        self.assertEqual(config.timeout_seconds, 7200)
+        self.assertEqual(config.primary.max_output_tokens, 6144)
+        self.assertEqual(config.timeout_seconds, 900)
         self.assertEqual(config.primary_attempts, 1)
         self.assertFalse(config.review_on_invalid_output)
         self.assertFalse(config.review_on_provider_error)
@@ -199,11 +199,11 @@ class Issue75ReferenceRuntimeTests(unittest.TestCase):
         )
 
     def test_reference_envelope_is_exact_and_thinking_is_disabled(self) -> None:
-        self.assertEqual(self.profile["generation"], case_validation.ISSUE67_CANONICAL_GENERATION)
+        self.assertEqual(self.profile["generation"], case_validation.EXPECTED_GENERATION)
         llm = case_validation.load_json(
             ROOT / self.profile["application"]["llm_platform_config"]
         )
-        self.assertEqual(llm["request_timeout_seconds"], 7200)
+        self.assertEqual(llm["request_timeout_seconds"], 900)
         self.assertEqual(llm["request_options"]["top_p"], 1)
         self.assertEqual(llm["request_options"]["top_k"], 0)
         self.assertFalse(llm["request_options"]["stream"])

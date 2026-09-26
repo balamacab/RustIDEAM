@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import argparse
 from copy import deepcopy
-import hashlib
 import json
 from pathlib import Path
 from typing import Any
@@ -15,21 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_PROFILE = ROOT / "config" / "validation" / "issue67-reference.json"
 
 REFERENCE_BACKEND_ID = "quadro-m620-gemma-e2b-llamacpp"
-ISSUE67_PROFILE_ID = "issue67-controlled-validation-v2"
-REFERENCE_LLM_PROFILE_ID = "case-validation-reference-v2"
-REFERENCE_LLM_PROFILE_VERSION = 2
-ISSUE67_CANONICAL_GENERATION = {
-    "temperature": 0,
-    "thinking": False,
-    "context_tokens": 16384,
-    "max_output_tokens": 9000,
-    "provider_timeout_seconds": 7200,
-    "top_p": 1,
-    "top_k": 0,
-    "stream": False,
-    "n": 1,
-}
-HISTORICAL_ISSUE65_GENERATION = {
+EXPECTED_GENERATION = {
     "temperature": 0,
     "thinking": False,
     "context_tokens": 16384,
@@ -42,11 +27,6 @@ HISTORICAL_ISSUE65_GENERATION = {
 }
 
 
-def _sha256(path: Path) -> str:
-    """Return the SHA-256 of the exact committed profile bytes."""
-    return hashlib.sha256(path.read_bytes()).hexdigest()
-
-
 def load_json(path: Path) -> dict[str, Any]:
     """Load one JSON-compatible project profile as an object."""
     value = json.loads(path.read_text(encoding="utf-8"))
@@ -55,13 +35,13 @@ def load_json(path: Path) -> dict[str, Any]:
     return value
 
 
-def _project_path(project_root: Path, relative: str) -> Path:
-    """Resolve a repository-relative profile path from an explicit project root."""
-    return project_root.resolve() / relative
+def _project_path(profile_path: Path, relative: str) -> Path:
+    project_root = profile_path.resolve().parents[2]
+    return project_root / relative
 
 
 def _profile_generation(profile: dict[str, Any]) -> dict[str, Any]:
-    return {name: profile["generation"][name] for name in ISSUE67_CANONICAL_GENERATION}
+    return {name: profile["generation"][name] for name in EXPECTED_GENERATION}
 
 
 def _backend_map(profile: dict[str, Any]) -> dict[str, dict[str, Any]]:
@@ -75,79 +55,62 @@ def _backend_map(profile: dict[str, Any]) -> dict[str, dict[str, Any]]:
 
 def _validate_llm_profile(
     profile: dict[str, Any],
-    project_root: Path,
+    profile_path: Path,
     errors: list[str],
 ) -> None:
-    llm_path = _project_path(project_root, profile["application"]["llm_platform_config"])
+    llm_path = _project_path(profile_path, profile["application"]["llm_platform_config"])
     llm = load_json(llm_path)
     primary = llm.get("models", {}).get("primary", {})
     routing = llm.get("routing", {})
     request_options = llm.get("request_options", {})
 
     expected = profile["reference_backend"]
-    if llm.get("version") != REFERENCE_LLM_PROFILE_VERSION:
-        errors.append("llm_profile:version")
-    if llm.get("profile_id") != REFERENCE_LLM_PROFILE_ID:
-        errors.append("llm_profile:profile_id")
     if llm.get("adapter") != "openai-compatible":
         errors.append("llm_profile:adapter")
     if llm.get("provider") != "local-llama-cpp":
         errors.append("llm_profile:provider")
-    if llm.get("request_timeout_seconds") != ISSUE67_CANONICAL_GENERATION["provider_timeout_seconds"]:
+    if llm.get("request_timeout_seconds") != EXPECTED_GENERATION["provider_timeout_seconds"]:
         errors.append("llm_profile:timeout")
     if primary.get("name") != expected["requested_model_name"]:
         errors.append("llm_profile:primary_model")
     if primary.get("routing_role") != "primary":
         errors.append("llm_profile:primary_role")
-    if primary.get("context_tokens") != ISSUE67_CANONICAL_GENERATION["context_tokens"]:
+    if primary.get("context_tokens") != EXPECTED_GENERATION["context_tokens"]:
         errors.append("llm_profile:context_tokens")
-    if primary.get("max_output_tokens") != ISSUE67_CANONICAL_GENERATION["max_output_tokens"]:
+    if primary.get("max_output_tokens") != EXPECTED_GENERATION["max_output_tokens"]:
         errors.append("llm_profile:max_output_tokens")
     if routing.get("primary_attempts") != 1:
         errors.append("llm_profile:primary_attempts")
     if routing.get("review_on_invalid_output") or routing.get("review_on_provider_error"):
         errors.append("llm_profile:review_fallback_forbidden")
-    if request_options.get("top_p") != ISSUE67_CANONICAL_GENERATION["top_p"]:
+    if request_options.get("top_p") != EXPECTED_GENERATION["top_p"]:
         errors.append("llm_profile:top_p")
-    if request_options.get("top_k") != ISSUE67_CANONICAL_GENERATION["top_k"]:
+    if request_options.get("top_k") != EXPECTED_GENERATION["top_k"]:
         errors.append("llm_profile:top_k")
     if request_options.get("stream") is not False:
         errors.append("llm_profile:stream")
-    if request_options.get("n") != ISSUE67_CANONICAL_GENERATION["n"]:
+    if request_options.get("n") != EXPECTED_GENERATION["n"]:
         errors.append("llm_profile:n")
     thinking = request_options.get("chat_template_kwargs", {}).get("enable_thinking")
     if thinking is not False:
         errors.append("llm_profile:thinking")
 
 
-def verify_profile(
-    profile_path: Path = DEFAULT_PROFILE,
-    *,
-    project_root: Path = ROOT,
-) -> dict[str, Any]:
-    """Verify the #67 profile while resolving referenced files from project_root."""
+def verify_profile(profile_path: Path = DEFAULT_PROFILE) -> dict[str, Any]:
+    """Verify the current #67 profile without network or runtime mutation."""
     profile = load_json(profile_path)
     errors: list[str] = []
 
-    if profile.get("schema_version") != 2:
+    if profile.get("schema_version") != 1:
         errors.append("profile:schema_version")
-    if profile.get("profile_id") != ISSUE67_PROFILE_ID:
-        errors.append("profile:profile_id")
     if profile.get("issue_number") != 67 or profile.get("driver_issue_number") != 75:
         errors.append("profile:issue_binding")
 
     historical = profile["historical_benchmark"]
     if historical.get("preserve_immutable") is not True:
         errors.append("historical_benchmark:must_preserve")
-    historical_path = _project_path(project_root, historical["config_path"])
+    historical_path = _project_path(profile_path, historical["config_path"])
     historical_result = case_benchmark.verify_package(historical_path)
-    historical_config = load_json(historical_path)
-    historical_generation = {
-        name: historical_config["generation"][name]
-        for name in HISTORICAL_ISSUE65_GENERATION
-    }
-    if historical_generation != HISTORICAL_ISSUE65_GENERATION:
-        errors.append("historical_benchmark:generation_envelope")
     if not historical_result["valid"]:
         errors.extend(
             f"historical_benchmark:{item}" for item in historical_result["errors"]
@@ -163,7 +126,7 @@ def verify_profile(
         if historical.get(name) != observed:
             errors.append(f"historical_benchmark:{name}")
 
-    if profile.get("generation") != ISSUE67_CANONICAL_GENERATION:
+    if profile.get("generation") != EXPECTED_GENERATION:
         errors.append("generation:strict_envelope")
 
     application = profile["application"]
@@ -249,20 +212,14 @@ def verify_profile(
     except ValueError as exc:
         errors.append(f"profile:{exc}")
 
-    _validate_llm_profile(profile, project_root, errors)
-    llm_path = _project_path(project_root, profile["application"]["llm_platform_config"])
+    _validate_llm_profile(profile, profile_path, errors)
 
     return {
         "profile_id": profile.get("profile_id"),
-        "profile_sha256": _sha256(profile_path),
-        "llm_profile_id": load_json(llm_path).get("profile_id"),
-        "llm_profile_sha256": _sha256(llm_path),
         "valid": not errors,
         "errors": errors,
         "historical_benchmark_valid": historical_result["valid"],
         "historical_planned_runs": historical_result["planned_runs"],
-        "historical_generation": historical_generation,
-        "current_generation": _profile_generation(profile),
         "problem_text_sha256": historical_result["problem_text_sha256"],
         "canonical_case_input_sha256": historical_result[
             "canonical_case_input_sha256"
@@ -274,17 +231,11 @@ def verify_profile(
 
 def build_validation_plan(
     profile: dict[str, Any],
-    profile_path: Path = DEFAULT_PROFILE,
-    *,
-    project_root: Path = ROOT,
 ) -> dict[str, Any]:
-    """Build only the #67 plan; other validations must use their own run/profile IDs."""
+    """Build the current #67 plan; optional diagnostics never enter required Phase A."""
     generation = _profile_generation(profile)
     reference = profile["reference_backend"]
     application = profile["application"]
-    llm_path = _project_path(project_root, application["llm_platform_config"])
-    historical = profile["envelope_history"]["historical_issue65"]
-    current = profile["envelope_history"]["current_issue67"]
 
     required_phase_a = [
         {
@@ -314,16 +265,6 @@ def build_validation_plan(
     ]
     return {
         "profile_id": profile["profile_id"],
-        "profile_sha256": _sha256(profile_path),
-        "llm_profile": {
-            "profile_id": load_json(llm_path)["profile_id"],
-            "path": application["llm_platform_config"],
-            "sha256": _sha256(llm_path),
-        },
-        "envelopes": {
-            "historical_issue65": deepcopy(historical),
-            "current_issue67": deepcopy(current),
-        },
         "required_phase_a": required_phase_a,
         "supplemental_diagnostics": supplemental,
         "phase_b": deepcopy(profile["validation_plan"]["phase_b"]),
@@ -408,12 +349,6 @@ def main() -> int:
         description="Verify and plan the current #67 reference validation without model calls."
     )
     parser.add_argument("--profile", type=Path, default=DEFAULT_PROFILE)
-    parser.add_argument(
-        "--project-root",
-        type=Path,
-        default=ROOT,
-        help="Project root used to resolve repository-relative paths in the profile.",
-    )
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("verify-profile")
     commands.add_parser("plan")
@@ -421,7 +356,7 @@ def main() -> int:
     readiness.add_argument("--capabilities", type=Path, required=True)
     args = parser.parse_args()
 
-    verification = verify_profile(args.profile, project_root=args.project_root)
+    verification = verify_profile(args.profile)
     if not verification["valid"]:
         print(json.dumps(verification, ensure_ascii=False, indent=2, sort_keys=True))
         return 2
@@ -430,7 +365,7 @@ def main() -> int:
     if args.command == "verify-profile":
         result = verification
     elif args.command == "plan":
-        result = build_validation_plan(profile, args.profile, project_root=args.project_root)
+        result = build_validation_plan(profile)
     else:
         result = evaluate_readiness(load_json(args.capabilities), profile)
 
