@@ -218,17 +218,8 @@ class Issue0076StructuredOutputCompatibilityTests(unittest.TestCase):
         schema_invalid["facts"] = "not-a-list"
 
         semantic_invalid = model_payload()
-        semantic_invalid["facts"] = [
-            {
-                "kind": "case_fact",
-                "contract_version": "3.0.0",
-                "fact_ref": "fact:bad-quote",
-                "label": "Estado",
-                "value": "liquidación",
-                "state": "user_provided",
-                "source_quote": "texto que no aparece en el problema",
-                "requires_confirmation": False,
-            }
+        semantic_invalid["candidate_claims"][0]["target_hints"] = [
+            "DOC-forged"
         ]
 
         for name, payload in {
@@ -253,17 +244,8 @@ class Issue0076StructuredOutputCompatibilityTests(unittest.TestCase):
 
     def test_provider_specific_adapter_cannot_bypass_final_validation(self):
         invalid = model_payload()
-        invalid["facts"] = [
-            {
-                "kind": "case_fact",
-                "contract_version": "3.0.0",
-                "fact_ref": "fact:forged",
-                "label": "Estado",
-                "value": "liquidación",
-                "state": "user_provided",
-                "source_quote": "forged provider quote",
-                "requires_confirmation": False,
-            }
+        invalid["candidate_claims"][0]["target_hints"] = [
+            "DOC-forged-provider"
         ]
         client = RecordingClient(
             invalid,
