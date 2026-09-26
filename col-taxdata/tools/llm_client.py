@@ -708,32 +708,24 @@ class CaseStructuringService:
                 "generated_at": utc_now(),
                 "routing_role": route.routing_role,
             }
-            # Separate schema from semantic validation only to classify forensic
-            # failure stage. validate_case_draft remains the authoritative final
-            # validator and no repair/normalization is introduced.
-            try:
-                validate_schema_object(draft, "CaseDraft", INVALID_CASE_DRAFT)
-            except CaseContractError as exc:
-                self._record_rejection(
-                    attempt_id=attempt_id,
-                    case_input=case_input,
-                    route=route,
-                    started_at=started_at,
-                    failure_stage="schema_validation",
-                    failure_code=exc.code,
-                    failure_detail=exc.detail,
-                    evidence=evidence,
-                )
-                raise
+            # The existing authoritative validator runs exactly as before.
+            # Only after rejection do we replay the schema-only check to classify
+            # the forensic stage; this never repairs or accepts model output.
             try:
                 validate_case_draft(case_input, draft)
             except CaseContractError as exc:
+                try:
+                    validate_schema_object(draft, "CaseDraft", INVALID_CASE_DRAFT)
+                except CaseContractError:
+                    failure_stage = "schema_validation"
+                else:
+                    failure_stage = "semantic_validation"
                 self._record_rejection(
                     attempt_id=attempt_id,
                     case_input=case_input,
                     route=route,
                     started_at=started_at,
-                    failure_stage="semantic_validation",
+                    failure_stage=failure_stage,
                     failure_code=exc.code,
                     failure_detail=exc.detail,
                     evidence=evidence,
