@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 from copy import deepcopy
+import hashlib
 import json
 from pathlib import Path
 from typing import Any
@@ -18,6 +19,17 @@ EXPECTED_GENERATION = {
     "temperature": 0,
     "thinking": False,
     "context_tokens": 16384,
+    "max_output_tokens": 9000,
+    "provider_timeout_seconds": 7200,
+    "top_p": 1,
+    "top_k": 0,
+    "stream": False,
+    "n": 1,
+}
+HISTORICAL_ISSUE65_GENERATION = {
+    "temperature": 0,
+    "thinking": False,
+    "context_tokens": 16384,
     "max_output_tokens": 6144,
     "provider_timeout_seconds": 900,
     "top_p": 1,
@@ -25,6 +37,11 @@ EXPECTED_GENERATION = {
     "stream": False,
     "n": 1,
 }
+
+
+def _sha256(path: Path) -> str:
+    """Return the SHA-256 of the exact committed profile bytes."""
+    return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 def load_json(path: Path) -> dict[str, Any]:
@@ -101,7 +118,7 @@ def verify_profile(profile_path: Path = DEFAULT_PROFILE) -> dict[str, Any]:
     profile = load_json(profile_path)
     errors: list[str] = []
 
-    if profile.get("schema_version") != 1:
+    if profile.get("schema_version") != 2:
         errors.append("profile:schema_version")
     if profile.get("issue_number") != 67 or profile.get("driver_issue_number") != 75:
         errors.append("profile:issue_binding")
@@ -111,6 +128,13 @@ def verify_profile(profile_path: Path = DEFAULT_PROFILE) -> dict[str, Any]:
         errors.append("historical_benchmark:must_preserve")
     historical_path = _project_path(profile_path, historical["config_path"])
     historical_result = case_benchmark.verify_package(historical_path)
+    historical_config = load_json(historical_path)
+    historical_generation = {
+        name: historical_config["generation"][name]
+        for name in HISTORICAL_ISSUE65_GENERATION
+    }
+    if historical_generation != HISTORICAL_ISSUE65_GENERATION:
+        errors.append("historical_benchmark:generation_envelope")
     if not historical_result["valid"]:
         errors.extend(
             f"historical_benchmark:{item}" for item in historical_result["errors"]
@@ -213,13 +237,19 @@ def verify_profile(profile_path: Path = DEFAULT_PROFILE) -> dict[str, Any]:
         errors.append(f"profile:{exc}")
 
     _validate_llm_profile(profile, profile_path, errors)
+    llm_path = _project_path(profile_path, profile["application"]["llm_platform_config"])
 
     return {
         "profile_id": profile.get("profile_id"),
+        "profile_sha256": _sha256(profile_path),
+        "llm_profile_id": load_json(llm_path).get("profile_id"),
+        "llm_profile_sha256": _sha256(llm_path),
         "valid": not errors,
         "errors": errors,
         "historical_benchmark_valid": historical_result["valid"],
         "historical_planned_runs": historical_result["planned_runs"],
+        "historical_generation": historical_generation,
+        "current_generation": _profile_generation(profile),
         "problem_text_sha256": historical_result["problem_text_sha256"],
         "canonical_case_input_sha256": historical_result[
             "canonical_case_input_sha256"
@@ -231,11 +261,15 @@ def verify_profile(profile_path: Path = DEFAULT_PROFILE) -> dict[str, Any]:
 
 def build_validation_plan(
     profile: dict[str, Any],
+    profile_path: Path = DEFAULT_PROFILE,
 ) -> dict[str, Any]:
     """Build the current #67 plan; optional diagnostics never enter required Phase A."""
     generation = _profile_generation(profile)
     reference = profile["reference_backend"]
     application = profile["application"]
+    llm_path = _project_path(profile_path, application["llm_platform_config"])
+    historical = profile["envelope_history"]["historical_issue65"]
+    current = profile["envelope_history"]["current_issue67"]
 
     required_phase_a = [
         {
@@ -265,6 +299,16 @@ def build_validation_plan(
     ]
     return {
         "profile_id": profile["profile_id"],
+        "profile_sha256": _sha256(profile_path),
+        "llm_profile": {
+            "profile_id": load_json(llm_path)["profile_id"],
+            "path": application["llm_platform_config"],
+            "sha256": _sha256(llm_path),
+        },
+        "envelopes": {
+            "historical_issue65": deepcopy(historical),
+            "current_issue67": deepcopy(current),
+        },
         "required_phase_a": required_phase_a,
         "supplemental_diagnostics": supplemental,
         "phase_b": deepcopy(profile["validation_plan"]["phase_b"]),
@@ -365,7 +409,7 @@ def main() -> int:
     if args.command == "verify-profile":
         result = verification
     elif args.command == "plan":
-        result = build_validation_plan(profile)
+        result = build_validation_plan(profile, args.profile)
     else:
         result = evaluate_readiness(load_json(args.capabilities), profile)
 
