@@ -1,6 +1,6 @@
 # DEF-0013 — Issue #67 canonical runtime envelope drift
 
-Status: implementing  
+Status: verified  
 Priority: P2  
 GitHub issue: #92  
 Area: validation / runtime-profile
