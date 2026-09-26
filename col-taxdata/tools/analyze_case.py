@@ -10,7 +10,11 @@ from case_application import (
     CaseAnalysisIntegrityError,
     analyze_case,
 )
-from case_contract_validation import (\n    CaseContractError,\n    CONTRACT_VERSION,\n    INVALID_CASE_DRAFT,\n)
+from case_contract_validation import (
+    CaseContractError,
+    CONTRACT_VERSION,
+    INVALID_CASE_DRAFT,
+)
 from case_retrieval import RetrievalIntegrityError
 from llm_client import (
     ContextLimitError,
