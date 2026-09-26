@@ -1,8 +1,9 @@
 {
-  "schema_version": 1,
-  "profile_id": "issue67-controlled-validation-v1",
+  "schema_version": 2,
+  "profile_id": "issue67-controlled-validation-v2",
   "issue_number": 67,
   "driver_issue_number": 75,
+  "amendment_issue_number": 92,
   "historical_benchmark": {
     "config_path": "config/benchmarks/issue65/benchmark.json",
     "preserve_immutable": true,
@@ -13,7 +14,7 @@
   },
   "application": {
     "transport": "openai-compatible",
-    "llm_platform_config": "config/llm/case-validation-reference.yaml",
+    "llm_platform_config": "config/llm/case-validation-reference-v2.yaml",
     "http_adapter": "tools/case_http.py",
     "http_method": "POST",
     "http_endpoint": "/v1/cases",
@@ -23,8 +24,8 @@
     "temperature": 0,
     "thinking": false,
     "context_tokens": 16384,
-    "max_output_tokens": 6144,
-    "provider_timeout_seconds": 900,
+    "max_output_tokens": 9000,
+    "provider_timeout_seconds": 7200,
     "top_p": 1,
     "top_k": 0,
     "stream": false,
@@ -101,5 +102,39 @@
         "phase_b"
       ]
     }
+  },
+  "envelope_history": {
+    "historical_issue65": {
+      "role": "historical_benchmark",
+      "source_issue_number": 65,
+      "generation": {
+        "temperature": 0,
+        "thinking": false,
+        "context_tokens": 16384,
+        "max_output_tokens": 6144,
+        "provider_timeout_seconds": 900,
+        "top_p": 1,
+        "top_k": 0,
+        "stream": false,
+        "n": 1
+      }
+    },
+    "current_issue67": {
+      "role": "canonical_validation",
+      "source_issue_number": 67,
+      "amendment_issue_number": 92,
+      "generation": {
+        "temperature": 0,
+        "thinking": false,
+        "context_tokens": 16384,
+        "max_output_tokens": 9000,
+        "provider_timeout_seconds": 7200,
+        "top_p": 1,
+        "top_k": 0,
+        "stream": false,
+        "n": 1
+      }
+    },
+    "amendment_reason": "Two canonical #67 attempts timed out at 900 seconds while generation remained active; the operator-authorized 7200/9000 envelope completed naturally. The later INVALID_CASE_DRAFT source_quote failure is independent."
   }
 }

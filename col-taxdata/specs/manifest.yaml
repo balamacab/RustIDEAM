@@ -94,6 +94,15 @@ items:
     github_issue: 19
     depends_on: []
 
+  - id: DEF-0013
+    type: defect
+    priority: P2
+    status: verified
+    area: validation
+    spec: specs/defects/DEF-0013-issue67-runtime-envelope-drift.md
+    github_issue: 92
+    depends_on: []
+
   - id: DEF-0011
     type: defect
     priority: P1

@@ -12,6 +12,8 @@ Runtime preparation in issue #73 subsequently established that the Quadro M620 +
 
 The generalized provider-neutral structured-output compatibility contract is intentionally owned by issue #76 and is not changed by this ADR.
 
+Issue #92 / DEF-0013 later amends only the runtime envelope used by the canonical issue #67 execution after two preserved 900-second timeout attempts demonstrated that the original #75 limits were operationally inadequate. This amendment does not reverse the reference-backend decision or rewrite #65/#75 history.
+
 ## Decision
 
 The supported **reference development and controlled-validation runtime** is:
@@ -28,17 +30,18 @@ The application remains backend-neutral. Selecting a reference validation runtim
 
 Ryzen AI / FastFlowLM backends are **optional experimental diagnostics**. Their absence, capability failure, or incompatibility does not fail core CASE readiness and does not gate issue #67 Phase A, Phase B, or closure. If an experimental diagnostic is run, its declared model and generation envelope may not be silently substituted.
 
-The current machine-readable contracts are:
+The machine-readable contracts are versioned:
 
-- `config/llm/case-validation-reference.yaml` — dedicated LLM platform profile with Gemma E2B as the actual primary structuring model;
-- `config/validation/issue67-reference.json` — current validation profile distinguishing the required reference backend from optional experimental backends;
-- `tools/case_validation.py` — read-only profile verification, planning, and readiness evaluation.
+- `config/llm/case-validation-reference.yaml` — original reference-runtime v1 retained with its #75-era 6144/900 semantics;
+- `config/llm/case-validation-reference-v2.yaml` — amended reference-runtime v2 used by the canonical issue #67 plan, preserving model/context/request semantics while using 9000/7200;
+- `config/validation/issue67-reference.json` — issue #67-specific validation profile distinguishing the required reference backend from optional experimental backends and recording the envelope amendment lineage;
+- `tools/case_validation.py` — read-only profile verification, planning, readiness evaluation, and exact selected-profile identity/SHA reporting.
 
 The existing `config/llm/local-platform.yaml` remains the ordinary local default and is not silently repurposed.
 
-## Frozen generation envelope
+## Versioned generation envelope
 
-Controlled validation requires exactly:
+The original issue #75 reference-runtime v1 and historical #65 package retain exactly:
 
 - temperature = 0;
 - thinking = false;
@@ -50,7 +53,21 @@ Controlled validation requires exactly:
 - stream = false;
 - n = 1.
 
-Controlled validation requires a clean provider state before the run, does not allow warm-session reuse, and discards capability-probe state.
+For the canonical issue #67 execution, issue #92 / DEF-0013 supersedes only the output/timeout limits with an explicitly versioned v2 envelope:
+
+- temperature = 0;
+- thinking = false;
+- context = 16384 tokens;
+- max output = 9000 tokens;
+- provider timeout = 7200 seconds;
+- top_p = 1;
+- top_k = 0;
+- stream = false;
+- n = 1.
+
+The amendment was authorized after two canonical #67 attempts timed out at 900 seconds while generation was still active. The amended envelope subsequently allowed natural completion; the later `INVALID_CASE_DRAFT` / `source_quote` rejection is an independent application-contract failure.
+
+Controlled validation still requires a clean provider state before the run, does not allow warm-session reuse, and discards capability-probe state. The v1 envelope remains historical evidence and is not rewritten as if it had been v2.
 
 ## Issue #67 execution contract
 
@@ -63,7 +80,7 @@ The current required sequence is:
 
 FastFlowLM runs may be added as separate supplemental diagnostic observations. They are not members of required Phase A and do not gate Phase B.
 
-No complex #67 input is executed by issue #75.
+No complex #67 input is executed by issue #75 or issue #92. The #67 validation/run identifiers remain issue-specific; another controlled validation may select the reusable runtime v2 only under its own explicit validation/admission identity.
 
 ## Historical #65 benchmark
 
@@ -90,7 +107,8 @@ No prior #73 observation is deleted or reinterpreted as a successful FastFlowLM 
 
 - Normal CASE development and #67 controlled validation no longer depend on FastFlowLM availability.
 - The historical benchmark remains reproducible without becoming the current validation gate.
-- The dedicated validation profile avoids changing ordinary `local-platform.yaml` behavior.
+- Versioned reference-runtime profiles avoid changing ordinary `local-platform.yaml` behavior or rewriting the original v1 meaning.
+- The #67 amendment is explicit and machine-checkable rather than a host-local override.
 - A single reference runtime reduces platform-comparison coverage in the required validation path; experimental runs can still provide supplemental evidence.
 - Provider-neutral application behavior and all canonical evidence/provenance rules remain unchanged.
 
@@ -103,3 +121,4 @@ No prior #73 observation is deleted or reinterpreted as a successful FastFlowLM 
 - #73 — runtime/baseline preparation.
 - #75 — this decision and implementation.
 - #76 — generalized structured-output compatibility contract.
+- #92 / DEF-0013 — versioned amendment of the canonical #67 runtime envelope.

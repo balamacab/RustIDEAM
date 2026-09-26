@@ -75,11 +75,22 @@ class Issue75ReferenceRuntimeTests(unittest.TestCase):
         self.assertEqual(config.primary.name, "gemma-4-E2B-it-Q4_K_M")
         self.assertEqual(config.primary.routing_role, "primary")
         self.assertEqual(config.primary.context_tokens, 16384)
-        self.assertEqual(config.primary.max_output_tokens, 6144)
-        self.assertEqual(config.timeout_seconds, 900)
+        self.assertEqual(config.primary.max_output_tokens, 9000)
+        self.assertEqual(config.timeout_seconds, 7200)
         self.assertEqual(config.primary_attempts, 1)
         self.assertFalse(config.review_on_invalid_output)
         self.assertFalse(config.review_on_provider_error)
+
+    def test_original_issue75_reference_v1_profile_remains_historical(self) -> None:
+        config = load_platform_config(
+            ROOT / "config" / "llm" / "case-validation-reference.yaml"
+        )
+        self.assertEqual(config.adapter, "openai-compatible")
+        self.assertEqual(config.provider, "local-llama-cpp")
+        self.assertEqual(config.primary.name, "gemma-4-E2B-it-Q4_K_M")
+        self.assertEqual(config.primary.context_tokens, 16384)
+        self.assertEqual(config.primary.max_output_tokens, 6144)
+        self.assertEqual(config.timeout_seconds, 900)
 
     def test_primary_validation_plan_contains_exactly_one_required_reference_run(self) -> None:
         plan = case_validation.build_validation_plan(self.profile)
@@ -199,11 +210,14 @@ class Issue75ReferenceRuntimeTests(unittest.TestCase):
         )
 
     def test_reference_envelope_is_exact_and_thinking_is_disabled(self) -> None:
-        self.assertEqual(self.profile["generation"], case_validation.EXPECTED_GENERATION)
+        self.assertEqual(
+            self.profile["generation"],
+            case_validation.ISSUE67_CANONICAL_GENERATION,
+        )
         llm = case_validation.load_json(
             ROOT / self.profile["application"]["llm_platform_config"]
         )
-        self.assertEqual(llm["request_timeout_seconds"], 900)
+        self.assertEqual(llm["request_timeout_seconds"], 7200)
         self.assertEqual(llm["request_options"]["top_p"], 1)
         self.assertEqual(llm["request_options"]["top_k"], 0)
         self.assertFalse(llm["request_options"]["stream"])
