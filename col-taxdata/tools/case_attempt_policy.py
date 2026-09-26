@@ -76,7 +76,7 @@ def _failure_class(value: Any) -> FailureClass | None:
         return None
     try:
         return FailureClass(value)
-    except ValueError:
+    except (TypeError, ValueError):
         return None
 
 
@@ -194,8 +194,11 @@ def validate_attempt_manifest(
         FailureClass.TRANSIENT_OPERATIONAL,
         FailureClass.RUNTIME_ENVELOPE,
         FailureClass.STRUCTURED_COMPATIBILITY,
-    } and contact == ProviderContactState.NOT_ATTEMPTED:
-        errors.append("provider_failure:contact_attempt_required")
+    }:
+        if contact == ProviderContactState.NOT_ATTEMPTED:
+            errors.append("provider_failure:contact_attempt_required")
+        if upstream != UpstreamStage.NONE:
+            errors.append("provider_failure:accepted_upstream_forbidden")
 
     if failure == FailureClass.APPLICATION_CONTRACT:
         if contact != ProviderContactState.RESPONSE_RECEIVED:
@@ -204,10 +207,14 @@ def validate_attempt_manifest(
             errors.append("application_contract:accepted_upstream_forbidden")
 
     if failure in {
+        FailureClass.TRANSIENT_OPERATIONAL,
+        FailureClass.RUNTIME_ENVELOPE,
         FailureClass.STRUCTURED_COMPATIBILITY,
         FailureClass.APPLICATION_CONTRACT,
-    } and not manifest.get("provider_evidence_ref"):
-        errors.append("structuring_failure:provider_evidence_ref_required")
+    } and contact != ProviderContactState.NOT_ATTEMPTED and not manifest.get(
+        "provider_evidence_ref"
+    ):
+        errors.append("provider_failure:provider_evidence_ref_required")
 
     if failure == FailureClass.DOWNSTREAM_SYSTEM and upstream not in {
         UpstreamStage.CASE_DRAFT,
@@ -419,6 +426,8 @@ def validate_parent_resolution(resolution: dict[str, Any]) -> list[str]:
         blockers = resolution.get("blocker_issues")
         if not isinstance(blockers, list) or not blockers:
             errors.append("diagnostic_completion:blocker_issues_required")
+        elif resolution.get("parent_validation_issue") in blockers:
+            errors.append("diagnostic_completion:blocker_must_be_separate_child")
 
         successor = resolution.get("successor_validation_issue")
         if not successor:
