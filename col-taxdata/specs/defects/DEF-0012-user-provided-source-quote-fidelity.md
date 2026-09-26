@@ -1,6 +1,6 @@
 # DEF-0012 — user-provided source_quote fidelity
 
-Status: implementing  
+Status: verified  
 Priority: P1  
 GitHub: #91  
 Area: CASE structuring / application validation
