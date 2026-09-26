@@ -112,6 +112,17 @@ items:
     github_issue: 90
     depends_on: []
 
+  - id: DEF-0012
+    type: defect
+    priority: P1
+    status: implementing
+    area: case-structuring
+    spec: specs/defects/DEF-0012-user-provided-source-quote-fidelity.md
+    github_issue: 91
+    depends_on:
+      - DEF-0011
+      - DEF-0014
+
   - id: DEF-0014
     type: defect
     status: verified
