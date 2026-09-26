@@ -15,6 +15,7 @@ The machine-readable ordering/dependency graph is maintained in [`specs/manifest
 | [DEF-0007](DEF-0007-legal-body-false-short.md) | P2 | Valid Sentencia C-096/2001 is rejected as an unexpectedly short legal body | [#7](https://github.com/balamacab/RustIDEAM/issues/7) | verified |
 | [DEF-0009](DEF-0009-unreferenced-document-lifecycle.md) | — | Source-less canonical Documents lack an explicit retention/cleanup lifecycle | [#19](https://github.com/balamacab/RustIDEAM/issues/19) | verified |
 | [DEF-0011](DEF-0011-rejected-llm-output-evidence.md) | P1 | Rejected CASE LLM outputs lose auditable failure evidence | [#90](https://github.com/balamacab/RustIDEAM/issues/90) | verified |
+| [DEF-0013](DEF-0013-issue67-runtime-envelope-drift.md) | P2 | Issue #67 canonical runtime envelope drift | [#92](https://github.com/balamacab/RustIDEAM/issues/92) | verified |
 | [DEF-0014](DEF-0014-rejected-evidence-atomic-secret-suppression.md) | — | Rejected CASE evidence can echo credentials or publish partially | [#113](https://github.com/balamacab/RustIDEAM/issues/113) | implementing |
 
 Coverage limitations that are not parser defects are tracked separately under `specs/gaps/`; GAP-0001 is tracked by [issue #8](https://github.com/balamacab/RustIDEAM/issues/8).
