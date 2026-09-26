@@ -112,6 +112,15 @@ items:
     github_issue: 90
     depends_on: []
 
+  - id: DEF-0014
+    type: defect
+    status: implementing
+    area: case-execution-evidence
+    spec: specs/defects/DEF-0014-rejected-evidence-atomic-secret-suppression.md
+    github_issue: 113
+    depends_on:
+      - DEF-0011
+
   - id: GAP-0001
     type: coverage-gap
     priority: P2
