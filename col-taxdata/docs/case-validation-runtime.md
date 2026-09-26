@@ -1,53 +1,97 @@
 # CASE reference validation runtime
 
-Issue #75 separates the current CASE controlled-validation path from the historical issue #65 three-backend benchmark.
+Issue #75 separates controlled CASE validation from the historical issue #65
+three-backend benchmark. Issue #92 / DEF-0013 subsequently amends only the
+canonical issue #67 runtime envelope after the original 900-second ceiling
+proved operationally inadequate.
 
-Controlled execution failures, retries, amendments, aborts, post-fix reruns and Phase-B isolation are governed by [`case-controlled-failure-protocol.md`](case-controlled-failure-protocol.md). Runtime/profile readiness does not by itself make an otherwise forbidden retry eligible.
-
-## Current profiles
+## Runtime profile versions
 
 Normal local defaults remain in:
 
 `config/llm/local-platform.yaml`
 
-Controlled validation uses the dedicated profile:
+The original issue #75 reference profile remains unchanged at:
 
 `config/llm/case-validation-reference.yaml`
 
-That profile currently makes `gemma-4-E2B-it-Q4_K_M` the actual primary structuring model with the frozen 16384/6144/900-second envelope. It uses the same OpenAI-compatible application adapter as the ordinary local path.
+That v1 profile retains the original 16384 context / 6144 output / 900-second
+envelope. It remains useful as historical #75/#65-era reference configuration,
+but it is no longer the canonical issue #67 execution profile.
 
-The execution contract is:
+The amended reference runtime is committed separately at:
+
+`config/llm/case-validation-reference-v2.yaml`
+
+Runtime v2 preserves the same OpenAI-compatible provider boundary, llama.cpp
+provider identity, Gemma E2B model, context=16384, temperature=0 and request
+options while changing only:
+
+- `max_output_tokens=9000`;
+- `request_timeout_seconds=7200`.
+
+The issue #67-specific validation contract is:
 
 `config/validation/issue67-reference.json`
 
-It classifies:
+Its validation/run identities remain specific to issue #67. The reusable
+artifact is the versioned runtime profile, not the `issue67-*` execution
+identity. A later controlled validation must create its own validation/admission
+identity and explicitly select an authorized runtime version.
 
-- Quadro M620 + llama.cpp + Gemma E2B as the single **required reference backend**;
-- Gemma E2B / Ryzen AI / FastFlowLM as **optional experimental**;
-- Gemma 12B / Ryzen AI / FastFlowLM as **optional experimental**.
+## Static verification and planning
 
-Issue #92 owns any durable amendment of the #67 runtime envelope. Until that separate work is implemented, this document describes the machine-readable profile that exists on the current repository revision; operators must not silently substitute host-local limits and call the result the same frozen attempt.
-
-## Static verification
-
-No network or model call is performed by these commands:
+These commands perform no model/network call and no persisted-state mutation:
 
 ```bash
 python3 tools/case_validation.py verify-profile
 python3 tools/case_validation.py plan
 ```
 
-`verify-profile` also verifies the historical #65 package and its frozen input/request/CaseInput fingerprints. It does not modify that package.
+The verifier independently checks:
 
-The required Phase A plan contains exactly one controlled E2E execution through:
+- historical #65 package/fingerprints and its exact 900/6144 envelope;
+- current issue #67 exact 7200/9000 envelope;
+- unchanged model/context/T0/top_p/top_k/thinking/stream/n parameters;
+- clean-provider-state rules;
+- the selected committed runtime profile;
+- exact-byte SHA-256 for both validation and runtime profiles.
 
-`POST /v1/cases`
+Plan output records both profile identities/versions/SHA-256 values and labels
+the historical and current envelopes separately.
 
-Optional FastFlowLM diagnostics are reported separately and never become required Phase A runs.
+A validation profile may also live outside `config/validation`; repository
+references resolve from an explicit project root rather than from the external
+profile's directory depth:
 
-## Readiness input
+```bash
+python3 tools/case_validation.py \
+  --profile /path/to/issue67-profile.json \
+  --project-root /path/to/col-taxdata \
+  verify-profile
+```
 
-Runtime preparation can write a small capability observation JSON outside the repository and evaluate it read-only:
+## Clean runtime selection
+
+No host-local generated config is needed. Runtime tooling can select the
+committed canonical issue #67 runtime directly:
+
+```bash
+python3 tools/case_http.py \
+  --config config/llm/case-validation-reference-v2.yaml \
+  --db /path/to/isolated-state.sqlite \
+  --case-root /path/to/isolated-case-root \
+  --dry-run
+```
+
+The actual controlled execution remains owned by its execution issue. DEF-0013
+does not start a provider, reset a provider, submit the frozen complex case, or
+perform Phase A/Phase B.
+
+## Readiness observation
+
+A capability observation for the required reference backend uses the amended
+canonical generation envelope:
 
 ```json
 {
@@ -61,8 +105,8 @@ Runtime preparation can write a small capability observation JSON outside the re
         "temperature": 0,
         "thinking": false,
         "context_tokens": 16384,
-        "max_output_tokens": 6144,
-        "provider_timeout_seconds": 900,
+        "max_output_tokens": 9000,
+        "provider_timeout_seconds": 7200,
         "top_p": 1,
         "top_k": 0,
         "stream": false,
@@ -73,36 +117,40 @@ Runtime preparation can write a small capability observation JSON outside the re
 }
 ```
 
-Then:
+Evaluate it read-only with:
 
 ```bash
 python3 tools/case_validation.py readiness --capabilities /path/to/capabilities.json
 ```
 
-Missing FastFlowLM entries are reported as unavailable experimental backends while `core_ready` remains determined solely by the strict reference backend.
+FastFlowLM backends remain optional diagnostics. Their absence does not fail core
+readiness and they may not silently substitute model or generation parameters.
 
-An experimental backend that is available but reports a different model or generation envelope is marked ineligible for that diagnostic. It is never silently substituted and still does not fail core readiness.
+## Controlled failure and Phase B gate
 
-## Phase B gate
+Runtime/profile readiness does not itself authorize a retry. Controlled execution failures, retries, amendments, aborts, post-fix reruns and independent-control isolation are governed by [`case-controlled-failure-protocol.md`](case-controlled-failure-protocol.md).
 
-Phase B depends on a successful **and frozen** required Phase A result. Experimental backend availability is not a Phase B prerequisite.
+For #17/#67-style controlled runs, Phase B is eligible only after a canonical Phase A attempt is frozen as a completed, accepted, validator-passing CaseResult and its semantic content has not been exposed to the independent Phase B context. A rejected/failed attempt is preserved and classified; it is not retried ad hoc until something passes.
 
-For controlled runs, a result is not eligible for Phase B merely because the provider returned data. The attempt must satisfy the controlled-failure protocol: it must be a completed canonical attempt with an accepted, validator-passing CaseResult and no pre-control semantic inspection that would break the independent-control boundary.
+## Historical boundary
 
-## Historical benchmark boundary
+The issue #65 benchmark package remains historical evidence. DEF-0013 does not
+rewrite its bytes, registered input/request/CaseInput hashes, three-backend
+matrix, nine-run plan, or original generation envelope.
 
-The following remain historical issue #65 evidence and are not current #67 gates:
+The amendment history is:
 
-- the required three-backend matrix;
-- three repetitions per backend;
-- nine-run suite PASS;
-- mandatory Quadro-vs-FastFlow E2B concordance;
-- mandatory Gemma 12B FastFlowLM execution.
-
-Do not modify the frozen #65 input or request to reflect the current plan.
+1. #65/#75 established the original 16384/6144/900 envelope.
+2. Two canonical #67 attempts reached the 900-second timeout while generation
+   remained active.
+3. The operator explicitly authorized 16384/9000/7200 for #67.
+4. That amended envelope allowed natural completion.
+5. The later `INVALID_CASE_DRAFT` / `source_quote` rejection is an independent
+   application-contract failure and is not evidence that the runtime amendment
+   failed.
 
 ## Safety
 
-This profile/planner is read-only. It performs no corpus mutation, schema migration, reprocessing, provider reset, model call, Phase A execution, or Phase B execution. Runtime reset and isolated execution remain explicit operational steps owned by the executing issue.
-
-When a controlled execution fails or is aborted, preserve its attempt evidence and apply the classification/retry/rerun rules in `case-controlled-failure-protocol.md`; do not mutate the profile ad hoc or rerun until a result passes.
+The profile verifier/planner is read-only. It performs no schema migration,
+corpus reprocessing, raw-evidence mutation, provider reset, model call, Phase A
+execution, or Phase B execution.
