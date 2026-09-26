@@ -118,7 +118,7 @@ items:
   - id: DEF-0013
     type: defect
     priority: P2
-    status: implementing
+    status: verified
     area: validation
     spec: specs/defects/DEF-0013-issue67-runtime-envelope-drift.md
     github_issue: 92
