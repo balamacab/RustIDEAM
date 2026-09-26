@@ -8,11 +8,11 @@ Normal local defaults remain in:
 
 `config/llm/local-platform.yaml`
 
-Controlled validation uses the dedicated profile:
+Current #67 controlled validation uses the versioned dedicated profile:
 
-`config/llm/case-validation-reference.yaml`
+`config/llm/case-validation-issue67-v2.yaml`
 
-That profile makes `gemma-4-E2B-it-Q4_K_M` the actual primary structuring model with the frozen 16384/6144/900-second envelope. It uses the same OpenAI-compatible application adapter as the ordinary local path.
+The execution plan is `issue67-controlled-validation-v2`: Gemma E2B remains the primary structuring model with `context_tokens=16384`, `max_output_tokens=9000`, and `provider_timeout_seconds=7200`. The historical #65 16384/6144/900 envelope remains preserved separately and is not the current #67 execution envelope. The application still uses the same OpenAI-compatible boundary.
 
 The execution contract is:
 
@@ -57,8 +57,8 @@ Runtime preparation can write a small capability observation JSON outside the re
         "temperature": 0,
         "thinking": false,
         "context_tokens": 16384,
-        "max_output_tokens": 6144,
-        "provider_timeout_seconds": 900,
+        "max_output_tokens": 9000,
+        "provider_timeout_seconds": 7200,
         "top_p": 1,
         "top_k": 0,
         "stream": false,
@@ -78,6 +78,12 @@ python3 tools/case_validation.py readiness --capabilities /path/to/capabilities.
 Missing FastFlowLM entries are reported as unavailable experimental backends while `core_ready` remains determined solely by the strict reference backend.
 
 An experimental backend that is available but reports a different model or generation envelope is marked ineligible for that diagnostic. It is never silently substituted and still does not fail core readiness.
+
+## Controlled failure / rerun protocol
+
+Before executing or resuming a controlled CASE validation, read [`case-controlled-failure-protocol.md`](case-controlled-failure-protocol.md). It is authoritative for attempt identity, provider-contact/upstream-stage evidence, retry eligibility, contract amendments, post-fix lineage, diagnostic completion, blindness, and #90/#95 evidence boundaries.
+
+A separate preparation/admission manifest such as #95 is not an execution attempt; a failed admission gate before attempt allocation consumes no canonical attempt. Once an attempt is allocated, failures are recorded under the controlled-attempt protocol.
 
 ## Phase B gate
 
