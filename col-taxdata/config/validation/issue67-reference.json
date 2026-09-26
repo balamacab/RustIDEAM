@@ -13,7 +13,7 @@
   },
   "application": {
     "transport": "openai-compatible",
-    "llm_platform_config": "config/llm/case-validation-issue67-v2.yaml",
+    "llm_platform_config": "config/llm/case-validation-reference-v2.yaml",
     "http_adapter": "tools/case_http.py",
     "http_method": "POST",
     "http_endpoint": "/v1/cases",
