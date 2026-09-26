@@ -67,7 +67,7 @@ _UNAVAILABLE_INFORMATION_PATTERNS = (
 
 # Model-facing quote choices are exact contiguous paragraphs from the client text.
 # The separator is detected, never normalized into the quote itself.
-_SOURCE_PARAGRAPH_SEPARATOR = re.compile(r"(?:\\r?\\n[ \\t]*\\r?\\n)+")
+_SOURCE_PARAGRAPH_SEPARATOR = re.compile(r"(?:\r?\n[ \t]*\r?\n)+")
 
 
 def _fold_lexical_text(value: str) -> str:
