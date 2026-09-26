@@ -7,6 +7,7 @@ import shutil
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -14,6 +15,12 @@ sys.path.insert(0, str(ROOT / "tools"))
 
 import case_benchmark
 import case_validation
+from llm_client import (
+    CASE_PROVIDER_TIMEOUT,
+    LLMClientError,
+    OpenAICompatibleLLMClient,
+    load_platform_config,
+)
 
 
 class Def0013Issue67RuntimeEnvelopeTests(unittest.TestCase):
@@ -209,8 +216,48 @@ class Def0013Issue67RuntimeEnvelopeTests(unittest.TestCase):
         self.assertFalse(result["valid"])
         self.assertIn("profile:profile_id", result["errors"])
 
+        mutated = deepcopy(self.profile)
+        mutated["schema_version"] = 3
+        result = self.verify_external_profile(mutated)
+        self.assertFalse(result["valid"])
+        self.assertIn("profile:schema_version", result["errors"])
+
+    def test_actual_openai_request_materializes_frozen_generation_options(self) -> None:
+        config = load_platform_config(
+            ROOT / self.profile["application"]["llm_platform_config"]
+        )
+        client = OpenAICompatibleLLMClient(config)
+        case_input = {
+            "kind": "case_input",
+            "contract_version": "3.0.0",
+            "problem_text": "La sociedad solicita una validación tributaria.",
+        }
+
+        with mock.patch(
+            "llm_client.urlrequest.urlopen",
+            side_effect=TimeoutError("test stop after request construction"),
+        ) as opened:
+            with self.assertRaises(LLMClientError) as raised:
+                client.complete_case_draft(
+                    case_input=case_input,
+                    route=config.primary,
+                )
+
+        self.assertEqual(raised.exception.code, CASE_PROVIDER_TIMEOUT)
+        request_payload = json.loads(opened.call_args.args[0].data)
+        self.assertEqual(request_payload["temperature"], 0)
+        self.assertEqual(request_payload["max_tokens"], 9000)
+        self.assertEqual(request_payload["top_p"], 1)
+        self.assertEqual(request_payload["top_k"], 0)
+        self.assertFalse(request_payload["stream"])
+        self.assertEqual(request_payload["n"], 1)
+        self.assertFalse(
+            request_payload["chat_template_kwargs"]["enable_thinking"]
+        )
+
     def test_verify_rejects_selected_llm_runtime_profile_drift(self) -> None:
         cases = [
+            ("version", lambda value: value.__setitem__("version", 3)),
             ("timeout", lambda value: value.__setitem__("request_timeout_seconds", 900)),
             (
                 "context_tokens",
@@ -255,6 +302,16 @@ class Def0013Issue67RuntimeEnvelopeTests(unittest.TestCase):
             (
                 "profile_id",
                 lambda value: value.__setitem__("profile_id", "unexpected-profile"),
+            ),
+            (
+                "primary_attempts",
+                lambda value: value["routing"].__setitem__("primary_attempts", 2),
+            ),
+            (
+                "review_fallback_forbidden",
+                lambda value: value["routing"].__setitem__(
+                    "review_on_provider_error", True
+                ),
             ),
         ]
 
