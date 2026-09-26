@@ -131,6 +131,22 @@ def test_retry_matrix_is_deterministic_and_never_allows_semantic_repair():
     assert failure_policy("G_LEGAL_QUALITY")["same_envelope_retry"] == "forbidden"
 
 
+@pytest.mark.parametrize(
+    "failure_class",
+    [
+        "C_RUNTIME_ENVELOPE",
+        "E_APPLICATION_CONTRACT",
+        "F_DOWNSTREAM_SYSTEM",
+        "G_LEGAL_QUALITY",
+        "H_OPERATOR_ABORTED",
+    ],
+)
+def test_non_operational_classes_never_get_same_envelope_retry(failure_class):
+    assert not same_envelope_retry_allowed(
+        failure_class, retry_number=1, retry_limit=1, operational_cause=True
+    )
+
+
 def test_application_failure_cannot_be_retried_to_get_lucky_answer():
     assert not same_envelope_retry_allowed(
         "E_APPLICATION_CONTRACT", retry_number=1, retry_limit=2
@@ -269,6 +285,7 @@ def test_same_contract_post_fix_allows_code_change_but_detects_profile_request_o
         ("profile", "sha256"),
         ("input", "request_sha256"),
         ("input", "db_baseline_sha256"),
+        ("provider", "artifact_or_build_identity"),
     ]:
         drifted = deepcopy(current)
         drifted[section][key] = "8" * 64
