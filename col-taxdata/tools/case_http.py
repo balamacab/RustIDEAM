@@ -13,6 +13,7 @@ import re
 import sys
 from typing import Any, Callable
 
+from case_attempt_evidence import RejectedStructuringEvidenceStore
 from case_application import (
     AnalysisOutcome,
     CaseAnalysisIntegrityError,
@@ -485,7 +486,14 @@ def build_runtime_application(
     """Construct server-side runtime configuration once for all HTTP requests."""
     config = load_platform_config(config_path)
     client = OpenAICompatibleLLMClient(config)
-    structurer = CaseStructuringService(config, client)
+    evidence_store = RejectedStructuringEvidenceStore(
+        case_root / "_audit" / "rejected-structuring-attempts"
+    )
+    structurer = CaseStructuringService(
+        config,
+        client,
+        evidence_store=evidence_store,
+    )
 
     def analyzer(case_input: dict[str, Any]) -> AnalysisOutcome:
         return analyze_case(
