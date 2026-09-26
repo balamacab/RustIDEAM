@@ -114,7 +114,7 @@ items:
 
   - id: DEF-0014
     type: defect
-    status: implementing
+    status: verified
     area: case-execution-evidence
     spec: specs/defects/DEF-0014-rejected-evidence-atomic-secret-suppression.md
     github_issue: 113
