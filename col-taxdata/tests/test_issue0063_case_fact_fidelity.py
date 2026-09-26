@@ -237,9 +237,10 @@ class Issue0063CaseFactFidelityTests(unittest.TestCase):
 
     def test_prompt_revision_encodes_issue63_fidelity_rule(self):
         self.assertEqual(PROMPT_TEMPLATE_VERSION, "5")
-        self.assertIn("never downgrade it to missing", SYSTEM_PROMPT)
-        self.assertIn("datum absent from the source text", SYSTEM_PROMPT)
-        self.assertIn("keep genuine ambiguity unresolved", SYSTEM_PROMPT)
+        self.assertIn("never downgrade that fact to missing", SYSTEM_PROMPT)
+        self.assertIn("concrete datum absent from problem_text", SYSTEM_PROMPT)
+        self.assertIn("Truly ambiguous information remains ambiguous", SYSTEM_PROMPT)
+        self.assertIn("select source_quote exactly", SYSTEM_PROMPT)
 
 
 if __name__ == "__main__":

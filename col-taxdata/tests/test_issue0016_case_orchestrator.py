@@ -363,6 +363,7 @@ class Issue0016ContractAndRoutingTests(unittest.TestCase):
                 self.assertEqual(raised.exception.code, INVALID_CASE_DRAFT)
 
     def test_user_fact_traceability_and_inference_are_distinct(self):
+        quote = "está en liquidación"
         explicit = {
             "kind": "case_fact",
             "contract_version": "3.0.0",
@@ -370,7 +371,7 @@ class Issue0016ContractAndRoutingTests(unittest.TestCase):
             "label": "Estado",
             "value": "liquidación",
             "state": "user_provided",
-            "source_span_ref": "s0",
+            "source_quote": quote,
             "requires_confirmation": False,
         }
         inferred = {
@@ -390,12 +391,8 @@ class Issue0016ContractAndRoutingTests(unittest.TestCase):
             [item["state"] for item in draft["facts"]],
             ["user_provided", "llm_inferred"],
         )
-        self.assertEqual(draft["facts"][0]["source_quote"], PROBLEM)
-        self.assertNotIn("source_span_ref", draft["facts"][0])
 
-        bad = model_payload(
-            facts=[{**explicit, "source_span_ref": "s-does-not-exist"}]
-        )
+        bad = model_payload(facts=[{**explicit, "source_quote": "no aparece"}])
         with self.assertRaises(CaseContractError):
             CaseStructuringService(
                 make_config(), FakeLLMClient([bad])
@@ -423,11 +420,7 @@ class Issue0016ContractAndRoutingTests(unittest.TestCase):
                 "requires_confirmation"
             ]["const"]
         )
-        self.assertIn("source_span_ref", states["user_provided"]["required"])
-        self.assertNotIn(
-            "source_quote",
-            states["user_provided"]["properties"],
-        )
+        self.assertIn("source_quote", states["user_provided"]["required"])
         for state in ("llm_normalized", "llm_inferred", "missing", "ambiguous"):
             self.assertTrue(
                 states[state]["properties"][
@@ -576,9 +569,7 @@ class Issue0016ContractAndRoutingTests(unittest.TestCase):
             sent["chat_template_kwargs"]["enable_thinking"]
         )
         model_context = json.loads(sent["messages"][1]["content"])
-        self.assertNotIn("problem_text", model_context)
-        self.assertIn("[s0]", model_context["source_text"])
-        self.assertIn(PROBLEM, model_context["source_text"])
+        self.assertEqual(model_context["problem_text"], PROBLEM)
         self.assertEqual(
             model_context["analysis_context"]["as_of_date"],
             "2026-09-24",
@@ -588,10 +579,10 @@ class Issue0016ContractAndRoutingTests(unittest.TestCase):
             "$defs"
         ]["CaseDraft"]
         for name in ("problem_text", "as_of_date", "client_reference"):
-            self.assertEqual(
-                draft_schema["properties"][name]["const"],
-                original[name],
-            )
+            self.assertNotIn(name, draft_schema["properties"])
+            self.assertNotIn(name, draft_schema["required"])
+        # The adapter restores only omitted client-owned fields from CaseInput;
+        # authoritative CaseDraft validation still owns exact equality.
         self.assertEqual(payload["problem_text"], PROBLEM)
         self.assertEqual(payload["as_of_date"], "2026-09-24")
         self.assertEqual(payload["client_reference"], "matter-16")

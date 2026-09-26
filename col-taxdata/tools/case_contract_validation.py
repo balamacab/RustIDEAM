@@ -65,109 +65,9 @@ _UNAVAILABLE_INFORMATION_PATTERNS = (
     "sin informacion",
 )
 
-_SOURCE_SENTENCE_BOUNDARY = re.compile(
-    r'(?<=[.!?])\s+(?=[A-ZÁÉÍÓÚÑ¿¡"“«])'
-)
-_NUMBERED_SOURCE_LINE = re.compile(r"^\d+\.\s")
-
-
-def case_input_source_spans(problem_text: str) -> list[dict[str, str]]:
-    """Return deterministic, ordered literal spans for model evidence selection.
-
-    Span text is always copied from one contiguous region of problem_text.
-    The short refs are model-facing selectors only; they are never serialized
-    into an accepted CaseDraft.
-    """
-    spans: list[dict[str, str]] = []
-    for raw_line in problem_text.splitlines():
-        line = raw_line.strip()
-        if not line:
-            continue
-        if line.startswith("- ") or _NUMBERED_SOURCE_LINE.match(line):
-            parts = [line]
-        else:
-            parts = _SOURCE_SENTENCE_BOUNDARY.split(line)
-        for part in parts:
-            text = part.strip()
-            if not text or not any(char.isalnum() for char in text):
-                continue
-            spans.append(
-                {
-                    "source_span_ref": f"s{len(spans)}",
-                    "text": text,
-                }
-            )
-
-    # CaseInput currently permits any non-empty string. Preserve fail-closed
-    # behavior for a degenerate whitespace/punctuation-only input rather than
-    # inventing substantive evidence.
-    if not spans and problem_text:
-        spans.append({"source_span_ref": "s0", "text": problem_text})
-    return spans
-
-
-def annotated_case_source(problem_text: str) -> str:
-    """Render the client text once with compact model-facing source-span markers."""
-    return "\n".join(
-        f"[{span['source_span_ref']}]{span['text']}"
-        for span in case_input_source_spans(problem_text)
-    )
-
-
-def materialize_case_draft_source_quotes(
-    case_input: dict[str, Any],
-    candidate: dict[str, Any],
-) -> dict[str, Any]:
-    """Materialize literal source_quote bytes from model-selected source spans.
-
-    This is deterministic client-evidence materialization, not semantic repair:
-    the model never authors quote bytes and cannot combine non-contiguous spans.
-    """
-    draft = deepcopy(candidate)
-    span_by_ref = {
-        span["source_span_ref"]: span["text"]
-        for span in case_input_source_spans(case_input["problem_text"])
-    }
-    facts = draft.get("facts")
-    if not isinstance(facts, list):
-        return draft
-
-    for index, fact in enumerate(facts):
-        if not isinstance(fact, dict):
-            continue
-        if "source_quote" in fact:
-            _fail(
-                INVALID_CASE_DRAFT,
-                f"$.facts[{index}].source_quote",
-                (
-                    "model-authored source_quote is not permitted; "
-                    "select source_span_ref instead"
-                ),
-            )
-
-        span_present = "source_span_ref" in fact
-        span_ref = fact.get("source_span_ref")
-        if fact.get("state") == "user_provided":
-            if not isinstance(span_ref, str) or span_ref not in span_by_ref:
-                _fail(
-                    INVALID_CASE_DRAFT,
-                    f"$.facts[{index}].source_span_ref",
-                    "user_provided fact must select a valid CaseInput source span",
-                )
-            fact.pop("source_span_ref")
-            fact["source_quote"] = span_by_ref[span_ref]
-        elif span_present:
-            _fail(
-                INVALID_CASE_DRAFT,
-                f"$.facts[{index}].source_span_ref",
-                "only user_provided facts may select literal client evidence",
-            )
-
-    return draft
-
-
-def _source_quote_is_degenerate(quote: str) -> bool:
-    return not quote.strip() or not any(char.isalnum() for char in quote)
+# Model-facing quote choices are exact contiguous paragraphs from the client text.
+# The separator is detected, never normalized into the quote itself.
+_SOURCE_PARAGRAPH_SEPARATOR = re.compile(r"(?:\r?\n[ \t]*){2,}")
 
 
 def _fold_lexical_text(value: str) -> str:
@@ -518,12 +418,6 @@ def validate_case_draft(
 
         if fact["state"] == "user_provided":
             quote = fact["source_quote"]
-            if _source_quote_is_degenerate(quote):
-                _fail(
-                    INVALID_CASE_DRAFT,
-                    f"$.facts[{index}].source_quote",
-                    "user_provided quote is empty or degenerate",
-                )
             if quote not in case_input["problem_text"]:
                 _fail(
                     INVALID_CASE_DRAFT,
@@ -752,13 +646,12 @@ def validate_result_preserves_draft(
 
 
 def case_draft_response_schema(case_input: dict[str, Any]) -> dict[str, Any]:
-    """Return the CaseInput-specific model-facing v3 candidate schema.
+    """Return a CaseInput-specific model schema for a complete v3 CaseDraft.
 
-    Client-owned fields remain part of the serialized CaseDraft and are pinned
-    exactly here. Prompt-template v5 additionally replaces model-authored
-    source_quote bytes with a constrained source_span_ref selector; CASE
-    deterministically materializes the literal quote before authoritative
-    CaseDraft validation.
+    Client-owned fields remain part of the serialized CaseDraft. Their exact
+    values/presence are constrained here so structured generation cannot choose,
+    rewrite, omit, or manufacture them. Authoritative cross-object validation
+    still runs after generation.
     """
     validate_case_input(case_input)
     root = load_contract_schema()
@@ -796,16 +689,7 @@ def case_draft_response_schema(case_input: dict[str, Any]) -> dict[str, Any]:
     # semantics while expressing them to the model as explicit oneOf variants.
     fact = definitions["CaseFact"]
     fact_properties = deepcopy(fact["properties"])
-    # Literal quote bytes are application-owned evidence in prompt template v5.
-    # The model selects a compact span ref instead of authoring source_quote.
-    fact_properties.pop("source_quote", None)
-    fact_required = [
-        name for name in fact["required"] if name != "source_quote"
-    ]
-    source_span_refs = [
-        span["source_span_ref"]
-        for span in case_input_source_spans(case_input["problem_text"])
-    ]
+    fact_required = list(fact["required"])
 
     def fact_variant(
         state: str,
@@ -827,19 +711,13 @@ def case_draft_response_schema(case_input: dict[str, Any]) -> dict[str, Any]:
             "properties": properties,
         }
 
-    user_provided = fact_variant(
-        "user_provided",
-        requires_confirmation=False,
-        additional_required=["source_span_ref"],
-    )
-    user_provided["properties"]["source_span_ref"] = {
-        "type": "string",
-        "enum": source_span_refs,
-    }
-
     definitions["CaseFact"] = {
         "oneOf": [
-            user_provided,
+            fact_variant(
+                "user_provided",
+                requires_confirmation=False,
+                additional_required=["source_quote"],
+            ),
             fact_variant("llm_normalized", requires_confirmation=True),
             fact_variant("llm_inferred", requires_confirmation=True),
             fact_variant(
@@ -859,3 +737,62 @@ def case_draft_response_schema(case_input: dict[str, Any]) -> dict[str, Any]:
         "$defs": definitions,
         "$ref": "#/$defs/CaseDraft",
     }
+
+
+def source_quote_candidates(problem_text: str) -> list[str]:
+    """Return deterministic exact client-text spans for constrained quote generation.
+
+    Paragraph-sized spans preserve exact code points and internal newlines, remain
+    contiguous substrings of problem_text, and keep schema growth bounded to roughly
+    one additional copy of the client text. Duplicate paragraph text is collapsed
+    because CaseDraft v3 stores quote text rather than occurrence offsets.
+    """
+    candidates: list[str] = []
+    seen: set[str] = set()
+    start = 0
+    for separator in _SOURCE_PARAGRAPH_SEPARATOR.finditer(problem_text):
+        candidate = problem_text[start : separator.start()]
+        if candidate and candidate not in seen:
+            candidates.append(candidate)
+            seen.add(candidate)
+        start = separator.end()
+
+    candidate = problem_text[start:]
+    if candidate and candidate not in seen:
+        candidates.append(candidate)
+
+    # CaseInput currently allows any non-empty string. Preserve a deterministic
+    # literal choice even for pathological whitespace/separator-only input.
+    if not candidates and problem_text:
+        candidates.append(problem_text)
+    return candidates
+
+
+def case_draft_generation_schema(case_input: dict[str, Any]) -> dict[str, Any]:
+    """Return the constrained model-facing schema used to generate a v3 CaseDraft.
+
+    Client-owned root fields are omitted from model generation and copied verbatim
+    by the adapter after parsing. user_provided.source_quote is constrained to exact
+    contiguous client-text spans, so a conforming structured backend cannot
+    paraphrase, normalize, concatenate, or otherwise alter quote bytes. The final
+    public CaseDraft is still validated by validate_case_draft.
+    """
+    schema = case_draft_response_schema(case_input)
+    draft = schema["$defs"]["CaseDraft"]
+    for name in ("problem_text", "as_of_date", "client_reference"):
+        draft["properties"].pop(name, None)
+        draft["required"] = [item for item in draft["required"] if item != name]
+
+    candidates = source_quote_candidates(case_input["problem_text"])
+    for variant in schema["$defs"]["CaseFact"]["oneOf"]:
+        properties = variant["properties"]
+        state = properties["state"]["const"]
+        if state == "user_provided":
+            properties["source_quote"] = {
+                "type": "string",
+                "enum": deepcopy(candidates),
+            }
+        else:
+            # Only literal client facts receive generated source quotes.
+            properties.pop("source_quote", None)
+    return schema
