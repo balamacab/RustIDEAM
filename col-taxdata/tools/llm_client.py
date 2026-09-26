@@ -698,6 +698,7 @@ class CaseStructuringService:
         started_at: str,
         case_input: dict[str, Any],
         route: ModelRoute,
+        request_fingerprints: dict[str, str] | None,
         generation: GenerationEvidence | None,
         failure_code: str,
         failure_stage: str,
@@ -717,6 +718,7 @@ class CaseStructuringService:
             started_at=started_at,
             ended_at=utc_audit_now(),
             case_input_sha256=sha256_hex(canonical_json_bytes(case_input)),
+            request_fingerprints=deepcopy(request_fingerprints),
             adapter=self.client.adapter_id,
             provider=self.client.provider_id,
             requested_model=route.name,
@@ -735,6 +737,8 @@ class CaseStructuringService:
         self,
         case_input: dict[str, Any],
         route: ModelRoute,
+        *,
+        request_fingerprints: dict[str, str] | None = None,
     ) -> dict[str, Any]:
         attempt_id = f"ATT-{uuid.uuid4().hex}"
         run_reference = f"run:{uuid.uuid4().hex}"
@@ -752,6 +756,7 @@ class CaseStructuringService:
                 started_at=started_at,
                 case_input=case_input,
                 route=route,
+                request_fingerprints=request_fingerprints,
                 generation=exc.generation_evidence,
                 failure_code=exc.code,
                 failure_stage=exc.failure_stage or FAILURE_TRANSPORT,
@@ -774,6 +779,7 @@ class CaseStructuringService:
                 started_at=started_at,
                 case_input=case_input,
                 route=route,
+                request_fingerprints=request_fingerprints,
                 generation=generation,
                 failure_code=INVALID_CASE_DRAFT,
                 failure_stage=FAILURE_SEMANTIC_VALIDATION,
@@ -817,6 +823,7 @@ class CaseStructuringService:
                 started_at=started_at,
                 case_input=case_input,
                 route=route,
+                request_fingerprints=request_fingerprints,
                 generation=generation,
                 failure_code=exc.code,
                 failure_stage=failure_stage,
@@ -826,7 +833,12 @@ class CaseStructuringService:
             raise
         return draft
 
-    def structure(self, case_input: dict[str, Any]) -> StructuringOutcome:
+    def structure(
+        self,
+        case_input: dict[str, Any],
+        *,
+        request_fingerprints: dict[str, str] | None = None,
+    ) -> StructuringOutcome:
         self._require_generation_compatibility()
         attempts = 0
         last_invalid: Exception | None = None
@@ -836,7 +848,11 @@ class CaseStructuringService:
             attempts += 1
             try:
                 return StructuringOutcome(
-                    draft=self._attempt(case_input, self.config.primary),
+                    draft=self._attempt(
+                        case_input,
+                        self.config.primary,
+                        request_fingerprints=request_fingerprints,
+                    ),
                     attempts=attempts,
                     used_review=False,
                 )
@@ -864,7 +880,11 @@ class CaseStructuringService:
             attempts += 1
             try:
                 return StructuringOutcome(
-                    draft=self._attempt(case_input, self.config.review),
+                    draft=self._attempt(
+                        case_input,
+                        self.config.review,
+                        request_fingerprints=request_fingerprints,
+                    ),
                     attempts=attempts,
                     used_review=True,
                 )
