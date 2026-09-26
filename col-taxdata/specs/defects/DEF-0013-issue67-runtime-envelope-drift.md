@@ -1,6 +1,6 @@
 # DEF-0013 — Issue #67 canonical runtime envelope drift
 
-Status: implementing  
+Status: verified  
 Priority: P2  
 GitHub issue: #92  
 Area: validation / runtime-profile
@@ -116,3 +116,13 @@ The `tools/case_validation.py verify-profile` and `plan` commands are read-only 
 ## Dependencies / ordering
 
 No blocking implementation dependency is required. The next canonical #67 Phase A rerun is gated on this defect being integrated so repository tooling can produce the amended plan directly from committed configuration.
+
+## Verification evidence
+
+- Implementation PR: #96, merged as `1cb053042b90b1035ba2fd9d7585f81166a7cbab`.
+- Candidate `CI Gate`: passed.
+- Post-merge col-taxdata suite: 280 tests passed, including issue #75 reference-runtime and issue #76 structured-output compatibility coverage.
+- Post-merge `Convergence Gate`: passed.
+- Historical #65 benchmark blob SHA remained `3e9da9c37eed8abfd036d7ccb722a6c6d4459f27` across the #92 implementation.
+- Generic `config/llm/case-validation-reference.yaml` blob SHA remained `36a814481fe0540e0f28d8b18cc27c9e7747f613` across the #92 implementation.
+- Reprocessing, schema migration, production mutation, runtime access, and raw-evidence changes: N/A.
