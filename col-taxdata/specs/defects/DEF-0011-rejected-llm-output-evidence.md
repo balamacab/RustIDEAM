@@ -1,6 +1,6 @@
 # DEF-0011 — Rejected LLM structuring output evidence is lost
 
-Status: implementing  
+Status: verified  
 Priority: P1  
 GitHub: #90
 
