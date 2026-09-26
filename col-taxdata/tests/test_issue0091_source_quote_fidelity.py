@@ -192,7 +192,7 @@ class Issue0091SourceQuoteFidelityTests(unittest.TestCase):
                 "La sociedad no tiene sucursal en Colombia "
                 "El proveedor es España Tecnología SAS."
             ),
-            "punctuation_change": "El proveedor es España Tecnología SAS",
+            "punctuation_change": "El proveedor es España Tecnología SAS;",
             "whitespace_change": (
                 "La sociedad no tiene sucursal en Colombia  y pagó USD 10.000"
             ),
@@ -202,6 +202,11 @@ class Issue0091SourceQuoteFidelityTests(unittest.TestCase):
                 validate_case_draft(case_input(), final_draft(PROBLEM, quote))
             self.assertEqual(raised.exception.code, INVALID_CASE_DRAFT)
             self.assertIn("$.facts[0].source_quote", raised.exception.detail)
+
+    def test_shorter_quote_that_is_still_literal_substring_remains_valid(self):
+        quote = "El proveedor es España Tecnología SAS"
+        self.assertIn(quote, PROBLEM)
+        validate_case_draft(case_input(), final_draft(PROBLEM, quote))
 
     def test_unicode_normalization_is_not_silently_accepted(self):
         source = "La sociedad está domiciliada en España."
@@ -343,7 +348,8 @@ class Issue0091SourceQuoteFidelityTests(unittest.TestCase):
         quote = source_quote_candidates(PROBLEM)[0]
         proposal = provider_proposal(quote)
         encoded = canonical_json_bytes(proposal)
-        self.assertIn(quote.encode("utf-8"), encoded)
+        decoded = json.loads(encoded)
+        self.assertEqual(decoded["facts"][0]["source_quote"], quote)
 
 
 if __name__ == "__main__":
