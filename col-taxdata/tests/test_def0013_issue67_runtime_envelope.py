@@ -120,14 +120,14 @@ class Def0013Issue67RuntimeEnvelopeTests(unittest.TestCase):
                 mutated = deepcopy(self.profile)
                 mutated["generation"][field] = value
                 with tempfile.NamedTemporaryFile(
-            mode="w",
-            suffix=".json",
-            dir=ROOT / "config" / "validation",
-            encoding="utf-8",
-        ) as handle:
-            json.dump(mutated, handle)
-            handle.flush()
-            result = case_validation.verify_profile(Path(handle.name))
+                    mode="w",
+                    suffix=".json",
+                    dir=ROOT / "config" / "validation",
+                    encoding="utf-8",
+                ) as handle:
+                    json.dump(mutated, handle)
+                    handle.flush()
+                    result = case_validation.verify_profile(Path(handle.name))
                 self.assertFalse(result["valid"])
                 self.assertIn("generation:strict_envelope", result["errors"])
 
