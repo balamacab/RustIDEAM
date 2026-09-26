@@ -94,6 +94,12 @@ Missing FastFlowLM entries are reported as unavailable experimental backends whi
 
 An experimental backend that is available but reports a different model or generation envelope is marked ineligible for that diagnostic. It is never silently substituted and still does not fail core readiness.
 
+## Controlled failure / rerun protocol
+
+Before executing or resuming a controlled CASE validation, read [`case-controlled-failure-protocol.md`](case-controlled-failure-protocol.md). It is authoritative for attempt identity, provider-contact/upstream-stage evidence, retry eligibility, contract amendments, post-fix lineage, diagnostic completion, blindness, and #90/#95 evidence boundaries.
+
+A separate preparation/admission manifest such as #95 is not an execution attempt; a failed admission gate before attempt allocation consumes no canonical attempt. Once an attempt is allocated, failures are recorded under the controlled-attempt protocol.
+
 ## Phase B gate
 
 Phase B depends on a successful **and frozen** required Phase A result. Experimental backend availability is not a Phase B prerequisite.
