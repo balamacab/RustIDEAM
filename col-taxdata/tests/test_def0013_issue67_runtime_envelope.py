@@ -172,7 +172,7 @@ class Def0013Issue67RuntimeEnvelopeTests(unittest.TestCase):
             )
             self.assertEqual(
                 plan["validation_profile"]["path"],
-                str(profile_path.resolve()),
+                "external-profiles/issue67.json",
             )
         finally:
             temp.cleanup()
