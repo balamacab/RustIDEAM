@@ -319,8 +319,7 @@ class CaseHTTPRequestHandler(BaseHTTPRequestHandler):
                 sort_keys=True,
                 separators=(",", ":"),
             )
-            + "
-"
+            + "\n"
         ).encode("utf-8")
         self.send_response(int(status))
         self.send_header("Content-Type", "application/json; charset=utf-8")
