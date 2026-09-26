@@ -10,7 +10,7 @@ from case_application import (
     CaseAnalysisIntegrityError,
     analyze_case,
 )
-from case_contract_validation import CaseContractError, CONTRACT_VERSION
+from case_contract_validation import (\n    CaseContractError,\n    CONTRACT_VERSION,\n    INVALID_CASE_DRAFT,\n)
 from case_retrieval import RetrievalIntegrityError
 from llm_client import (
     ContextLimitError,
@@ -34,9 +34,23 @@ def _error_payload(exc: Exception) -> dict[str, object]:
             "context": exc.metadata,
         }
     if isinstance(exc, CaseContractError):
-        return {"error": exc.code, "detail": exc.detail}
+        return {
+            "error": exc.code,
+            "detail": (
+                "provider output failed authoritative CaseDraft validation"
+                if exc.code == INVALID_CASE_DRAFT
+                else exc.detail
+            ),
+        }
     if isinstance(exc, LLMClientError):
-        return {"error": exc.code, "detail": exc.detail}
+        return {
+            "error": exc.code,
+            "detail": (
+                "provider structured output was rejected by CASE"
+                if exc.code == INVALID_CASE_DRAFT
+                else exc.detail
+            ),
+        }
     if isinstance(exc, RetrievalIntegrityError):
         return {
             "error": "CASE_EVIDENCE_INTEGRITY_FAILURE",
