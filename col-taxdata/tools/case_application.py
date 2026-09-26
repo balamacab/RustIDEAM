@@ -606,6 +606,7 @@ def analyze_case(
     structurer: CaseStructuringService,
     dry_run: bool = False,
     include_debug_provenance: bool = False,
+    request_fingerprints: dict[str, str] | None = None,
 ) -> AnalysisOutcome:
     """Analyze one natural-language case and optionally persist canonical case state.
 
@@ -614,7 +615,10 @@ def analyze_case(
     v3 CaseResult has passed schema and semantic graph validation.
     """
     validate_case_input(case_input)
-    structuring = structurer.structure(case_input)
+    structuring = structurer.structure(
+        case_input,
+        request_fingerprints=request_fingerprints,
+    )
     draft = structuring.draft
 
     case_id = _internal_case_id(case_input)

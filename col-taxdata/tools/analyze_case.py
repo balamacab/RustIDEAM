@@ -10,6 +10,7 @@ from case_application import (
     CaseAnalysisIntegrityError,
     analyze_case,
 )
+from case_attempt_evidence import RejectedStructuringEvidenceStore
 from case_contract_validation import CaseContractError, CONTRACT_VERSION
 from case_retrieval import RetrievalIntegrityError
 from llm_client import (
@@ -91,12 +92,20 @@ def main() -> int:
 
     try:
         config = load_platform_config(Path(args.config))
+        case_root = Path(args.case_root)
         client = OpenAICompatibleLLMClient(config)
-        structurer = CaseStructuringService(config, client)
+        evidence_store = RejectedStructuringEvidenceStore(
+            case_root / "_audit" / "rejected-structuring-attempts"
+        )
+        structurer = CaseStructuringService(
+            config,
+            client,
+            evidence_store=evidence_store,
+        )
         outcome = analyze_case(
             case_input=case_input,
             db_path=Path(args.db),
-            case_root=Path(args.case_root),
+            case_root=case_root,
             structurer=structurer,
             dry_run=args.dry_run,
             include_debug_provenance=args.debug_provenance,
