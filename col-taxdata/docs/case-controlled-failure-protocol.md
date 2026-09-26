@@ -1,1 +1,423 @@
-The requested file reference is not currently visible. Use files.search or files.list to rediscover the file, then retry with a returned ref_id or file_id.
+# Controlled CASE failure disposition and rerun protocol
+
+Status: **Active validation/process contract**
+
+Driver: GitHub issue #93.
+
+This document governs controlled CASE validations such as issues #17 and #67. It defines what must happen when an execution does not produce the expected controlled result, when a retry is allowed, when the validation must block, and how a later rerun is related to preserved failed evidence.
+
+This protocol is intentionally conservative. Its purpose is not eventual success. A failed, rejected, poor-quality, or aborted execution remains part of the validation record even when a later execution succeeds.
+
+## 1. Scope and authority boundaries
+
+This protocol applies to controlled CASE execution attempts and their validation lifecycle.
+
+It does **not** replace:
+
+- issue #11's broader code/config/runtime processing-run provenance architecture;
+- the active CASE application contract under `specs/application/`;
+- issue #76's provider-neutral structured-generation and no-post-response-repair contract;
+- issue-specific frozen input, baseline, backend, model, or runtime requirements;
+- immutable corpus/source evidence rules.
+
+The attempt manifest defined below is a **controlled-validation overlay**. It records the fields #93 needs to decide retry/rerun comparability and points to detailed execution artifacts. A future #11 implementation may embed or reference this overlay, but must preserve its semantics rather than silently reinterpret historical attempts.
+
+The selected validation issue remains authoritative for its frozen input and approved execution envelope. If that contract changes, the change must be explicit and versioned.
+
+## 2. Core rules
+
+1. Every provider-reaching or allocated controlled execution gets a unique attempt identity and a unique artifact root.
+2. Terminal attempt evidence is immutable. A retry/rerun creates a successor attempt; it never overwrites, relabels, deletes, or "completes" the predecessor.
+3. Failure classification is based on where and why execution failed, not on whether another model request might later succeed.
+4. Only demonstrably operational failures are candidates for bounded same-envelope retry.
+5. Runtime-envelope changes are contract amendments, not invisible retries.
+6. Structured/application failures fail closed. No Markdown stripping, JSON substring extraction, heuristic repair, semantic field repair, fuzzy acceptance, or retry-until-pass is authorized.
+7. A structurally valid but legally poor result is frozen and evaluated; it is not regenerated to improve a score.
+8. A human-aborted attempt remains `aborted`, never retroactively converted to pass/fail/completed.
+9. Phase B/control blindness is preserved. A Phase A that did not produce a valid accepted CaseResult cannot be represented as having reached independent comparison.
+10. Unknown/unavailable evidence is recorded explicitly as unknown/unavailable; it is never guessed.
+
+## 3. Failure taxonomy and disposition
+
+### A — pre-execution/admission failure
+
+Examples:
+
+- dependency not satisfied;
+- frozen input/baseline fingerprint mismatch;
+- wrong code/image/model/profile;
+- capability/profile verification failure.
+
+Disposition:
+
+- do not send/consume the canonical provider request;
+- preserve admission evidence;
+- fix the admission state;
+- retry only after the gate is demonstrably satisfied;
+- if the contract itself changes, record an explicit amendment instead of calling the next run the same frozen attempt.
+
+### B — transport/provider operational failure
+
+Examples:
+
+- connection failure;
+- provider process crash;
+- transient HTTP failure;
+- timeout while the backend is still actively generating.
+
+Disposition:
+
+- preserve the failed attempt;
+- same-envelope retry is allowed only when the cause is operational and the retry count remains within an externally declared bound;
+- preserve the input, code/image, profile, baseline, provider/model/build identity, and generation semantics that define comparability;
+- every retry gets a new attempt ID and artifact root.
+
+A repeated operational timeout may demonstrate class C rather than justify unlimited class-B retries.
+
+### C — runtime-envelope incompatibility
+
+Examples:
+
+- repeated timeout showing that the frozen timeout cannot permit natural completion;
+- output ceiling reached before natural completion;
+- context budget incompatible with the required request.
+
+Disposition:
+
+- no blind same-envelope retry;
+- preserve all failed attempts;
+- require explicit controller/operator amendment with rationale/reference;
+- update the durable machine-readable execution profile before the next canonical execution;
+- the amended execution is a new canonical attempt under a new profile identity and SHA.
+
+Historical attempts retain the profile/envelope that actually governed them.
+
+### D — structured-generation compatibility failure
+
+Examples:
+
+- backend cannot honor the constrained-generation requirement;
+- malformed provider envelope;
+- non-parseable model output;
+- prose/fenced output where a direct structured object is required.
+
+Disposition:
+
+- preserve raw provider evidence when available;
+- fail closed under issue #76;
+- no post-response repair;
+- if systemic, create/associate the provider/compatibility defect;
+- same-envelope retry is allowed only when a separate operational cause is demonstrated;
+- backend/model substitution is a separate declared diagnostic/run, never an invisible retry.
+
+### E — application-contract failure
+
+Examples:
+
+- `INVALID_CASE_DRAFT`;
+- immutable client payload modified;
+- invalid `source_quote`;
+- typed graph/reference integrity violation.
+
+Disposition:
+
+- preserve the exact rejected provider/candidate evidence through the applicable forensic artifact mechanism;
+- classify as semantic/application failure, not transport failure;
+- no invisible retry and no retry merely to obtain a lucky conforming answer;
+- create/associate a defect or explicit authoritative contract change;
+- parent validation remains blocked on disposition/fix;
+- rerun only after the defect is resolved or the authoritative contract is explicitly amended.
+
+### F — valid CaseDraft / invalid downstream system state
+
+Examples:
+
+- retrieval integrity failure;
+- persistence/materialization failure;
+- invalid CaseResult;
+- provenance/doctor failure.
+
+Disposition:
+
+- preserve the accepted upstream stage and downstream failure evidence;
+- identify the owning subsystem;
+- do not regenerate intake merely to bypass the downstream defect;
+- rerun intake only if the corrected contract actually requires it.
+
+### G — valid structural result / poor or incorrect legal result
+
+Examples:
+
+- unsupported claim remains;
+- relevant authority is missed;
+- a material legal conclusion is incorrect;
+- corpus coverage gap.
+
+Disposition:
+
+- the attempt is structurally **completed with findings**, not execution-failed;
+- freeze and score/evaluate the original result;
+- do not rerun the model to improve the score;
+- independent Phase B/control may continue when the validation methodology allows;
+- diagnose root cause and open follow-up issues separately.
+
+### H — human/operator-aborted attempt
+
+Disposition:
+
+- preserve start metadata and all available partial runtime evidence;
+- record status `aborted`, reason, and whether the request reached the provider;
+- never relabel the same attempt as completed/failed/pass;
+- resuming execution uses a new attempt ID;
+- if purpose or contract changes, record that change explicitly.
+
+## 4. Deterministic retry matrix
+
+| Failure class | Same-envelope retry | Contract amendment | Model/backend substitution | Semantic repair |
+| --- | --- | --- | --- | --- |
+| A admission | after gate is fixed | only when contract changes | only if explicitly authorized | never |
+| B operational | allowed, bounded | not required | no | never |
+| C envelope incompatibility | no | required before canonical rerun | no | never |
+| D structured compatibility | only for proven operational cause | explicit design change if needed | separate declared run only | never |
+| E application contract | no | explicit authoritative change only | no | never |
+| F downstream system | normally no intake retry | only if contract changes | no | never |
+| G legal/semantic quality | no | not to improve score | separate diagnostic only | never |
+| H human abort | no same-attempt retry; create a new attempt | if purpose/contract changes | no | never |
+
+The machine-enforced subset is implemented by `tools/case_attempt_policy.py`. A validation profile/controller supplies the numeric operational retry bound; this protocol deliberately does not invent one universal retry count.
+
+## 5. Controlled-attempt evidence overlay
+
+Every allocated attempt records the following overlay. Values that are genuinely unavailable may be `null`/`unknown`, but the field remains present so absence is explicit.
+
+```json
+{
+  "schema_version": 1,
+  "parent_validation_issue": 67,
+  "attempt_id": "ATT-...",
+  "designation": "canonical | diagnostic",
+  "status": "failed | aborted | completed | completed_with_findings",
+  "failure_class": "A_... | B_... | ... | H_... | null",
+  "artifact_root": "...",
+  "timestamps": {
+    "started_at": "...",
+    "ended_at": "..."
+  },
+  "code": {
+    "git_sha": "...",
+    "image_identity": "..."
+  },
+  "profile": {
+    "id": "...",
+    "sha256": "..."
+  },
+  "input": {
+    "request_sha256": "...",
+    "case_input_sha256": "...",
+    "db_baseline_sha256": "...",
+    "raw_evidence_manifest_sha256": "..."
+  },
+  "provider": {
+    "name": "...",
+    "model": "...",
+    "artifact_or_build_identity": "...",
+    "generation_parameters": {},
+    "request_reached_provider": true,
+    "raw_response_sha256": null,
+    "rejected_output_artifact": null,
+    "http_status": null,
+    "error": null,
+    "finish_reason": null,
+    "usage": null,
+    "timing": null
+  },
+  "outcome": {
+    "case_id": null,
+    "case_result_state": "not_produced | accepted | rejected",
+    "persistence_state": "...",
+    "materialization_state": "...",
+    "validator_state": "...",
+    "provenance_state": "...",
+    "doctor_state": "..."
+  },
+  "lineage": {
+    "kind": "initial | same_envelope_retry | same_contract_post_fix | amended_contract_rerun | new_baseline_rerun | diagnostic",
+    "previous_attempt": null,
+    "previous_artifact_root": null,
+    "previous_evidence_preserved": false,
+    "reason": null,
+    "amendment_reference": null,
+    "fix_reference": null,
+    "baseline_reference": null,
+    "retry_number": null
+  },
+  "control": {
+    "semantic_payload_inspected_before_independent_control": false,
+    "semantic_repair_applied": false
+  }
+}
+```
+
+This overlay covers the minimum #93 decision evidence:
+
+- parent validation and attempt identity;
+- canonical/diagnostic designation;
+- start/end time;
+- Git/image identity;
+- execution-profile identity and SHA;
+- exact request and CaseInput SHA;
+- database/corpus baseline and raw-evidence-manifest SHA;
+- provider/model/artifact/build identity and generation parameters;
+- provider response/rejected-output references where available;
+- HTTP/error/finish/usage/timing metadata;
+- resulting CASE ID and persistence/materialization state;
+- validator/provenance/doctor state;
+- predecessor/retry/amendment lineage;
+- whether semantic Phase A payload was inspected before independent control.
+
+Detailed raw provider payloads remain runtime execution evidence and must not be placed in GitHub comments or normal client errors. The overlay references their artifact and hashes when available.
+
+## 6. Artifact immutability and identity
+
+For every successor attempt:
+
+- `attempt_id` must differ from its predecessor;
+- `artifact_root` must differ from its predecessor;
+- predecessor attempt ID and artifact root are linked explicitly;
+- predecessor evidence must remain preserved and accessible;
+- the successor may not replace files under the predecessor artifact root.
+
+A successful later run does not erase an earlier timeout, rejection, abort, or poor legal result.
+
+The attempt ID is execution identity. It is not a CASE/domain identifier and does not redefine deterministic `CASE-*` identity.
+
+## 7. Same-envelope operational retry
+
+A same-envelope retry is valid only when:
+
+1. the predecessor class permits it;
+2. any required admission gate is fixed or operational cause is demonstrated;
+3. the declared retry number is within the caller/profile retry bound;
+4. predecessor evidence is preserved;
+5. attempt ID/artifact root are new;
+6. no comparability drift exists in:
+   - Git SHA;
+   - image identity;
+   - profile ID/SHA;
+   - request SHA;
+   - CaseInput SHA;
+   - DB baseline SHA;
+   - raw-evidence manifest SHA;
+   - provider/model/artifact/build identity;
+   - generation parameters.
+
+If any of those values must change, the controller must choose the appropriate declared rerun type rather than labeling the action a same-envelope retry.
+
+## 8. Post-fix rerun protocol
+
+When a controlled validation exposes a defect and the defect is fixed:
+
+1. preserve every pre-fix attempt;
+2. link the child defect/spec/PR/merge SHA in `fix_reference`;
+3. verify the fix independently with regression tests;
+4. verify frozen request and CaseInput have not changed;
+5. decide explicitly whether the DB/corpus baseline remains comparable;
+6. verify model/runtime/profile identity;
+7. allocate a new attempt ID and artifact root;
+8. declare exactly one rerun kind;
+9. execute without overwriting historical artifacts;
+10. compare pre-fix and post-fix behavior directly;
+11. continue the parent to its next phase only after the rerun gate passes.
+
+### Same-contract post-fix rerun
+
+Use when the defect fix changes implementation but not the controlled contract.
+
+Required stable values include:
+
+- request and CaseInput SHA;
+- DB baseline and raw-evidence-manifest SHA;
+- profile ID/SHA;
+- provider/model identity;
+- generation parameters.
+
+Git/image/build identity may legitimately change because the defect fix changed executable code. The fix reference explains that change.
+
+### Amended-contract rerun
+
+Use when the meaning or runtime envelope of the controlled execution changed.
+
+Requirements:
+
+- predecessor and failed evidence preserved;
+- explicit amendment reason/reference;
+- frozen request/CaseInput and baseline remain stable unless separately versioned;
+- provider/model identity remains stable unless a separate run is explicitly authorized;
+- new durable execution-profile **ID and SHA**;
+- generation/profile differences are represented as the amendment, not hidden drift.
+
+The rerun must never be described as having used the original profile.
+
+### New baseline/version
+
+Use when corpus/database baseline comparability intentionally changes.
+
+Requirements:
+
+- explicit baseline reason/reference;
+- changed DB baseline SHA;
+- same frozen request/CaseInput unless the validation itself is versioned;
+- stable profile/provider/model/generation semantics unless separately amended;
+- comparison report distinguishes baseline change from implementation defect correction.
+
+## 9. Independent control / blindness
+
+For #17/#67-style methodology:
+
+- structural/runtime metadata may be inspected before Phase B;
+- semantic Phase A content remains hidden from the independent Phase B context;
+- a rejected payload may be inspected only when necessary to diagnose a blocking application-contract failure;
+- if that happens, record that Phase A failed before independent control;
+- after the defect is fixed, freeze a new valid Phase A and re-establish the isolation boundary;
+- do not claim a Phase B comparison against an attempt that never produced an accepted, validator-passing CaseResult.
+
+`tools/case_attempt_policy.py::independent_control_ready()` enforces the machine-checkable subset of this gate.
+
+## 10. Parent/child issue state
+
+When a controlled validation exposes a systemic defect:
+
+- keep the parent validation open;
+- create/associate a focused child defect/architecture/operations issue;
+- record the blocking attempt/evidence in the parent;
+- child issue owns production code/config correction;
+- parent validation does not absorb unrelated fixes;
+- after child completion, the controller verifies the declared successor/rerun gate before resuming the parent.
+
+Unknown dependency state is recorded as unknown rather than inferred.
+
+## 11. Relationship to current CASE work
+
+- **#11** owns broader execution/provenance manifests. #93 only supplies the controlled-attempt overlay and transition rules.
+- **#76** owns provider-neutral structured-generation compatibility and fail-closed/no-repair semantics. #93 cannot authorize a repair path that #76 forbids.
+- **#90 / DEF-0011** owns preservation of rejected provider output for future invalid structuring attempts. #93 references that evidence; it does not duplicate the payload store.
+- **#91 / DEF-0012** owns the concrete `source_quote` fidelity defect exposed by #67.
+- **#92 / DEF-0013** owns the durable amended #67 runtime profile. #93 defines why that change must be represented as an amended-contract successor.
+- **#67** remains the parent controlled validation and must not be rerun by implementing #93.
+
+Before another canonical #67 run, the parent controller must verify the current issue-level resume gate, including the required #90/#91/#92 state, this protocol, a new attempt ID, and explicit post-fix/amended lineage.
+
+## 12. What this protocol does not authorize
+
+This protocol does not authorize:
+
+- retry-until-pass;
+- post-response semantic or JSON repair;
+- model/backend substitution disguised as retry;
+- rewriting historical attempt artifacts;
+- changing frozen input to make a result pass;
+- rerunning intake to hide a downstream defect;
+- regenerating a structurally valid legal result to improve score;
+- executing CASE-0003 as part of issue #93;
+- corpus/database mutation or reprocessing;
+- replacement of issue #11's broader execution provenance architecture.
