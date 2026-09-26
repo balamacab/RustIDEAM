@@ -30,7 +30,9 @@ from case_contract_validation import (
     CONTRACT_VERSION,
     CaseContractError,
     INVALID_CASE_DRAFT,
-    case_draft_generation_schema,
+    annotated_case_source,
+    case_draft_response_schema,
+    materialize_case_draft_source_quotes,
     validate_case_draft,
     validate_schema_object,
 )
@@ -46,33 +48,27 @@ PROMPT_TEMPLATE_ID = "case-structuring-v3"
 PROMPT_TEMPLATE_VERSION = "5"
 
 SYSTEM_PROMPT = """You structure a Colombian legal/tax case into the supplied JSON schema.
-The response schema contains the model-owned CaseDraft fields. problem_text,
-as_of_date, and client_reference remain application-owned and are copied verbatim
-from the validated CaseInput after generation; do not manufacture or reinterpret
-them.
-Only problem_text in the user message is client fact source text.
-analysis_context.as_of_date is a temporal analysis parameter, not a user-provided
-fact or source quote. client_reference is correlation metadata and is intentionally
-not model context. Never create a CaseFact from either metadata field unless the same
-information is also stated in problem_text.
-For every user_provided fact, select source_quote exactly from the values permitted
-by the response schema and use requires_confirmation=false. Those allowed values are
-exact contiguous spans from problem_text. Never paraphrase, normalize, concatenate,
-shorten, expand, or otherwise recreate their bytes. llm_normalized and llm_inferred
-facts always use requires_confirmation=true and do not carry literal source_quote
-evidence in the generation schema. missing and ambiguous facts always use
-requires_confirmation=true and needed_information.
-If problem_text directly and unambiguously states information for a fact you choose
-to represent, never downgrade that fact to missing; represent the stated client
-information as user_provided with one exact allowed source_quote. Use missing only
-for a concrete datum absent from problem_text, and needed_information must name that
-absent datum instead of generically asking what information about an already
-described topic is required. Truly ambiguous information remains ambiguous.
-Every legal conclusion is only a candidate_claim. Never emit canonical/persistence
-document, provision, evidence, manifestation, segment, relationship, source, claim,
-or case identifiers. Target hints may contain ordinary human-readable legal
-references or search phrases only. Do not assert that a candidate is validated and
-do not invent evidence."""
+The response schema pins problem_text, as_of_date, and client_reference to the
+exact client-owned values and presence/absence. Emit those fields exactly as
+constrained; never rewrite, normalize, omit, or manufacture them.
+The user message contains source_text annotated with compact [sN] application
+markers. The markers are not client text. Only the text belonging to those
+spans is client fact source text; analysis_context.as_of_date is only a temporal
+parameter and client_reference is not model context.
+For every user_provided fact select exactly one source_span_ref allowed by the
+schema and set requires_confirmation=false. Never emit source_quote: CASE
+materializes its exact bytes from the original CaseInput. Never combine spans;
+split facts when one literal span is insufficient.
+llm_normalized and llm_inferred facts require confirmation and must remain
+distinct from user_provided facts. missing and ambiguous facts require
+confirmation and needed_information. If directly stated information is
+represented, never downgrade it to missing. Use missing only for a concrete
+datum absent from the source text; keep genuine ambiguity unresolved.
+Every legal conclusion is only a candidate_claim. Never emit canonical or
+persistence document, provision, evidence, manifestation, segment,
+relationship, source, claim, or case identifiers. Target hints may contain
+ordinary human-readable legal references or search phrases only. Do not claim
+validation and do not invent evidence."""
 
 
 class LLMClientError(RuntimeError):
@@ -186,17 +182,13 @@ class StructuredGenerationCapability:
     schema_constrained: bool
     direct_object: bool
     post_response_repair: bool = False
-    deterministic_client_payload_materialization: bool = False
 
     def is_case_compatible(self) -> bool:
         """Return whether the declared mechanism satisfies the CASE boundary."""
         return (
             bool(self.mechanism.strip())
             and self.schema_constrained
-            and (
-                self.direct_object
-                or self.deterministic_client_payload_materialization
-            )
+            and self.direct_object
             and not self.post_response_repair
         )
 
@@ -224,7 +216,7 @@ class LLMClient(Protocol):
         case_input: dict[str, Any],
         route: ModelRoute,
     ) -> dict[str, Any]:
-        """Return model-produced CaseDraft fields; app adds only model_metadata."""
+        """Return model-facing CaseDraft candidate fields for deterministic materialization."""
 
 
 def utc_now() -> str:
@@ -284,28 +276,13 @@ def _compact_json(value: Any) -> str:
 
 
 def _model_input_context(case_input: dict[str, Any]) -> dict[str, Any]:
-    """Expose analytical input while keeping correlation metadata out of model facts."""
-    context: dict[str, Any] = {"problem_text": case_input["problem_text"]}
+    """Expose annotated client text while keeping correlation metadata out."""
+    context: dict[str, Any] = {
+        "source_text": annotated_case_source(case_input["problem_text"])
+    }
     if "as_of_date" in case_input:
         context["analysis_context"] = {"as_of_date": case_input["as_of_date"]}
     return context
-
-
-def _materialize_client_owned_fields(
-    case_input: dict[str, Any],
-    generated_payload: dict[str, Any],
-) -> dict[str, Any]:
-    """Copy omitted client-owned fields exactly; never overwrite model output.
-
-    This deterministic transport materialization is not semantic repair. If a
-    backend unexpectedly emits one of these fields, its value is preserved so the
-    authoritative cross-object validator can accept an exact value or reject drift.
-    """
-    draft = deepcopy(generated_payload)
-    for name in ("problem_text", "as_of_date", "client_reference"):
-        if name in case_input and name not in draft:
-            draft[name] = case_input[name]
-    return draft
 
 
 def _estimate_request_tokens(
@@ -328,9 +305,8 @@ class OpenAICompatibleLLMClient:
     structured_generation_capability = StructuredGenerationCapability(
         mechanism="json_schema",
         schema_constrained=True,
-        direct_object=False,
+        direct_object=True,
         post_response_repair=False,
-        deterministic_client_payload_materialization=True,
     )
 
     def __init__(self, config: LLMPlatformConfig):
@@ -354,7 +330,7 @@ class OpenAICompatibleLLMClient:
         case_input: dict[str, Any],
         route: ModelRoute,
     ) -> dict[str, Any]:
-        response_schema = case_draft_generation_schema(case_input)
+        response_schema = case_draft_response_schema(case_input)
         response_schema_sha256 = sha256_hex(canonical_json_bytes(response_schema))
         model_input = _model_input_context(case_input)
         char_count, estimated_tokens = _estimate_request_tokens(
@@ -410,7 +386,7 @@ class OpenAICompatibleLLMClient:
             "response_format": {
                 "type": "json_schema",
                 "json_schema": {
-                    "name": "case_draft_v3_generation",
+                    "name": "case_draft_candidate_v3",
                     "strict": True,
                     "schema": response_schema,
                 },
@@ -673,10 +649,7 @@ class OpenAICompatibleLLMClient:
                 failure_stage=FAILURE_SCHEMA_VALIDATION,
                 failure_path="$",
             )
-        return GeneratedCaseDraft(
-            _materialize_client_owned_fields(case_input, draft_payload),
-            observed,
-        )
+        return GeneratedCaseDraft(draft_payload, observed)
 
 
 
@@ -875,9 +848,33 @@ class CaseStructuringService:
             )
             raise rejection
 
-        # Convert to a plain dict before adding application-owned metadata. The
-        # non-canonical generation evidence must never enter a CaseDraft.
-        draft = deepcopy(dict(payload))
+        # Materialize literal client evidence from the model-selected span ref.
+        # The model never authors source_quote bytes. This deterministic mapping
+        # occurs before authoritative CaseDraft validation and is not semantic
+        # repair of model-owned content.
+        try:
+            draft = materialize_case_draft_source_quotes(
+                case_input,
+                deepcopy(dict(payload)),
+            )
+        except CaseContractError as exc:
+            failure_path, _ = split_validation_detail(exc.detail)
+            self._persist_rejection(
+                attempt_id=attempt_id,
+                run_reference=run_reference,
+                started_at=started_at,
+                case_input=case_input,
+                route=route,
+                request_fingerprints=request_fingerprints,
+                generation=generation,
+                failure_code=exc.code,
+                failure_stage=FAILURE_SCHEMA_VALIDATION,
+                failure_path=failure_path,
+                failure_detail=exc.detail,
+                original_error=exc,
+            )
+            raise
+
         draft["model_metadata"] = {
             "adapter": self.client.adapter_id,
             "provider": self.client.provider_id,
@@ -995,4 +992,3 @@ class CaseStructuringService:
             CASE_STRUCTURING_UNAVAILABLE,
             "no structuring attempt produced a result",
         )
-
