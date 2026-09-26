@@ -5,6 +5,7 @@ import hashlib
 import json
 from pathlib import Path
 import sys
+import tempfile
 import unittest
 from unittest import mock
 import unicodedata
@@ -13,7 +14,7 @@ import unicodedata
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
 
-from case_attempt_evidence import canonical_json_bytes
+from case_attempt_evidence import RejectedStructuringEvidenceStore, canonical_json_bytes
 from case_contract_validation import (
     CaseContractError,
     INVALID_CASE_DRAFT,
@@ -346,6 +347,32 @@ class Issue0091SourceQuoteFidelityTests(unittest.TestCase):
         quote = "pagó USD 10.000"
         self.assertIn(quote, paragraph)
         validate_case_draft(case_input(), final_draft(PROBLEM, quote))
+
+    def test_rejected_evidence_preserves_provider_proposal_before_materialization(self):
+        quote = source_quote_candidates(PROBLEM)[0]
+        proposal = provider_proposal(quote)
+        proposal["candidate_claims"][0]["target_hints"] = ["DOC-forged"]
+        config = make_config()
+
+        with tempfile.TemporaryDirectory() as tmp, mock.patch(
+            "llm_client.urlrequest.urlopen",
+            return_value=Response(proposal),
+        ):
+            evidence_root = Path(tmp) / "rejected"
+            service = CaseStructuringService(
+                config,
+                OpenAICompatibleLLMClient(config),
+                evidence_store=RejectedStructuringEvidenceStore(evidence_root),
+            )
+            with self.assertRaises(CaseContractError):
+                service.structure(case_input())
+            attempts = sorted(path for path in evidence_root.iterdir() if path.is_dir())
+            self.assertEqual(len(attempts), 1)
+            stored = json.loads(
+                (attempts[0] / "candidate.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(stored, proposal)
+            self.assertNotIn("problem_text", stored)
 
     def test_historical_issue67_generation_schema_fits_runtime_v2_context(self):
         request = json.loads(
