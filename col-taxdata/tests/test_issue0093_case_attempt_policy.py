@@ -51,9 +51,11 @@ def manifest(
             "raw_evidence_manifest_sha256": "1" * 64,
         },
         "provider": {
-            "name": "local-llama-cpp",
+            "provider": "local-llama-cpp",
+            "backend": "llama.cpp",
             "model": "gemma-e2b",
-            "artifact_or_build_identity": "model:" + "2" * 64,
+            "model_artifact_identity": "model:" + "2" * 64,
+            "backend_build_identity": "llama.cpp:build-abc",
             "generation_parameters": {
                 "temperature": 0,
                 "context_tokens": 16384,
@@ -285,7 +287,7 @@ def test_same_contract_post_fix_allows_code_change_but_detects_profile_request_o
         ("profile", "sha256"),
         ("input", "request_sha256"),
         ("input", "db_baseline_sha256"),
-        ("provider", "artifact_or_build_identity"),
+        ("provider", "backend_build_identity"),
     ]:
         drifted = deepcopy(current)
         drifted[section][key] = "8" * 64
