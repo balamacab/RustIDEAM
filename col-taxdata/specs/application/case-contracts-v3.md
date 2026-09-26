@@ -165,13 +165,11 @@ Presence is part of the invariant:
 
 A model may return those fields as part of the serialized `CaseDraft`, but it has no authority to choose or modify their values. The application retains the original `CaseInput` and validates the returned draft against that specific input.
 
-For constrained generation, an adapter MAY omit these client-owned fields from the model-facing generation schema and materialize a missing field by copying the exact value from the already validated `CaseInput`. This is permitted only for `problem_text`, `as_of_date`, and `client_reference`; the adapter MUST NOT overwrite a backend-supplied value. A backend-supplied value therefore remains subject to the same exact cross-object validation and cannot be repaired by the adapter. This deterministic copy of client-owned transport data is not authority to insert or rewrite model-owned semantics.
-
 This is a cross-object semantic invariant. The companion JSON Schema can validate each object independently, but it cannot prove equality or presence preservation between a separately validated `CaseInput` and `CaseDraft`. Conformance therefore requires application-level semantic validation in addition to JSON Schema validation.
 
 ## 5. CaseDraft
 
-CaseDraft is the structured interpretation returned by the case-structuring model and accepted by schema/application validation.
+CaseDraft is the structured interpretation produced through the case-structuring boundary and accepted by schema/application validation. The model may first return a model-facing candidate containing application-only selectors such as source_span_ref; those selectors are deterministically materialized/removed before the final serialized CaseDraft exists.
 
 It contains:
 
@@ -194,7 +192,7 @@ Before deterministic corpus work, the application MUST:
 1. validate the output against the supported schema version;
 2. compare the returned `CaseDraft` with the exact `CaseInput` used for that model execution and enforce the immutable-client-payload rules in §4.1;
 3. reject unknown required semantics rather than silently dropping them;
-4. verify that every fact marked `user_provided` and carrying a `source_quote` is traceable to the `CaseInput` text;
+4. verify that every final fact marked `user_provided` carries a non-degenerate `source_quote` that is an exact literal substring of the original `CaseInput.problem_text`;
 5. preserve genuinely missing/ambiguous information as unresolved state;
 6. reject a `missing` classification when a conservative deterministic intake-fidelity check can establish that the model is generically requesting information about a fact/topic already directly stated in assertive client text; rejection MUST NOT auto-promote, normalize, infer, or manufacture a fact/source quote and instead follows the normal structuring retry/review path;
 7. verify every `CandidateClaim` still has status `candidate`;
@@ -207,7 +205,27 @@ Issue #16 MUST implement this validation outside JSON Schema. Its acceptance tes
 
 Malformed or semantically invalid model output does not mutate canonical/case state.
 
-For the constrained generated path, `user_provided.source_quote` MUST be chosen from deterministic exact contiguous spans derived from the exact `CaseInput.problem_text`. The current v3 generation policy uses paragraph-sized spans separated by blank lines. Candidate text is not trimmed, Unicode-normalized, whitespace-normalized, punctuation-normalized, paraphrased, or concatenated. The public v3 validator remains more general: any non-empty exact contiguous substring is valid, so existing v3 consumers that already provide a shorter literal quote remain backward-compatible.
+For prompt template v5 and later within the v3 producer line, literal client
+evidence has a stricter model-facing boundary. The application deterministically
+segments `CaseInput.problem_text` into ordered contiguous source spans and
+annotates those spans with short model-only references. A `user_provided` model
+fact selects exactly one `source_span_ref`; it does **not** author
+`source_quote`. Before authoritative CaseDraft validation, the application
+replaces that selector with the exact original span bytes as `source_quote` and
+removes the model-only selector.
+
+The span reference is not a canonical ID, persistence ID, legal identifier, or
+public CaseDraft field. A model-authored `source_quote`, an unknown span ref, a
+span ref on a non-`user_provided` fact, or an attempt to combine multiple
+non-contiguous spans fails closed. No Unicode normalization, whitespace
+normalization, punctuation normalization, fuzzy matching, edit-distance
+acceptance, semantic similarity, or LLM judgment is allowed when materializing
+literal evidence.
+
+This v5 producer change does not change the serialized CaseDraft v3 wire
+contract: consumers still receive `source_quote`, and the final authoritative
+validator still applies the literal-substring invariant. Historical prompt
+template v4 executions remain historical evidence and are not reinterpreted.
 
 ### 5.2 Structured-generation backend compatibility
 
@@ -215,14 +233,12 @@ CASE structuring has two separate validation gates. They MUST NOT be collapsed i
 
 **Generation compatibility** asks whether the selected backend/adapter can produce the CaseDraft candidate through a supported constrained or structured-generation mechanism at the backend/model boundary. A CASE-compatible structuring backend MUST:
 
-- constrain generation against the model-facing CaseDraft schema for the active contract version, or against a model-facing projection that omits only application-owned client payload fields and provides equivalent semantic guarantees;
+- constrain generation against the model-facing CaseDraft schema for the active contract version, or provide an equivalent structured-generation mechanism with the same semantic guarantees;
 - return one directly parseable structured object, not prose that merely contains JSON-like text;
 - preserve the requested CaseDraft semantic field names, types, enum values, required fields, and unknown-field policy at generation time to the extent promised by that mechanism;
 - require no post-response semantic or JSON repair before the object can be handed to application validation.
 
 CASE MUST fail closed when an adapter/backend cannot provide those guarantees. An unavailable, unsupported, or rejected structured-generation mechanism is a structuring-compatibility failure; CASE MUST NOT silently retry by weakening the schema contract or switching to unconstrained prose generation.
-
-A narrow deterministic materialization boundary is allowed for fields whose bytes are wholly owned by the validated client input rather than the model. The adapter may copy an omitted `problem_text`, `as_of_date`, or `client_reference` from that exact `CaseInput` before authoritative validation. It may not overwrite a provider-supplied value. For `user_provided` facts, a constrained-generation adapter may also restrict `source_quote` to an enum of exact contiguous client-text spans. The model still chooses which exact span supports the fact; the application does not rewrite that choice. This mechanism does not permit inserting, deleting, renaming, coercing, normalizing, or otherwise repairing model-authored facts, values, states, questions, claims, unresolved items, or source quotes.
 
 Compatibility MUST NOT depend on provider or model identity. A provider-specific transport feature is acceptable when the adapter can truthfully declare that it provides the required constrained-generation guarantees. Equivalent mechanisms from different providers are compatible when they preserve this boundary. The application contract does not require one vendor-specific request syntax, API family, model name, GPU/NPU/CPU runtime, or server implementation.
 
@@ -232,10 +248,18 @@ CASE structuring MUST NOT repair arbitrary model text into a candidate draft. In
 - extract a JSON-looking substring from surrounding prose;
 - heuristically repair malformed JSON;
 - rename model-produced fields to match the contract;
-- insert or delete semantic fields after generation merely to satisfy schema;
+- insert or delete model-owned semantic fields after generation merely to satisfy schema;
 - coerce field types or enum values;
 - silently drop unknown or unsupported fields;
 - relax the authoritative CaseDraft contract for a particular provider.
+
+Deterministic materialization of application-owned fields is not semantic
+repair. In particular, adding application-owned `model_metadata` and converting
+a schema-constrained model-only `source_span_ref` into the exact client-owned
+`source_quote` bytes it names are permitted producer steps because the model
+does not author or normalize those values. Any attempt to repair the model's
+label, value, state, claim text, enum choices, references, or other semantic
+content remains prohibited.
 
 A directly parseable object that violates the CaseDraft schema or semantics is still invalid. Generation compatibility only permits the object to reach the second gate.
 
@@ -246,11 +270,11 @@ The intended boundary is:
     CASE-compatible structuring backend
             |
             +-- constrained / structured generation
-            |      -> directly parseable structured object
-            |      -> model-facing CaseDraft schema or permitted client-field projection
+            |      -> directly parseable model-facing candidate
+            |      -> model-facing CaseDraft schema contract
             |
-            +-- deterministic client-field materialization, when used
-            |      -> exact copy only; no model-semantic repair
+            +-- deterministic application-owned materialization
+            |      -> source_span_ref -> exact client source_quote
             |
             +-- authoritative application validation
                    -> accepted CaseDraft
@@ -276,13 +300,15 @@ Important fields:
 - fact_ref: application-local opaque reference, not a persistence ID;
 - label and value;
 - state;
-- source_quote when traceability to client text is applicable;
+- source_quote: final literal client evidence; for prompt template v5+ `user_provided` facts it is materialized by CASE from the model-selected source span, never authored by the model;
 - requires_confirmation;
 - needed_information for missing/ambiguous facts.
 
 Rules:
 
 - user_provided facts MUST NOT be relabeled as inferred;
+- a final `user_provided.source_quote` MUST be non-degenerate and must occur literally in the exact `CaseInput.problem_text`; substring matching is code-point exact and performs no normalization;
+- prompt-template v5+ model candidates use exactly one model-only `source_span_ref` for `user_provided` facts; the selector is removed when CASE materializes the final literal quote;
 - llm_normalized and llm_inferred facts remain distinguishable from user_provided facts;
 - llm_inferred facts MUST require confirmation unless a later deterministic/human process establishes the fact;
 - missing and ambiguous facts MUST identify what information is needed where practical;
