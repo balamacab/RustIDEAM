@@ -188,12 +188,22 @@ class Issue0090RejectedLLMOutputEvidenceTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / "rejected"
             service = self._service(root)
+            input_sha = hashlib.sha256(
+                canonical_json_bytes(case_input())
+            ).hexdigest()
+            request_fingerprints = {
+                "raw_request_sha256": "a" * 64,
+                "case_input_sha256": input_sha,
+            }
             with mock.patch(
                 "llm_client.urlrequest.urlopen",
                 return_value=Response(raw),
             ):
                 with self.assertRaises(CaseContractError) as raised:
-                    service.structure(case_input())
+                    service.structure(
+                        case_input(),
+                        request_fingerprints=request_fingerprints,
+                    )
 
             self.assertEqual(raised.exception.code, INVALID_CASE_DRAFT)
             [attempt] = attempt_dirs(root)
@@ -239,9 +249,10 @@ class Issue0090RejectedLLMOutputEvidenceTests(unittest.TestCase):
             self.assertEqual(manifest["prompt_template_id"], "case-structuring-v3")
             self.assertTrue(manifest["provider_request_sha256"])
             self.assertTrue(manifest["response_schema_sha256"])
+            self.assertEqual(manifest["case_input_sha256"], input_sha)
             self.assertEqual(
-                manifest["case_input_sha256"],
-                hashlib.sha256(canonical_json_bytes(case_input())).hexdigest(),
+                manifest["request_fingerprints"],
+                request_fingerprints,
             )
             self.assertFalse(manifest["canonical_state"])
 
