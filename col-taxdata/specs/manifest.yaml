@@ -116,7 +116,7 @@ items:
     type: defect
     priority: P1
     status: implementing
-    area: case-structuring
+    area: case-intake-fidelity
     spec: specs/defects/DEF-0012-user-provided-source-quote-fidelity.md
     github_issue: 91
     depends_on:
