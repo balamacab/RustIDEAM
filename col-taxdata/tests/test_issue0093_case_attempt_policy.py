@@ -132,7 +132,16 @@ class Issue93AttemptPolicyTests(unittest.TestCase):
         current["provider_evidence_ref"] = None
         errors = validate_attempt_manifest(current)
         self.assertIn("application_contract:provider_response_required", errors)
-        self.assertIn("structuring_failure:provider_evidence_ref_required", errors)
+        self.assertIn("provider_failure:provider_evidence_ref_required", errors)
+
+    def test_provider_reaching_operational_failure_requires_evidence_reference(self) -> None:
+        current = manifest(failure_class=FailureClass.TRANSIENT_OPERATIONAL)
+        current["provider_contact_state"] = ProviderContactState.DISPATCH_ATTEMPTED.value
+        current["provider_evidence_ref"] = None
+        self.assertIn(
+            "provider_failure:provider_evidence_ref_required",
+            validate_attempt_manifest(current),
+        )
 
     def test_rejected_evidence_attempt_id_is_not_conflated_with_controlled_attempt_id(self) -> None:
         current = manifest()
@@ -431,6 +440,27 @@ class Issue93AttemptPolicyTests(unittest.TestCase):
         self.assertIn("diagnostic_completion:blocker_issues_required", errors)
         self.assertIn("diagnostic_completion:successor_required", errors)
         self.assertFalse(parent_may_close(resolution))
+
+    def test_diagnostic_completion_blocker_cannot_be_parent_issue(self) -> None:
+        resolution = {
+            "parent_validation_issue": 94,
+            "mode": ParentResolutionMode.DIAGNOSTIC_COMPLETION.value,
+            "decision_authority": "controller",
+            "decision_reference": "#94 comment",
+            "failed_attempts_preserved": True,
+            "close_parent": True,
+            "case_result_legal_pass": False,
+            "outcome": "diagnostic_blocker",
+            "blockers_owned_separately": True,
+            "blocker_issues": [94],
+            "successor_validation_issue": 124,
+            "blocking_failure_class": FailureClass.APPLICATION_CONTRACT.value,
+            "same_case_post_fix_rerun": False,
+        }
+        self.assertIn(
+            "diagnostic_completion:blocker_must_be_separate_child",
+            validate_parent_resolution(resolution),
+        )
 
 
 if __name__ == "__main__":
