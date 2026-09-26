@@ -15,6 +15,7 @@ F|poc|i123-stage|build-handoff-then-cleanup|i123|i123,tpoc
 F|poc|i123-ui|http-web-console|i123|i123,tpoc
 F|poc|i123-probes|case0002-and-i67|i17,i67,i123|i123,tpoc
 F|ctl|ethos|h1-current|i85|tethos
+F|ctl|handoff|fresh-chat-continuation|i91,i123|tctl
 E|95|2|91|i91,i95|i91,i95,tcase
 E|94|2|95|i94,i95|i94,i95,tcase
 E|123|2|91|i91,i123|i123,i91,tpoc
