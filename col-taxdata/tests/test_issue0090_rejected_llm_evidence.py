@@ -530,7 +530,9 @@ class Issue0090RejectedEvidenceTests(unittest.TestCase):
             manifest_path = manifests(root)[0]
             manifest = json.loads(manifest_path.read_text("utf-8"))
             self.assertEqual(manifest["adapter"], "vendor-neutral-adapter")
-            self.assertEqual(manifest["provider"], "vendor-neutral-provider")
+            self.assertEqual(manifest["adapter_id"], "vendor-neutral-adapter")
+            self.assertEqual(manifest["provider_id"], "vendor-neutral-provider")
+            self.assertEqual(manifest["requested_model"], "test-model")
             self.assertEqual(manifest["provider"]["served_model"], "test-model")
             self.assertEqual(manifest["provider"]["http_status"], 207)
             self.assertEqual(
