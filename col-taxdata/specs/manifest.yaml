@@ -115,7 +115,7 @@ items:
   - id: DEF-0012
     type: defect
     priority: P1
-    status: implementing
+    status: verified
     area: case-structuring
     spec: specs/defects/DEF-0012-user-provided-source-quote-fidelity.md
     github_issue: 91
