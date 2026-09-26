@@ -73,18 +73,7 @@ def valid_payload() -> dict:
 
 def semantic_invalid_payload() -> dict:
     payload = valid_payload()
-    payload["facts"] = [
-        {
-            "kind": "case_fact",
-            "contract_version": "3.0.0",
-            "fact_ref": "fact:bad-quote",
-            "label": "Estado",
-            "value": "liquidación",
-            "state": "user_provided",
-            "source_quote": "cita que no existe literalmente en el problema",
-            "requires_confirmation": False,
-        }
-    ]
+    payload["candidate_claims"][0]["target_hints"] = ["DOC-forged"]
     return payload
 
 
