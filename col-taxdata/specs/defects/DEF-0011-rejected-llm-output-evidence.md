@@ -1,6 +1,6 @@
 # DEF-0011 — Preserve rejected LLM structuring outputs as auditable failure evidence
 
-Status: **implementing**
+Status: **verified**
 
 GitHub issue: [#90](https://github.com/balamacab/RustIDEAM/issues/90)
 
