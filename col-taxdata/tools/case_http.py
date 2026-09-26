@@ -319,7 +319,8 @@ class CaseHTTPRequestHandler(BaseHTTPRequestHandler):
                 sort_keys=True,
                 separators=(",", ":"),
             )
-            + "\n"
+            + "
+"
         ).encode("utf-8")
         self.send_response(int(status))
         self.send_header("Content-Type", "application/json; charset=utf-8")
@@ -485,7 +486,11 @@ def build_runtime_application(
     """Construct server-side runtime configuration once for all HTTP requests."""
     config = load_platform_config(config_path)
     client = OpenAICompatibleLLMClient(config)
-    structurer = CaseStructuringService(\n        config,\n        client,\n        evidence_root=case_root / "_audit" / "rejected-structuring-attempts",\n    )
+    structurer = CaseStructuringService(
+        config,
+        client,
+        evidence_root=case_root / "_audit" / "rejected-structuring-attempts",
+    )
 
     def analyzer(case_input: dict[str, Any]) -> AnalysisOutcome:
         return analyze_case(
