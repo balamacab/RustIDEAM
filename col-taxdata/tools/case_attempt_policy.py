@@ -121,9 +121,11 @@ _REQUIRED_NESTED = {
         "raw_evidence_manifest_sha256",
     },
     "provider": {
-        "name",
+        "provider",
+        "backend",
         "model",
-        "artifact_or_build_identity",
+        "model_artifact_identity",
+        "backend_build_identity",
         "generation_parameters",
         "request_reached_provider",
         "raw_response_sha256",
@@ -466,9 +468,11 @@ _SAME_ENVELOPE_FIELDS = (
     ("input", "case_input_sha256"),
     ("input", "db_baseline_sha256"),
     ("input", "raw_evidence_manifest_sha256"),
-    ("provider", "name"),
+    ("provider", "provider"),
+    ("provider", "backend"),
     ("provider", "model"),
-    ("provider", "artifact_or_build_identity"),
+    ("provider", "model_artifact_identity"),
+    ("provider", "backend_build_identity"),
     ("provider", "generation_parameters"),
 )
 
@@ -479,9 +483,11 @@ _SAME_CONTRACT_POST_FIX_FIELDS = (
     ("input", "case_input_sha256"),
     ("input", "db_baseline_sha256"),
     ("input", "raw_evidence_manifest_sha256"),
-    ("provider", "name"),
+    ("provider", "provider"),
+    ("provider", "backend"),
     ("provider", "model"),
-    ("provider", "artifact_or_build_identity"),
+    ("provider", "model_artifact_identity"),
+    ("provider", "backend_build_identity"),
     ("provider", "generation_parameters"),
 )
 
@@ -490,9 +496,11 @@ _AMENDED_CONTRACT_STABLE_FIELDS = (
     ("input", "case_input_sha256"),
     ("input", "db_baseline_sha256"),
     ("input", "raw_evidence_manifest_sha256"),
-    ("provider", "name"),
+    ("provider", "provider"),
+    ("provider", "backend"),
     ("provider", "model"),
-    ("provider", "artifact_or_build_identity"),
+    ("provider", "model_artifact_identity"),
+    ("provider", "backend_build_identity"),
 )
 
 _NEW_BASELINE_STABLE_FIELDS = (
@@ -500,8 +508,10 @@ _NEW_BASELINE_STABLE_FIELDS = (
     ("profile", "sha256"),
     ("input", "request_sha256"),
     ("input", "case_input_sha256"),
-    ("provider", "name"),
+    ("provider", "provider"),
+    ("provider", "backend"),
     ("provider", "model"),
-    ("provider", "artifact_or_build_identity"),
+    ("provider", "model_artifact_identity"),
+    ("provider", "backend_build_identity"),
     ("provider", "generation_parameters"),
 )
