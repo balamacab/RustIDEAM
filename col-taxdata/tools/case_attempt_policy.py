@@ -6,6 +6,40 @@ from typing import Any, Mapping
 
 
 POLICY_SCHEMA_VERSION = 1
+VALIDATION_DISPOSITION_SCHEMA_VERSION = 1
+
+VALIDATION_DISPOSITIONS = {
+    "resume_same_validation",
+    "diagnostic_complete_with_successor",
+}
+
+DIAGNOSTIC_COMPLETION_FAILURE_CLASSES = {
+    "C_RUNTIME_ENVELOPE",
+    "D_STRUCTURED_COMPATIBILITY",
+    "E_APPLICATION_CONTRACT",
+    "F_DOWNSTREAM_SYSTEM",
+}
+
+_REQUIRED_VALIDATION_DISPOSITION = {
+    "schema_version",
+    "disposition",
+    "parent_validation_issue",
+    "parent_issue_open",
+    "blocking_failure_class",
+    "blocking_attempt_id",
+    "blocking_artifact_reference",
+    "blocking_attempt_status",
+    "blocking_evidence_preserved",
+    "controller_decision_reference",
+    "blocker_issue_references",
+    "successor_validation_issue",
+    "future_rerun_parent_issue",
+    "legal_pass",
+    "phase_a_valid",
+    "phase_b_executed",
+    "phase_b_completed",
+    "reason",
+}
 
 FAILURE_CLASSES = {
     "A_ADMISSION": {
@@ -402,6 +436,167 @@ def independent_control_ready(manifest: Mapping[str, Any]) -> bool:
         is False
         and manifest["control"]["semantic_repair_applied"] is False
     )
+
+
+def validate_validation_disposition(
+    disposition: Mapping[str, Any],
+    *,
+    blocking_attempt: Mapping[str, Any] | None = None,
+) -> None:
+    """Validate the controller's validation-level lifecycle disposition.
+
+    Attempt designation is intentionally not consulted to decide whether the
+    parent validation may close. Closure requires an explicit validation-level
+    disposition with its own authority, blocker ownership, successor and phase
+    truthfulness. This keeps diagnostic attempts distinct from diagnostic
+    milestone completion.
+    """
+    missing = _REQUIRED_VALIDATION_DISPOSITION.difference(disposition)
+    if missing:
+        raise PolicyError(
+            f"missing validation disposition fields: {sorted(missing)}"
+        )
+
+    if disposition["schema_version"] != VALIDATION_DISPOSITION_SCHEMA_VERSION:
+        raise PolicyError("unsupported validation disposition schema_version")
+    if disposition["disposition"] not in VALIDATION_DISPOSITIONS:
+        raise PolicyError("unknown validation disposition")
+    if not _positive_int(disposition["parent_validation_issue"]):
+        raise PolicyError("parent_validation_issue must be a positive issue number")
+    if disposition["blocking_failure_class"] not in FAILURE_CLASSES:
+        raise PolicyError("validation disposition requires a known blocking failure class")
+    if disposition["blocking_attempt_status"] not in TERMINAL_STATUSES:
+        raise PolicyError("blocking_attempt_status must be terminal")
+    if disposition["blocking_evidence_preserved"] is not True:
+        raise PolicyError("blocking validation evidence must be preserved")
+    if not _nonempty_string(disposition["blocking_artifact_reference"]):
+        raise PolicyError("blocking_artifact_reference must be non-empty")
+    if not _nonempty_string(disposition["reason"]):
+        raise PolicyError("validation disposition requires an explicit reason")
+    if disposition["legal_pass"] is not False:
+        raise PolicyError("a blocking validation disposition cannot be a legal/CaseResult PASS")
+
+    expected_status = _expected_status_for_failure_class(
+        disposition["blocking_failure_class"]
+    )
+    if disposition["blocking_attempt_status"] != expected_status:
+        raise PolicyError(
+            "blocking_attempt_status is inconsistent with blocking_failure_class"
+        )
+
+    attempt_id = disposition["blocking_attempt_id"]
+    if disposition["blocking_failure_class"] == "A_ADMISSION":
+        if attempt_id is not None and not _nonempty_string(attempt_id):
+            raise PolicyError("blocking_attempt_id must be non-empty when present")
+    elif not _nonempty_string(attempt_id):
+        raise PolicyError("allocated blocking failure requires blocking_attempt_id")
+
+    for field in ("parent_issue_open", "phase_a_valid", "phase_b_executed", "phase_b_completed"):
+        if not isinstance(disposition[field], bool):
+            raise PolicyError(f"{field} must be boolean")
+
+    if disposition["phase_b_completed"] and not disposition["phase_b_executed"]:
+        raise PolicyError("Phase B cannot be completed when it was not executed")
+    if not disposition["phase_a_valid"] and (
+        disposition["phase_b_executed"] or disposition["phase_b_completed"]
+    ):
+        raise PolicyError("Phase B cannot execute without a valid Phase A")
+
+    blockers = disposition["blocker_issue_references"]
+    if not isinstance(blockers, list):
+        raise PolicyError("blocker_issue_references must be a list")
+    if any(not _positive_int(issue) for issue in blockers):
+        raise PolicyError("blocker issue references must be positive issue numbers")
+    if len(set(blockers)) != len(blockers):
+        raise PolicyError("blocker issue references must be unique")
+    if disposition["parent_validation_issue"] in blockers:
+        raise PolicyError("blocker/fix ownership must be separate from the parent validation")
+
+    controller_reference = disposition["controller_decision_reference"]
+    if controller_reference is not None and not _nonempty_string(controller_reference):
+        raise PolicyError("controller_decision_reference must be non-empty when present")
+
+    successor = disposition["successor_validation_issue"]
+    future_parent = disposition["future_rerun_parent_issue"]
+    failure_class = disposition["blocking_failure_class"]
+    kind = disposition["disposition"]
+
+    if kind == "resume_same_validation":
+        if disposition["parent_issue_open"] is not True:
+            raise PolicyError("same-validation resume requires parent-open semantics")
+        if successor is not None:
+            raise PolicyError("same-validation resume cannot name a successor validation issue")
+        if future_parent != disposition["parent_validation_issue"]:
+            raise PolicyError(
+                "same-validation resume must keep future rerun lineage on the same parent"
+            )
+        if failure_class in DIAGNOSTIC_COMPLETION_FAILURE_CLASSES and not blockers:
+            raise PolicyError(
+                "systemic same-validation resume requires separately owned blocker/fix work"
+            )
+    else:
+        if disposition["parent_issue_open"] is not False:
+            raise PolicyError(
+                "diagnostic milestone completion requires the original parent to close"
+            )
+        if failure_class not in DIAGNOSTIC_COMPLETION_FAILURE_CLASSES:
+            raise PolicyError(
+                "failure class is not eligible for diagnostic milestone completion"
+            )
+        if not _nonempty_string(controller_reference):
+            raise PolicyError(
+                "diagnostic milestone completion requires controller/operator authority"
+            )
+        if not blockers:
+            raise PolicyError(
+                "diagnostic milestone completion requires separately owned blocker/fix work"
+            )
+        if not _positive_int(successor):
+            raise PolicyError(
+                "diagnostic milestone completion requires a successor validation issue"
+            )
+        if successor == disposition["parent_validation_issue"]:
+            raise PolicyError("successor validation issue must be distinct from the parent")
+        if successor in blockers:
+            raise PolicyError("successor validation issue must be distinct from blocker/fix issues")
+        if future_parent is not None:
+            raise PolicyError(
+                "closed diagnostic parent cannot own future rerun lineage"
+            )
+
+    if blocking_attempt is not None:
+        validate_attempt_manifest(blocking_attempt)
+        if blocking_attempt["parent_validation_issue"] != disposition["parent_validation_issue"]:
+            raise PolicyError("blocking attempt belongs to a different parent validation")
+        if blocking_attempt["failure_class"] != failure_class:
+            raise PolicyError("blocking attempt failure class does not match disposition")
+        if blocking_attempt["status"] != disposition["blocking_attempt_status"]:
+            raise PolicyError("blocking attempt status does not match disposition")
+        if blocking_attempt["artifact_root"] != disposition["blocking_artifact_reference"]:
+            raise PolicyError("blocking artifact reference does not match attempt evidence")
+        if attempt_id != blocking_attempt["attempt_id"]:
+            raise PolicyError("blocking attempt identity does not match disposition")
+
+
+def validation_parent_may_close(
+    disposition: Mapping[str, Any],
+    *,
+    blocking_attempt: Mapping[str, Any] | None = None,
+) -> bool:
+    """Return true only for an explicitly valid diagnostic-successor disposition."""
+    validate_validation_disposition(
+        disposition,
+        blocking_attempt=blocking_attempt,
+    )
+    return disposition["disposition"] == "diagnostic_complete_with_successor"
+
+
+def _expected_status_for_failure_class(failure_class: str) -> str:
+    if failure_class == "G_LEGAL_QUALITY":
+        return "completed_with_findings"
+    if failure_class == "H_OPERATOR_ABORTED":
+        return "aborted"
+    return "failed"
 
 
 def _require_canonical(manifest: Mapping[str, Any]) -> None:
