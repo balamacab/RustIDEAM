@@ -94,15 +94,6 @@ items:
     github_issue: 19
     depends_on: []
 
-  - id: DEF-0011
-    type: defect
-    priority: P1
-    status: verified
-    area: case-execution-evidence
-    spec: specs/defects/DEF-0011-rejected-llm-output-evidence.md
-    github_issue: 90
-    depends_on: []
-
   - id: GAP-0001
     type: coverage-gap
     priority: P2
@@ -113,16 +104,6 @@ items:
     depends_on:
       - DEF-0001
       - DEF-0002
-
-
-  - id: DEF-0013
-    type: defect
-    priority: P2
-    status: verified
-    area: validation
-    spec: specs/defects/DEF-0013-issue67-runtime-envelope-drift.md
-    github_issue: 92
-    depends_on: []
 
 implementation_order:
   - DEF-0001
