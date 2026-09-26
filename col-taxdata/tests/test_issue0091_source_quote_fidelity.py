@@ -251,6 +251,13 @@ class Issue0091SourceQuoteFidelityTests(unittest.TestCase):
             ["Texto repetido.", "Otro texto."],
         )
 
+    def test_paragraph_candidates_handle_repeated_and_spaced_blank_lines(self):
+        problem = "Uno.\n\n\nDos.\n  \nTres."
+        self.assertEqual(
+            source_quote_candidates(problem),
+            ["Uno.", "Dos.", "Tres."],
+        )
+
     def test_empty_quote_still_fails_public_v3_schema(self):
         with self.assertRaises(CaseContractError) as raised:
             validate_case_draft(case_input(), final_draft(PROBLEM, ""))
