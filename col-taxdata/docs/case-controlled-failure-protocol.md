@@ -338,7 +338,7 @@ Required stable values include:
 - request and CaseInput SHA;
 - DB baseline and raw-evidence-manifest SHA;
 - profile ID/SHA;
-- provider/model identity;
+- provider/model/artifact-build identity;
 - generation parameters.
 
 Git/image/build identity may legitimately change because the defect fix changed executable code. The fix reference explains that change.
