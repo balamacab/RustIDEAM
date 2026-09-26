@@ -158,3 +158,33 @@ The amendment history is:
 The profile verifier/planner is read-only. It performs no schema migration,
 corpus reprocessing, raw-evidence mutation, provider reset, model call, Phase A
 execution, or Phase B execution.
+
+## CASE-0003 / issue #95 admission identity
+
+CASE-0003 reuses the committed runtime-v2 bytes but does not reuse the
+issue-#67 validation identity. Its preparation-only admission profile is
+committed at:
+
+`config/validation/case0003-issue94/admission-v1.json`
+
+The frozen CASE-0003 preparation bytes referenced by that profile live beside
+it under `config/validation/case0003-issue94/`. They reproduce the issue #94
+problem/request/CaseInput fingerprints locally and are not execution
+authorization.
+
+Verify the profile and display its non-consuming plan with:
+
+```bash
+python3 tools/case_admission.py verify-profile
+python3 tools/case_admission.py plan
+```
+
+Both commands are static. They perform no provider/model request, no CASE
+persistence, no database mutation, and no provider reset. Their output records
+the exact-byte SHA-256 identities of both the CASE-0003 admission profile and
+the reusable runtime-v2 profile, plus the deterministic internal CASE ID that
+the normal v3 identity semantics would produce.
+
+Issue #95 may use only synthetic non-CASE-0003 requests for runtime smoke
+testing. The first provider exposure to the frozen CASE-0003 input remains
+owned by issue #94.
