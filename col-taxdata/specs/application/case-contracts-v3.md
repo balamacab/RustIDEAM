@@ -165,6 +165,8 @@ Presence is part of the invariant:
 
 A model may return those fields as part of the serialized `CaseDraft`, but it has no authority to choose or modify their values. The application retains the original `CaseInput` and validates the returned draft against that specific input.
 
+For constrained generation, an adapter MAY omit these client-owned fields from the model-facing generation schema and materialize a missing field by copying the exact value from the already validated `CaseInput`. This is permitted only for `problem_text`, `as_of_date`, and `client_reference`; the adapter MUST NOT overwrite a backend-supplied value. A backend-supplied value therefore remains subject to the same exact cross-object validation and cannot be repaired by the adapter. This deterministic copy of client-owned transport data is not authority to insert or rewrite model-owned semantics.
+
 This is a cross-object semantic invariant. The companion JSON Schema can validate each object independently, but it cannot prove equality or presence preservation between a separately validated `CaseInput` and `CaseDraft`. Conformance therefore requires application-level semantic validation in addition to JSON Schema validation.
 
 ## 5. CaseDraft
@@ -205,18 +207,22 @@ Issue #16 MUST implement this validation outside JSON Schema. Its acceptance tes
 
 Malformed or semantically invalid model output does not mutate canonical/case state.
 
+For the constrained generated path, `user_provided.source_quote` MUST be chosen from deterministic exact contiguous spans derived from the exact `CaseInput.problem_text`. The current v3 generation policy uses paragraph-sized spans separated by blank lines. Candidate text is not trimmed, Unicode-normalized, whitespace-normalized, punctuation-normalized, paraphrased, or concatenated. The public v3 validator remains more general: any non-empty exact contiguous substring is valid, so existing v3 consumers that already provide a shorter literal quote remain backward-compatible.
+
 ### 5.2 Structured-generation backend compatibility
 
 CASE structuring has two separate validation gates. They MUST NOT be collapsed into one another.
 
 **Generation compatibility** asks whether the selected backend/adapter can produce the CaseDraft candidate through a supported constrained or structured-generation mechanism at the backend/model boundary. A CASE-compatible structuring backend MUST:
 
-- constrain generation against the model-facing CaseDraft schema for the active contract version, or provide an equivalent structured-generation mechanism with the same semantic guarantees;
+- constrain generation against the model-facing CaseDraft schema for the active contract version, or against a model-facing projection that omits only application-owned client payload fields and provides equivalent semantic guarantees;
 - return one directly parseable structured object, not prose that merely contains JSON-like text;
 - preserve the requested CaseDraft semantic field names, types, enum values, required fields, and unknown-field policy at generation time to the extent promised by that mechanism;
 - require no post-response semantic or JSON repair before the object can be handed to application validation.
 
 CASE MUST fail closed when an adapter/backend cannot provide those guarantees. An unavailable, unsupported, or rejected structured-generation mechanism is a structuring-compatibility failure; CASE MUST NOT silently retry by weakening the schema contract or switching to unconstrained prose generation.
+
+A narrow deterministic materialization boundary is allowed for fields whose bytes are wholly owned by the validated client input rather than the model. The adapter may copy an omitted `problem_text`, `as_of_date`, or `client_reference` from that exact `CaseInput` before authoritative validation. It may not overwrite a provider-supplied value. For `user_provided` facts, a constrained-generation adapter may also restrict `source_quote` to an enum of exact contiguous client-text spans. The model still chooses which exact span supports the fact; the application does not rewrite that choice. This mechanism does not permit inserting, deleting, renaming, coercing, normalizing, or otherwise repairing model-authored facts, values, states, questions, claims, unresolved items, or source quotes.
 
 Compatibility MUST NOT depend on provider or model identity. A provider-specific transport feature is acceptable when the adapter can truthfully declare that it provides the required constrained-generation guarantees. Equivalent mechanisms from different providers are compatible when they preserve this boundary. The application contract does not require one vendor-specific request syntax, API family, model name, GPU/NPU/CPU runtime, or server implementation.
 
@@ -241,7 +247,10 @@ The intended boundary is:
             |
             +-- constrained / structured generation
             |      -> directly parseable structured object
-            |      -> model-facing CaseDraft schema contract
+            |      -> model-facing CaseDraft schema or permitted client-field projection
+            |
+            +-- deterministic client-field materialization, when used
+            |      -> exact copy only; no model-semantic repair
             |
             +-- authoritative application validation
                    -> accepted CaseDraft

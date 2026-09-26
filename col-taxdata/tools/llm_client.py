@@ -30,7 +30,7 @@ from case_contract_validation import (
     CONTRACT_VERSION,
     CaseContractError,
     INVALID_CASE_DRAFT,
-    case_draft_response_schema,
+    case_draft_generation_schema,
     validate_case_draft,
     validate_schema_object,
 )
@@ -43,31 +43,36 @@ CASE_OUTPUT_LIMIT = "CASE_OUTPUT_LIMIT"
 CASE_EVIDENCE_PERSISTENCE_FAILED = "CASE_EVIDENCE_PERSISTENCE_FAILED"
 
 PROMPT_TEMPLATE_ID = "case-structuring-v3"
-PROMPT_TEMPLATE_VERSION = "4"
+PROMPT_TEMPLATE_VERSION = "5"
 
 SYSTEM_PROMPT = """You structure a Colombian legal/tax case into the supplied JSON schema.
-The response schema pins problem_text, as_of_date, and client_reference to the
-exact client-owned values and presence/absence. Emit them exactly as constrained;
-never rewrite, normalize, omit, or manufacture them.
-Only problem_text is client fact source text. analysis_context.as_of_date is a
-temporal analysis parameter, not a user-provided fact or source quote.
-client_reference is correlation metadata and is intentionally not model context.
-Never create a CaseFact from either metadata field unless the same information is
-also stated verbatim inside problem_text. Every user_provided fact must use a
-source_quote copied verbatim from problem_text and requires_confirmation=false.
-llm_normalized and llm_inferred facts always use requires_confirmation=true.
-missing and ambiguous facts always use requires_confirmation=true and
-needed_information. If problem_text directly and unambiguously states information
-for a fact you choose to represent, never downgrade that fact to missing; represent
-the stated client information as user_provided with a verbatim source_quote. Use
-missing only for a concrete datum absent from problem_text, and needed_information
-must name that absent datum instead of generically asking what information about an
-already described topic is required. Truly ambiguous information remains ambiguous.
-Every legal conclusion is only a candidate_claim. Never emit canonical/persistence document,
-provision, evidence, manifestation, segment, relationship, source, claim, or case
-identifiers. Target hints may contain ordinary human-readable legal references or
-search phrases only. Do not assert that a candidate is validated and do not
-invent evidence."""
+The response schema contains the model-owned CaseDraft fields. problem_text,
+as_of_date, and client_reference remain application-owned and are copied verbatim
+from the validated CaseInput after generation; do not manufacture or reinterpret
+them.
+Only problem_text in the user message is client fact source text.
+analysis_context.as_of_date is a temporal analysis parameter, not a user-provided
+fact or source quote. client_reference is correlation metadata and is intentionally
+not model context. Never create a CaseFact from either metadata field unless the same
+information is also stated in problem_text.
+For every user_provided fact, select source_quote exactly from the values permitted
+by the response schema and use requires_confirmation=false. Those allowed values are
+exact contiguous spans from problem_text. Never paraphrase, normalize, concatenate,
+shorten, expand, or otherwise recreate their bytes. llm_normalized and llm_inferred
+facts always use requires_confirmation=true and do not carry literal source_quote
+evidence in the generation schema. missing and ambiguous facts always use
+requires_confirmation=true and needed_information.
+If problem_text directly and unambiguously states information for a fact you choose
+to represent, never downgrade that fact to missing; represent the stated client
+information as user_provided with one exact allowed source_quote. Use missing only
+for a concrete datum absent from problem_text, and needed_information must name that
+absent datum instead of generically asking what information about an already
+described topic is required. Truly ambiguous information remains ambiguous.
+Every legal conclusion is only a candidate_claim. Never emit canonical/persistence
+document, provision, evidence, manifestation, segment, relationship, source, claim,
+or case identifiers. Target hints may contain ordinary human-readable legal
+references or search phrases only. Do not assert that a candidate is validated and
+do not invent evidence."""
 
 
 class LLMClientError(RuntimeError):
@@ -181,13 +186,17 @@ class StructuredGenerationCapability:
     schema_constrained: bool
     direct_object: bool
     post_response_repair: bool = False
+    deterministic_client_payload_materialization: bool = False
 
     def is_case_compatible(self) -> bool:
         """Return whether the declared mechanism satisfies the CASE boundary."""
         return (
             bool(self.mechanism.strip())
             and self.schema_constrained
-            and self.direct_object
+            and (
+                self.direct_object
+                or self.deterministic_client_payload_materialization
+            )
             and not self.post_response_repair
         )
 
@@ -282,6 +291,23 @@ def _model_input_context(case_input: dict[str, Any]) -> dict[str, Any]:
     return context
 
 
+def _materialize_client_owned_fields(
+    case_input: dict[str, Any],
+    generated_payload: dict[str, Any],
+) -> dict[str, Any]:
+    """Copy omitted client-owned fields exactly; never overwrite model output.
+
+    This deterministic transport materialization is not semantic repair. If a
+    backend unexpectedly emits one of these fields, its value is preserved so the
+    authoritative cross-object validator can accept an exact value or reject drift.
+    """
+    draft = deepcopy(generated_payload)
+    for name in ("problem_text", "as_of_date", "client_reference"):
+        if name in case_input and name not in draft:
+            draft[name] = case_input[name]
+    return draft
+
+
 def _estimate_request_tokens(
     *,
     model_input: dict[str, Any],
@@ -302,8 +328,9 @@ class OpenAICompatibleLLMClient:
     structured_generation_capability = StructuredGenerationCapability(
         mechanism="json_schema",
         schema_constrained=True,
-        direct_object=True,
+        direct_object=False,
         post_response_repair=False,
+        deterministic_client_payload_materialization=True,
     )
 
     def __init__(self, config: LLMPlatformConfig):
@@ -327,7 +354,7 @@ class OpenAICompatibleLLMClient:
         case_input: dict[str, Any],
         route: ModelRoute,
     ) -> dict[str, Any]:
-        response_schema = case_draft_response_schema(case_input)
+        response_schema = case_draft_generation_schema(case_input)
         response_schema_sha256 = sha256_hex(canonical_json_bytes(response_schema))
         model_input = _model_input_context(case_input)
         char_count, estimated_tokens = _estimate_request_tokens(
@@ -383,7 +410,7 @@ class OpenAICompatibleLLMClient:
             "response_format": {
                 "type": "json_schema",
                 "json_schema": {
-                    "name": "case_draft_v3",
+                    "name": "case_draft_v3_generation",
                     "strict": True,
                     "schema": response_schema,
                 },
@@ -646,7 +673,10 @@ class OpenAICompatibleLLMClient:
                 failure_stage=FAILURE_SCHEMA_VALIDATION,
                 failure_path="$",
             )
-        return GeneratedCaseDraft(draft_payload, observed)
+        return GeneratedCaseDraft(
+            _materialize_client_owned_fields(case_input, draft_payload),
+            observed,
+        )
 
 
 

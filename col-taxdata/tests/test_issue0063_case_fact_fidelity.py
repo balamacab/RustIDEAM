@@ -236,10 +236,11 @@ class Issue0063CaseFactFidelityTests(unittest.TestCase):
         validate_case_draft(case_input(problem), draft(problem, [fact]))
 
     def test_prompt_revision_encodes_issue63_fidelity_rule(self):
-        self.assertEqual(PROMPT_TEMPLATE_VERSION, "4")
+        self.assertEqual(PROMPT_TEMPLATE_VERSION, "5")
         self.assertIn("never downgrade that fact to missing", SYSTEM_PROMPT)
         self.assertIn("concrete datum absent from problem_text", SYSTEM_PROMPT)
         self.assertIn("Truly ambiguous information remains ambiguous", SYSTEM_PROMPT)
+        self.assertIn("select source_quote exactly", SYSTEM_PROMPT)
 
 
 if __name__ == "__main__":

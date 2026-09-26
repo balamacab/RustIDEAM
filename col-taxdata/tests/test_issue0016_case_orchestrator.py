@@ -579,10 +579,10 @@ class Issue0016ContractAndRoutingTests(unittest.TestCase):
             "$defs"
         ]["CaseDraft"]
         for name in ("problem_text", "as_of_date", "client_reference"):
-            self.assertEqual(
-                draft_schema["properties"][name]["const"],
-                original[name],
-            )
+            self.assertNotIn(name, draft_schema["properties"])
+            self.assertNotIn(name, draft_schema["required"])
+        # The adapter restores only omitted client-owned fields from CaseInput;
+        # authoritative CaseDraft validation still owns exact equality.
         self.assertEqual(payload["problem_text"], PROBLEM)
         self.assertEqual(payload["as_of_date"], "2026-09-24")
         self.assertEqual(payload["client_reference"], "matter-16")

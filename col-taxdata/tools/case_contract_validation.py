@@ -65,6 +65,10 @@ _UNAVAILABLE_INFORMATION_PATTERNS = (
     "sin informacion",
 )
 
+# Model-facing quote choices are exact contiguous paragraphs from the client text.
+# The separator is detected, never normalized into the quote itself.
+_SOURCE_PARAGRAPH_SEPARATOR = re.compile(r"(?:\r?\n[ \t]*){2,}")
+
 
 def _fold_lexical_text(value: str) -> str:
     """Case/accent-fold text only for conservative lexical comparisons."""
@@ -733,3 +737,62 @@ def case_draft_response_schema(case_input: dict[str, Any]) -> dict[str, Any]:
         "$defs": definitions,
         "$ref": "#/$defs/CaseDraft",
     }
+
+
+def source_quote_candidates(problem_text: str) -> list[str]:
+    """Return deterministic exact client-text spans for constrained quote generation.
+
+    Paragraph-sized spans preserve exact code points and internal newlines, remain
+    contiguous substrings of problem_text, and keep schema growth bounded to roughly
+    one additional copy of the client text. Duplicate paragraph text is collapsed
+    because CaseDraft v3 stores quote text rather than occurrence offsets.
+    """
+    candidates: list[str] = []
+    seen: set[str] = set()
+    start = 0
+    for separator in _SOURCE_PARAGRAPH_SEPARATOR.finditer(problem_text):
+        candidate = problem_text[start : separator.start()]
+        if candidate and candidate not in seen:
+            candidates.append(candidate)
+            seen.add(candidate)
+        start = separator.end()
+
+    candidate = problem_text[start:]
+    if candidate and candidate not in seen:
+        candidates.append(candidate)
+
+    # CaseInput currently allows any non-empty string. Preserve a deterministic
+    # literal choice even for pathological whitespace/separator-only input.
+    if not candidates and problem_text:
+        candidates.append(problem_text)
+    return candidates
+
+
+def case_draft_generation_schema(case_input: dict[str, Any]) -> dict[str, Any]:
+    """Return the constrained model-facing schema used to generate a v3 CaseDraft.
+
+    Client-owned root fields are omitted from model generation and copied verbatim
+    by the adapter after parsing. user_provided.source_quote is constrained to exact
+    contiguous client-text spans, so a conforming structured backend cannot
+    paraphrase, normalize, concatenate, or otherwise alter quote bytes. The final
+    public CaseDraft is still validated by validate_case_draft.
+    """
+    schema = case_draft_response_schema(case_input)
+    draft = schema["$defs"]["CaseDraft"]
+    for name in ("problem_text", "as_of_date", "client_reference"):
+        draft["properties"].pop(name, None)
+        draft["required"] = [item for item in draft["required"] if item != name]
+
+    candidates = source_quote_candidates(case_input["problem_text"])
+    for variant in schema["$defs"]["CaseFact"]["oneOf"]:
+        properties = variant["properties"]
+        state = properties["state"]["const"]
+        if state == "user_provided":
+            properties["source_quote"] = {
+                "type": "string",
+                "enum": deepcopy(candidates),
+            }
+        else:
+            # Only literal client facts receive generated source quotes.
+            properties.pop("source_quote", None)
+    return schema
