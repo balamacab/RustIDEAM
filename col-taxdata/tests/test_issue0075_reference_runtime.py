@@ -199,7 +199,7 @@ class Issue75ReferenceRuntimeTests(unittest.TestCase):
         )
 
     def test_reference_envelope_is_exact_and_thinking_is_disabled(self) -> None:
-        self.assertEqual(self.profile["generation"], case_validation.EXPECTED_GENERATION)
+        self.assertEqual(self.profile["generation"], case_validation.ISSUE67_CANONICAL_GENERATION)
         llm = case_validation.load_json(
             ROOT / self.profile["application"]["llm_platform_config"]
         )
