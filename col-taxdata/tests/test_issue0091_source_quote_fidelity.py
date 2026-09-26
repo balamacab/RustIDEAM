@@ -27,6 +27,9 @@ from llm_client import (
     LLMPlatformConfig,
     ModelRoute,
     OpenAICompatibleLLMClient,
+    _estimate_request_tokens,
+    _model_input_context,
+    load_platform_config,
 )
 
 
@@ -343,6 +346,32 @@ class Issue0091SourceQuoteFidelityTests(unittest.TestCase):
         quote = "pagó USD 10.000"
         self.assertIn(quote, paragraph)
         validate_case_draft(case_input(), final_draft(PROBLEM, quote))
+
+    def test_historical_issue67_generation_schema_fits_runtime_v2_context(self):
+        request = json.loads(
+            (
+                ROOT / "config" / "benchmarks" / "issue65" / "request.json"
+            ).read_text(encoding="utf-8")
+        )
+        ci = {
+            "kind": "case_input",
+            "contract_version": "3.0.0",
+            "problem_text": request["problem_text"],
+            "as_of_date": request["as_of_date"],
+        }
+        config = load_platform_config(
+            ROOT / "config" / "llm" / "case-validation-reference-v2.yaml"
+        )
+        schema = case_draft_generation_schema(ci)
+        _, estimated = _estimate_request_tokens(
+            model_input=_model_input_context(ci),
+            response_schema=schema,
+            chars_per_token=config.chars_per_token_estimate,
+        )
+        self.assertLessEqual(
+            estimated + config.primary.max_output_tokens,
+            config.primary.context_tokens,
+        )
 
     def test_candidate_serialization_preserves_generated_quote_bytes(self):
         quote = source_quote_candidates(PROBLEM)[0]
