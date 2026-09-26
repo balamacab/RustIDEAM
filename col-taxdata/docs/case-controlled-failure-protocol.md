@@ -218,9 +218,11 @@ Every allocated attempt records the following overlay. Values that are genuinely
     "raw_evidence_manifest_sha256": "..."
   },
   "provider": {
-    "name": "...",
+    "provider": "...",
+    "backend": "...",
     "model": "...",
-    "artifact_or_build_identity": "...",
+    "model_artifact_identity": "...",
+    "backend_build_identity": "...",
     "generation_parameters": {},
     "request_reached_provider": true,
     "raw_response_sha256": null,
@@ -267,7 +269,7 @@ This overlay covers the minimum #93 decision evidence:
 - execution-profile identity and SHA;
 - exact request and CaseInput SHA;
 - database/corpus baseline and raw-evidence-manifest SHA;
-- provider/model/artifact/build identity and generation parameters;
+- provider/backend/model/artifact/build identity and generation parameters;
 - provider response/rejected-output references where available;
 - HTTP/error/finish/usage/timing metadata;
 - resulting CASE ID and persistence/materialization state;
@@ -308,7 +310,7 @@ A same-envelope retry is valid only when:
    - CaseInput SHA;
    - DB baseline SHA;
    - raw-evidence manifest SHA;
-   - provider/model/artifact/build identity;
+   - provider/backend/model/artifact/build identity;
    - generation parameters.
 
 If any of those values must change, the controller must choose the appropriate declared rerun type rather than labeling the action a same-envelope retry.
@@ -338,7 +340,7 @@ Required stable values include:
 - request and CaseInput SHA;
 - DB baseline and raw-evidence-manifest SHA;
 - profile ID/SHA;
-- provider/model/artifact-build identity;
+- provider/backend/model/artifact/build identity;
 - generation parameters.
 
 Git/image/build identity may legitimately change because the defect fix changed executable code. The fix reference explains that change.
