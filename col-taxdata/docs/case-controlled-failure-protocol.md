@@ -329,7 +329,7 @@ When a controlled validation exposes a defect and the defect is fixed:
 8. declare exactly one rerun kind;
 9. execute without overwriting historical artifacts;
 10. compare pre-fix and post-fix behavior directly;
-11. continue the parent to its next phase only after the rerun gate passes.
+11. when the controller selects `resume_same_validation`, continue the same parent to its next phase only after the rerun gate passes; when it selects diagnostic milestone completion, the original parent does not resume.
 
 ### Same-contract post-fix rerun
 
@@ -385,18 +385,129 @@ For #17/#67-style methodology:
 
 `tools/case_attempt_policy.py::independent_control_ready()` enforces the machine-checkable subset of this gate.
 
-## 10. Parent/child issue state
+## 10. Validation-level disposition and parent/child issue state
 
-When a controlled validation exposes a systemic defect:
+Attempt lifecycle and validation lifecycle are separate concepts. In particular,
+an attempt with `designation=diagnostic` does **not** authorize closing its
+parent validation. Parent closure requires an explicit validation-level
+controller/operator disposition.
 
-- keep the parent validation open;
-- create/associate a focused child defect/architecture/operations issue;
-- record the blocking attempt/evidence in the parent;
-- child issue owns production code/config correction;
-- parent validation does not absorb unrelated fixes;
-- after child completion, the controller verifies the declared successor/rerun gate before resuming the parent.
+After a systemic validation failure, the controller chooses exactly one of these
+two dispositions.
+
+### A. `resume_same_validation`
+
+Use this when the same frozen validation case/methodology is intended to
+continue after the blocker is corrected.
+
+Requirements:
+
+- the parent validation remains open;
+- the failed/aborted attempt and its artifact evidence remain preserved;
+- systemic C/D/E/F blockers are owned by at least one separate child
+  defect/architecture/operations issue;
+- no successor validation issue is named;
+- future rerun lineage remains owned by the same parent validation issue;
+- any post-fix attempt still follows the retry/rerun rules in sections 7–8;
+- Phase B is not represented as executed or completed unless a valid Phase A
+  exists.
+
+This disposition does not make a failure retryable. Retry eligibility continues
+to come from the attempt-level failure taxonomy and declared rerun kind.
+
+### B. `diagnostic_complete_with_successor`
+
+Use this only when the controller/operator explicitly determines that the
+validation has fulfilled its diagnostic purpose and the next meaningful
+validation should be a distinct successor case/milestone.
+
+Requirements:
+
+- only systemic failure classes C, D, E, or F qualify;
+- the blocking attempt/artifact evidence is preserved and referenced;
+- the original parent closes with explicit **diagnostic completion** language;
+- an explicit controller/operator decision reference is recorded;
+- at least one separately owned blocker/fix issue is recorded;
+- the distinct successor validation issue is recorded and cannot be the parent
+  or one of the blocker/fix issues;
+- the reason for not resuming the same validation is recorded;
+- `legal_pass=false`; diagnostic completion is never CaseResult/legal PASS;
+- the original parent owns no future rerun lineage;
+- Phase A and Phase B truthfully record what actually executed/completed;
+- if Phase A was not valid, Phase B must be recorded as not executed and not
+  completed;
+- the blocking attempt itself remains failed/aborted/completed-with-findings as
+  originally classified and is never relabeled successful merely because the
+  parent issue closes.
+
+Diagnostic milestone completion is deliberately unavailable for:
+
+- class A admission/preflight failures that should be corrected at the gate;
+- class B operational failures while bounded operational retry remains the
+  correct disposition;
+- class G structurally valid legal-quality findings, which must be frozen and
+  evaluated rather than escaped through diagnostic closure;
+- class H operator aborts. An abort requires a separate explicit controller
+  disposition appropriate to the validation; it is not automatically a
+  diagnostic milestone completion;
+- convenience, issue cleanup, or avoidance of scoring a poor legal result.
+
+### Machine-checkable validation disposition
+
+`tools/case_attempt_policy.py::validate_validation_disposition()` validates a
+separate record such as:
+
+```json
+{
+  "schema_version": 1,
+  "disposition": "resume_same_validation | diagnostic_complete_with_successor",
+  "parent_validation_issue": 67,
+  "parent_issue_open": false,
+  "blocking_failure_class": "E_APPLICATION_CONTRACT",
+  "blocking_attempt_id": "ATT-...",
+  "blocking_artifact_reference": "artifacts/ATT-...",
+  "blocking_attempt_status": "failed",
+  "blocking_evidence_preserved": true,
+  "controller_decision_reference": "issue#67-final-closeout",
+  "blocker_issue_references": [90, 91, 92, 93],
+  "successor_validation_issue": 94,
+  "future_rerun_parent_issue": null,
+  "legal_pass": false,
+  "phase_a_valid": false,
+  "phase_b_executed": false,
+  "phase_b_completed": false,
+  "reason": "diagnostic purpose fulfilled; fresh successor required"
+}
+```
+
+The helper may also be given the referenced attempt manifest. When supplied, it
+verifies that parent issue, failure class, terminal status, attempt identity and
+artifact reference agree with the preserved attempt. This prevents validation
+closure metadata from silently relabeling the attempt itself.
+
+`validation_parent_may_close()` returns true only for a fully valid
+`diagnostic_complete_with_successor` record. It never infers closure from an
+attempt's `designation`.
 
 Unknown dependency state is recorded as unknown rather than inferred.
+
+### Historical #67 -> #94 example
+
+Issue #67 is the concrete historical example of
+`diagnostic_complete_with_successor`:
+
+- the amended canonical Phase A completed model generation but failed the
+  authoritative CaseDraft contract (class E);
+- the failed Phase A evidence remained historical evidence;
+- Phase A never produced a valid final CaseResult;
+- Phase B was not started;
+- #90, #91, #92 and #93 separately owned the discovered blockers/fixes;
+- the controller explicitly closed #67 as a **completed diagnostic validation
+  milestone**, not a legal/CaseResult PASS;
+- #94 / CASE-0003 is a distinct fresh successor validation.
+
+Nothing in this representation retroactively completes #67's unexecuted Phase B
+or rewrites #67 history.
 
 ## 11. Relationship to current CASE work
 

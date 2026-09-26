@@ -128,9 +128,13 @@ readiness and they may not silently substitute model or generation parameters.
 
 ## Controlled failure and Phase B gate
 
-Runtime/profile readiness does not itself authorize a retry. Controlled execution failures, retries, amendments, aborts, post-fix reruns and independent-control isolation are governed by [`case-controlled-failure-protocol.md`](case-controlled-failure-protocol.md).
+Runtime/profile readiness does not itself authorize a retry. Controlled execution failures, retries, amendments, aborts, post-fix reruns, validation-level disposition and independent-control isolation are governed by [`case-controlled-failure-protocol.md`](case-controlled-failure-protocol.md).
 
 For #17/#67-style controlled runs, Phase B is eligible only after a canonical Phase A attempt is frozen as a completed, accepted, validator-passing CaseResult and its semantic content has not been exposed to the independent Phase B context. A rejected/failed attempt is preserved and classified; it is not retried ad hoc until something passes.
+
+A systemic blocker has two distinct controller outcomes. `resume_same_validation` keeps the parent open and preserves same-parent rerun lineage. `diagnostic_complete_with_successor` may close the parent only for eligible systemic C/D/E/F failures with preserved evidence, explicit controller/operator authority, separately owned blockers, a distinct successor validation and `legal_pass=false`. Attempt `designation=diagnostic` alone never authorizes parent closure.
+
+Issue #67 -> #94 is the historical diagnostic-successor example: #67 closed as a diagnostic milestone after its class-E Phase A blocker, while Phase B remained not started; #94 is a fresh successor. That history must not be represented as a valid final CaseResult or legal PASS for #67.
 
 ## Historical boundary
 
