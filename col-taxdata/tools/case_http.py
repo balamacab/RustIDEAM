@@ -485,7 +485,11 @@ def build_runtime_application(
     """Construct server-side runtime configuration once for all HTTP requests."""
     config = load_platform_config(config_path)
     client = OpenAICompatibleLLMClient(config)
-    structurer = CaseStructuringService(config, client)
+    structurer = CaseStructuringService(
+        config,
+        client,
+        evidence_root=case_root / "_audit" / "rejected-structuring-attempts",
+    )
 
     def analyzer(case_input: dict[str, Any]) -> AnalysisOutcome:
         return analyze_case(

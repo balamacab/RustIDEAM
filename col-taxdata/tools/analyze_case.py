@@ -92,7 +92,11 @@ def main() -> int:
     try:
         config = load_platform_config(Path(args.config))
         client = OpenAICompatibleLLMClient(config)
-        structurer = CaseStructuringService(config, client)
+        structurer = CaseStructuringService(
+            config,
+            client,
+            evidence_root=Path(args.case_root) / "_audit" / "rejected-structuring-attempts",
+        )
         outcome = analyze_case(
             case_input=case_input,
             db_path=Path(args.db),
