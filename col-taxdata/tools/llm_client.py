@@ -667,6 +667,18 @@ class CaseStructuringService:
                 # object; exact provider bytes are then explicitly unavailable.
                 payload = generated
 
+            if evidence is None:
+                evidence = GenerationEvidence(candidate_payload=deepcopy(payload))
+            elif evidence.candidate_payload is None:
+                evidence = GenerationEvidence(
+                    provider_request_sha256=evidence.provider_request_sha256,
+                    raw_response=evidence.raw_response,
+                    finish_reason=evidence.finish_reason,
+                    usage=evidence.usage,
+                    assistant_content=evidence.assistant_content,
+                    candidate_payload=deepcopy(payload),
+                )
+
             if "model_metadata" in payload:
                 exc = CaseContractError(
                     INVALID_CASE_DRAFT,
@@ -696,18 +708,6 @@ class CaseStructuringService:
                 "generated_at": utc_now(),
                 "routing_role": route.routing_role,
             }
-            if evidence is None:
-                evidence = GenerationEvidence(candidate_payload=deepcopy(payload))
-            elif evidence.candidate_payload is None:
-                evidence = GenerationEvidence(
-                    provider_request_sha256=evidence.provider_request_sha256,
-                    raw_response=evidence.raw_response,
-                    finish_reason=evidence.finish_reason,
-                    usage=evidence.usage,
-                    assistant_content=evidence.assistant_content,
-                    candidate_payload=deepcopy(payload),
-                )
-
             # Separate schema from semantic validation only to classify forensic
             # failure stage. validate_case_draft remains the authoritative final
             # validator and no repair/normalization is introduced.
