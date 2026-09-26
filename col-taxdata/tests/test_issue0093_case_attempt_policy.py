@@ -26,6 +26,7 @@ def manifest(attempt_id: str = "ATTEMPT-001") -> dict:
         "started_at": "2026-09-25T00:00:00Z",
         "ended_at": "2026-09-25T00:01:00Z",
         "git_sha": "a" * 40,
+        "image_identity": {"reference": "case:test", "digest": "sha256:" + "9" * 64},
         "execution_profile_id": "issue67-v2",
         "execution_profile_sha256": "b" * 64,
         "request_sha256": "c" * 64,
@@ -71,6 +72,8 @@ class Issue93AttemptPolicyTests(unittest.TestCase):
     def test_distinct_attempt_ids_and_artifact_roots_required_for_post_fix_rerun(self) -> None:
         previous = manifest()
         current = deepcopy(previous)
+        current["status"] = "running"
+        current.pop("failure_class")
         current["previous_attempt"] = previous["attempt_id"]
         current["rerun_kind"] = "same_contract_post_fix"
         allowed, errors = post_fix_rerun_allowed(
@@ -126,6 +129,8 @@ class Issue93AttemptPolicyTests(unittest.TestCase):
         current = deepcopy(previous)
         current["attempt_id"] = "ATTEMPT-002"
         current["artifact_root"] = "attempts/ATTEMPT-002"
+        current["status"] = "running"
+        current.pop("failure_class")
         current["previous_attempt"] = "ATTEMPT-001"
         current["rerun_kind"] = "same_contract_post_fix"
         current["request_sha256"] = "0" * 64
@@ -140,6 +145,8 @@ class Issue93AttemptPolicyTests(unittest.TestCase):
         current = deepcopy(previous)
         current["attempt_id"] = "ATTEMPT-002"
         current["artifact_root"] = "attempts/ATTEMPT-002"
+        current["status"] = "running"
+        current.pop("failure_class")
         current["previous_attempt"] = "ATTEMPT-001"
         current["rerun_kind"] = "same_contract_post_fix"
         allowed, errors = post_fix_rerun_allowed(
