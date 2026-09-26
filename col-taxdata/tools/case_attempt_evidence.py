@@ -42,6 +42,16 @@ class GenerationResult:
     payload: dict[str, Any]
     evidence: GenerationEvidence
 
+    def __getitem__(self, key: str) -> Any:
+        """Preserve legacy adapter callers that index the returned candidate."""
+        return self.payload[key]
+
+    def get(self, key: str, default: Any = None) -> Any:
+        return self.payload.get(key, default)
+
+    def __contains__(self, key: object) -> bool:
+        return key in self.payload
+
 
 class RejectedAttemptEvidenceStore:
     """Write immutable, non-canonical evidence for rejected LLM attempts.
