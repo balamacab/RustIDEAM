@@ -1,6 +1,6 @@
 # DEF-0013 — Issue #67 canonical runtime envelope drift
 
-Status: implementing  
+Status: verified  
 Priority: P2  
 GitHub issue: #92  
 Area: validation / runtime-profile
@@ -136,3 +136,28 @@ No blocking implementation dependency is required. The next canonical #67 Phase 
 - Generic `config/llm/case-validation-reference.yaml` blob SHA remained `36a814481fe0540e0f28d8b18cc27c9e7747f613` across the #92 implementation.
 - Reprocessing, schema migration, production mutation, runtime access, and raw-evidence changes: N/A.
 - A later high-rigor review reopened #92 before final verification because external profile-path resolution, selected-runtime-profile drift coverage, and runtime documentation required correction. This section is therefore historical evidence for PR #96, not the final DEF-0013 verification state.
+
+## Final high-rigor verification
+
+DEF-0013 was re-reviewed after the initial implementation and corrected through PR #100.
+
+Final evidence:
+
+- corrected implementation PR #100 merged as `7f6dd922d1ba7dc25815c7d4b1ad7fd450237f29`;
+- exact candidate `e6fa376970b67a830d5b876f8a5447ae2dddb362` was selected by trusted CI for PR #100;
+- the complete col-taxdata suite passed: 319 tests, including the DEF-0013, issue #75, issue #76, issue #90, and issue #93 coverage present on the integrated base;
+- candidate `CI Gate` passed;
+- merged-state `Main integration invariants` passed;
+- merged-state `Convergence Gate` passed;
+- historical #65 benchmark content remained separate at 900/6144;
+- historical `config/llm/case-validation-reference.yaml` remained the v1 reference-preparation profile rather than being silently repurposed;
+- current reusable runtime is `config/llm/case-validation-reference-v2.yaml` with 7200/9000 and unchanged model/context/T0/request semantics;
+- the #67 validation plan/run identity remains explicitly #67-specific and is not a reusable CASE-0003 execution identity;
+- external validation-profile paths resolve repository-relative references from an explicit project root;
+- validation/runtime profile SHA-256 values cover exact selected bytes;
+- independent validation-profile and selected-runtime-profile drift is rejected;
+- actual OpenAI-compatible request construction was verified to materialize T0 and the frozen request options;
+- clean-provider-state drift is rejected;
+- no schema migration, corpus reprocessing, production mutation, raw-evidence mutation, #67 rerun, Phase B run, or #94 execution was performed.
+
+All mandatory acceptance criteria are PASS. Status is therefore `verified`.
