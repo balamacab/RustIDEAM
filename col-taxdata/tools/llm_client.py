@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 import hashlib
 import json
@@ -18,6 +18,7 @@ from case_attempt_evidence import (
     GenerationEvidence,
     GenerationResult,
     RejectedAttemptEvidenceStore,
+    deterministic_json_bytes,
 )
 from case_contract_validation import (
     CONTRACT_VERSION,
@@ -162,8 +163,8 @@ class LLMClient(Protocol):
         *,
         case_input: dict[str, Any],
         route: ModelRoute,
-    ) -> dict[str, Any]:
-        """Return model-produced CaseDraft fields; app adds only model_metadata."""
+    ) -> GenerationResult | dict[str, Any]:
+        """Return an untrusted candidate, carrying provider evidence when available."""
 
 
 def utc_now() -> str:
@@ -269,6 +270,18 @@ class OpenAICompatibleLLMClient:
             )
         return {"Authorization": f"Bearer {value}"}
 
+    def _safe_provider_payload(
+        self,
+        raw: bytes | None,
+    ) -> tuple[bytes | None, str | None]:
+        """Exclude configured credential material if a provider echoes it."""
+        if raw is None or not self.config.api_key_env:
+            return raw, None
+        secret = os.environ.get(self.config.api_key_env)
+        if secret and secret.encode("utf-8") in raw:
+            return None, "configured_api_key_material_detected"
+        return raw, None
+
     def complete_case_draft(
         self,
         *,
@@ -347,28 +360,38 @@ class OpenAICompatibleLLMClient:
             headers=headers,
             method="POST",
         )
+
+        response_status: int | None = None
         try:
             with urlrequest.urlopen(req, timeout=self.config.timeout_seconds) as response:
+                status_value = getattr(response, "status", None)
+                if isinstance(status_value, int) and not isinstance(status_value, bool):
+                    response_status = status_value
                 raw = response.read()
         except TimeoutError as exc:
             raise LLMClientError(
                 CASE_PROVIDER_TIMEOUT,
                 f"OpenAI-compatible backend timed out: {exc}",
                 retryable=True,
-                evidence=GenerationEvidence(provider_request_sha256=request_sha256),
+                evidence=GenerationEvidence(
+                    provider_request_attempted=True,
+                    provider_request_sha256=request_sha256,
+                    http_status=response_status,
+                ),
                 failure_stage="transport",
             ) from exc
         except urlerror.HTTPError as exc:
-            # Preserve response body when the provider returned one. Transport
-            # headers are deliberately excluded so Authorization/API keys can
-            # never enter rejected-attempt evidence.
             try:
                 raw_error = exc.read()
             except (AttributeError, OSError):
                 raw_error = None
+            safe_raw, omission_reason = self._safe_provider_payload(raw_error)
             evidence = GenerationEvidence(
+                provider_request_attempted=True,
                 provider_request_sha256=request_sha256,
-                raw_response=raw_error,
+                http_status=exc.code,
+                raw_response=safe_raw,
+                payload_omission_reason=omission_reason,
             )
             if 400 <= exc.code < 500:
                 raise LLMClientError(
@@ -398,7 +421,10 @@ class OpenAICompatibleLLMClient:
                 code,
                 f"OpenAI-compatible backend unavailable: {exc}",
                 retryable=True,
-                evidence=GenerationEvidence(provider_request_sha256=request_sha256),
+                evidence=GenerationEvidence(
+                    provider_request_attempted=True,
+                    provider_request_sha256=request_sha256,
+                ),
                 failure_stage="transport",
             ) from exc
         except OSError as exc:
@@ -406,13 +432,21 @@ class OpenAICompatibleLLMClient:
                 CASE_STRUCTURING_UNAVAILABLE,
                 f"OpenAI-compatible backend unavailable: {exc}",
                 retryable=True,
-                evidence=GenerationEvidence(provider_request_sha256=request_sha256),
+                evidence=GenerationEvidence(
+                    provider_request_attempted=True,
+                    provider_request_sha256=request_sha256,
+                    http_status=response_status,
+                ),
                 failure_stage="transport",
             ) from exc
 
+        safe_raw, omission_reason = self._safe_provider_payload(raw)
         base_evidence = GenerationEvidence(
+            provider_request_attempted=True,
             provider_request_sha256=request_sha256,
-            raw_response=raw,
+            http_status=response_status,
+            raw_response=safe_raw,
+            payload_omission_reason=omission_reason,
         )
         try:
             envelope = json.loads(raw)
@@ -425,46 +459,74 @@ class OpenAICompatibleLLMClient:
                 failure_stage="provider_envelope_parse",
             ) from exc
 
+        if not isinstance(envelope, dict):
+            raise LLMClientError(
+                INVALID_CASE_DRAFT,
+                "backend returned a non-object provider envelope",
+                retryable=True,
+                evidence=base_evidence,
+                failure_stage="provider_envelope_parse",
+            )
+
+        body_sensitive = omission_reason is not None
+        served_model = None if body_sensitive else deepcopy(envelope.get("model"))
+        usage = None if body_sensitive else deepcopy(envelope.get("usage"))
+        envelope_evidence = replace(
+            base_evidence,
+            served_model=served_model,
+            usage=usage,
+        )
+
         try:
-            served_model = envelope["model"]
-            if not isinstance(served_model, str):
+            if not isinstance(envelope.get("model"), str):
                 raise TypeError("response.model is not a string")
-            if served_model != route.name:
+            if envelope["model"] != route.name:
                 raise LLMClientError(
                     CASE_STRUCTURING_UNAVAILABLE,
                     (
-                        f"backend served model {served_model!r} for requested "
+                        f"backend served model {envelope['model']!r} for requested "
                         f"route {route.name!r}"
                     ),
                     retryable=False,
-                    evidence=base_evidence,
+                    evidence=envelope_evidence,
                     failure_stage="provider_envelope_parse",
                 )
-            choice = envelope["choices"][0]
-            finish_reason = choice.get("finish_reason")
-            usage = envelope.get("usage") or {}
-            content = choice["message"]["content"]
-            if not isinstance(content, str):
-                raise TypeError("message.content is not a string")
+            choices = envelope["choices"]
+            if not isinstance(choices, list) or not choices:
+                raise TypeError("response.choices is not a non-empty list")
+            choice = choices[0]
+            if not isinstance(choice, dict):
+                raise TypeError("response.choices[0] is not an object")
         except (KeyError, IndexError, TypeError) as exc:
             raise LLMClientError(
                 INVALID_CASE_DRAFT,
                 f"backend returned malformed structured envelope: {exc}",
                 retryable=True,
-                evidence=base_evidence,
+                evidence=envelope_evidence,
                 failure_stage="provider_envelope_parse",
             ) from exc
 
-        content_evidence = GenerationEvidence(
-            provider_request_sha256=request_sha256,
-            raw_response=raw,
-            finish_reason=finish_reason,
-            usage=usage,
-            assistant_content=content,
+        finish_reason = None if body_sensitive else deepcopy(choice.get("finish_reason"))
+        message = choice.get("message")
+        raw_content = message.get("content") if isinstance(message, dict) else None
+        assistant_content = (
+            raw_content
+            if isinstance(raw_content, str) and not body_sensitive
+            else None
         )
-        completion_tokens = usage.get("completion_tokens")
+        choice_evidence = replace(
+            envelope_evidence,
+            finish_reason=finish_reason,
+            assistant_content=assistant_content,
+        )
+
+        completion_tokens = (
+            usage.get("completion_tokens")
+            if isinstance(usage, dict)
+            else None
+        )
         output_ceiling_reached = (
-            finish_reason == "length"
+            choice.get("finish_reason") == "length"
             or (
                 isinstance(completion_tokens, int)
                 and not isinstance(completion_tokens, bool)
@@ -480,43 +542,64 @@ class OpenAICompatibleLLMClient:
                 {
                     "model": route.name,
                     "routing_role": route.routing_role,
-                    "finish_reason": finish_reason,
+                    "finish_reason": choice.get("finish_reason"),
                     "completion_tokens": completion_tokens,
                     "max_output_tokens": route.max_output_tokens,
                     "truncated": True,
                 },
-                evidence=content_evidence,
+                evidence=choice_evidence,
+            )
+
+        if not isinstance(message, dict):
+            raise LLMClientError(
+                INVALID_CASE_DRAFT,
+                "backend returned malformed structured envelope: message is not an object",
+                retryable=True,
+                evidence=choice_evidence,
+                failure_stage="provider_envelope_parse",
+            )
+        if not isinstance(raw_content, str):
+            raise LLMClientError(
+                INVALID_CASE_DRAFT,
+                "backend returned malformed structured envelope: message.content is not a string",
+                retryable=True,
+                evidence=choice_evidence,
+                failure_stage="provider_envelope_parse",
             )
 
         try:
-            draft_payload = json.loads(content)
+            draft_payload = json.loads(raw_content)
         except json.JSONDecodeError as exc:
             raise LLMClientError(
                 INVALID_CASE_DRAFT,
                 f"backend returned malformed structured output: {exc}",
                 retryable=True,
-                evidence=content_evidence,
+                evidence=choice_evidence,
                 failure_stage="json_parse",
             ) from exc
+
+        candidate_json = deterministic_json_bytes(draft_payload)
+        candidate_evidence = replace(
+            choice_evidence,
+            candidate_json=None if body_sensitive else candidate_json,
+            candidate_payload=(
+                deepcopy(draft_payload)
+                if isinstance(draft_payload, dict) and not body_sensitive
+                else None
+            ),
+        )
         if not isinstance(draft_payload, dict):
             raise LLMClientError(
                 INVALID_CASE_DRAFT,
                 "structured output root is not an object",
                 retryable=True,
-                evidence=content_evidence,
-                failure_stage="json_parse",
+                evidence=candidate_evidence,
+                failure_stage="schema_validation",
             )
 
         return GenerationResult(
             payload=draft_payload,
-            evidence=GenerationEvidence(
-                provider_request_sha256=request_sha256,
-                raw_response=raw,
-                finish_reason=finish_reason,
-                usage=usage,
-                assistant_content=content,
-                candidate_payload=deepcopy(draft_payload),
-            ),
+            evidence=candidate_evidence,
         )
 
 
