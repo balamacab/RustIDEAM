@@ -668,10 +668,21 @@ class CaseStructuringService:
                 payload = generated
 
             if "model_metadata" in payload:
-                raise CaseContractError(
+                exc = CaseContractError(
                     INVALID_CASE_DRAFT,
-                    "model must not supply app-owned model_metadata",
+                    "$.model_metadata: model must not supply app-owned model_metadata",
                 )
+                self._record_rejection(
+                    attempt_id=attempt_id,
+                    case_input=case_input,
+                    route=route,
+                    started_at=started_at,
+                    failure_stage="semantic_validation",
+                    failure_code=exc.code,
+                    failure_detail=exc.detail,
+                    evidence=evidence,
+                )
+                raise exc
 
             draft = deepcopy(payload)
             draft["model_metadata"] = {
