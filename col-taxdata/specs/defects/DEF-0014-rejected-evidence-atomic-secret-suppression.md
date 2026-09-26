@@ -1,6 +1,6 @@
 # DEF-0014 — Harden rejected CASE evidence against credential echo and partial publication
 
-Status: **implementing**
+Status: **verified**
 
 GitHub issue: [#113](https://github.com/balamacab/RustIDEAM/issues/113)
 
