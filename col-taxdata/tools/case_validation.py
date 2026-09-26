@@ -434,7 +434,6 @@ def build_validation_plan(
             "required": False,
             "backend_id": backend["id"],
             "generation": deepcopy(generation),
-            "runtime_profile": deepcopy(runtime_evidence),
         }
         for backend in profile["experimental_backends"]
     ]
