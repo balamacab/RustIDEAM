@@ -13,6 +13,7 @@ import re
 import sys
 from typing import Any, Callable
 
+from case_attempt_evidence import RejectedStructuringEvidenceStore
 from case_application import (
     AnalysisOutcome,
     CaseAnalysisIntegrityError,
@@ -276,11 +277,24 @@ class CaseHTTPApplication:
 
     def __init__(
         self,
-        analyzer: Callable[[dict[str, Any]], AnalysisOutcome],
+        analyzer: Callable[..., AnalysisOutcome],
+        *,
+        forward_request_fingerprints: bool = False,
     ):
         self._analyzer = analyzer
+        self._forward_request_fingerprints = forward_request_fingerprints
 
-    def analyze(self, case_input: dict[str, Any]) -> AnalysisOutcome:
+    def analyze(
+        self,
+        case_input: dict[str, Any],
+        *,
+        request_fingerprints: dict[str, str] | None = None,
+    ) -> AnalysisOutcome:
+        if self._forward_request_fingerprints:
+            return self._analyzer(
+                case_input,
+                request_fingerprints=request_fingerprints,
+            )
         return self._analyzer(case_input)
 
 
@@ -420,7 +434,10 @@ class CaseHTTPRequestHandler(BaseHTTPRequestHandler):
             raw_body = self._read_json_body()
             raw_sha = _raw_sha256(raw_body)
             prepared = prepare_case_request(raw_body)
-            outcome = self.server.application.analyze(prepared.case_input)
+            outcome = self.server.application.analyze(
+                prepared.case_input,
+                request_fingerprints=prepared.fingerprints,
+            )
             payload = outcome_payload(outcome, prepared)
         except CaseHTTPProtocolError as exc:
             payload = {"error": exc.code, "detail": exc.detail}
@@ -485,9 +502,20 @@ def build_runtime_application(
     """Construct server-side runtime configuration once for all HTTP requests."""
     config = load_platform_config(config_path)
     client = OpenAICompatibleLLMClient(config)
-    structurer = CaseStructuringService(config, client)
+    evidence_store = RejectedStructuringEvidenceStore(
+        case_root / "_audit" / "rejected-structuring-attempts"
+    )
+    structurer = CaseStructuringService(
+        config,
+        client,
+        evidence_store=evidence_store,
+    )
 
-    def analyzer(case_input: dict[str, Any]) -> AnalysisOutcome:
+    def analyzer(
+        case_input: dict[str, Any],
+        *,
+        request_fingerprints: dict[str, str] | None = None,
+    ) -> AnalysisOutcome:
         return analyze_case(
             case_input=case_input,
             db_path=db_path,
@@ -495,10 +523,14 @@ def build_runtime_application(
             structurer=structurer,
             dry_run=dry_run,
             include_debug_provenance=False,
+            request_fingerprints=request_fingerprints,
         )
 
     return (
-        CaseHTTPApplication(analyzer),
+        CaseHTTPApplication(
+            analyzer,
+            forward_request_fingerprints=True,
+        ),
         config.provider,
         config.primary.name,
     )
