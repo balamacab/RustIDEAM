@@ -1,0 +1,91 @@
+{
+  "schema_version": 1,
+  "profile_id": "case0003-issue94-admission-v1",
+  "admission_issue_number": 95,
+  "execution_issue_number": 94,
+  "human_case_label": "CASE-0003",
+  "case_contract_version": "3.0.0",
+  "frozen_input": {
+    "problem_text_path": "config/validation/case0003-issue94/problem.txt",
+    "problem_text_encoding": "UTF-8",
+    "problem_text_bytes": 2817,
+    "problem_text_sha256": "da85617ba3ea5d75461fdb2da8945bfa3bd223d9eeed63422de5faf49cb356b8",
+    "as_of_date": "2026-09-25",
+    "client_reference_present": false,
+    "raw_http_request_path": "config/validation/case0003-issue94/request.json",
+    "raw_http_request_bytes": 2868,
+    "raw_http_request_sha256": "a8c4672393310437a083fb8a34b081588a3422bc62d303b57dda7583958027ac",
+    "canonical_case_input_bytes": 2915,
+    "canonical_case_input_sha256": "4eaae3fc2dca4c214d8cf4a50cb6d3158d456a69db40d648e22800fa5cab3d5c"
+  },
+  "application": {
+    "transport": "openai-compatible",
+    "provider_neutral_boundary": true,
+    "http_adapter": "tools/case_http.py",
+    "http_method": "POST",
+    "http_endpoint": "/v1/cases",
+    "llm_platform_config": "config/llm/case-validation-reference-v2.yaml"
+  },
+  "generation": {
+    "temperature": 0,
+    "thinking": false,
+    "context_tokens": 16384,
+    "max_output_tokens": 9000,
+    "provider_timeout_seconds": 7200,
+    "top_p": 1,
+    "top_k": 0,
+    "stream": false,
+    "n": 1
+  },
+  "reference_backend": {
+    "id": "quadro-m620-gemma-e2b-llamacpp",
+    "requirement": "required",
+    "hardware": "NVIDIA Quadro M620",
+    "backend": "llama.cpp",
+    "logical_model": "Gemma E2B",
+    "requested_model_name": "gemma-4-E2B-it-Q4_K_M",
+    "artifact_basename": "gemma-4-E2B-it-Q4_K_M.gguf",
+    "artifact_sha256": "740185b21d22ceb83a11c3aa62ad5842ef32c70f6096d756bbee85a1e4ec34b8",
+    "allow_model_substitution": false,
+    "allow_generation_substitution": false
+  },
+  "clean_provider_state": {
+    "reset_before_controlled_run": true,
+    "warm_session_reuse_allowed": false,
+    "discard_probe_state": true
+  },
+  "admission_state": {
+    "case0003_consumed": false,
+    "frozen_case_provider_exposure_allowed": false,
+    "frozen_case_persistence_allowed": false,
+    "synthetic_smoke_only": true
+  },
+  "future_execution_state": {
+    "independent_database_required": true,
+    "independent_case_root_required": true,
+    "unconsumed_marker_required": true,
+    "immutable_reference_baseline_required": true
+  },
+  "final_manifest": {
+    "required_fields": [
+      "issue_94_reference",
+      "main_sha",
+      "application_image",
+      "case_contract_version",
+      "runtime_profile",
+      "admission_profile",
+      "model_artifact_sha256",
+      "backend_identity",
+      "database_baseline_sha256",
+      "raw_provenance_fingerprint",
+      "schema_migration_state",
+      "frozen_input_verification",
+      "synthetic_http_smoke",
+      "rejected_output_capture_smoke",
+      "provider_reset",
+      "writable_store",
+      "case0003_consumed",
+      "unresolved_blockers"
+    ]
+  }
+}
