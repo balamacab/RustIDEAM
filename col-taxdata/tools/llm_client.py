@@ -650,7 +650,7 @@ class StructuringOutcome:
 
 
 class CaseStructuringService:
-    """Apply retry policy and preserve immutable evidence for every rejected attempt."""
+    """Apply retry policy and preserve evidence for provider-reaching rejections."""
 
     def __init__(
         self,
@@ -703,18 +703,24 @@ class CaseStructuringService:
         self,
         *,
         attempt_id: str,
+        raw_request_sha256: str | None,
         case_input: dict[str, Any],
         route: ModelRoute,
         started_at: str,
         failure_stage: str,
         failure_code: str,
         failure_detail: str,
-        evidence: GenerationEvidence | None,
+        evidence: GenerationEvidence,
     ) -> None:
         if self.evidence_store is None:
             return
+        if not evidence.provider_request_attempted:
+            # Pre-dispatch failures belong to admission/runtime-envelope handling,
+            # not the rejected-provider-output artifact namespace.
+            return
         self.evidence_store.record(
             attempt_id=attempt_id,
+            raw_request_sha256=raw_request_sha256,
             case_input_sha256=self._case_input_sha256(case_input),
             adapter=self.client.adapter_id,
             provider=self.client.provider_id,
@@ -733,7 +739,43 @@ class CaseStructuringService:
             evidence=evidence,
         )
 
-    def _attempt(self, case_input: dict[str, Any], route: ModelRoute) -> dict[str, Any]:
+    @staticmethod
+    def _candidate_evidence(
+        payload: dict[str, Any],
+        evidence: GenerationEvidence | None,
+    ) -> GenerationEvidence:
+        candidate_json = deterministic_json_bytes(payload)
+        if evidence is None:
+            return GenerationEvidence(
+                provider_request_attempted=True,
+                candidate_payload=deepcopy(payload),
+                candidate_json=candidate_json,
+            )
+        # A successful generation result necessarily represents a completed
+        # provider/backend generation attempt, even for a legacy adapter that
+        # omitted the explicit dispatch bit.
+        updated = (
+            evidence
+            if evidence.provider_request_attempted
+            else replace(evidence, provider_request_attempted=True)
+        )
+        if updated.payload_omission_reason is not None:
+            return updated
+        if updated.candidate_json is None or updated.candidate_payload is None:
+            return replace(
+                updated,
+                candidate_payload=deepcopy(payload),
+                candidate_json=candidate_json,
+            )
+        return updated
+
+    def _attempt(
+        self,
+        case_input: dict[str, Any],
+        route: ModelRoute,
+        *,
+        raw_request_sha256: str | None,
+    ) -> dict[str, Any]:
         attempt_id = f"attempt-{uuid.uuid4().hex}"
         started_at = utc_now()
         evidence: GenerationEvidence | None = None
@@ -746,21 +788,9 @@ class CaseStructuringService:
                 payload = generated.payload
                 evidence = generated.evidence
             else:
-                # Third-party/provider adapters can continue returning a direct
-                # object; exact provider bytes are then explicitly unavailable.
                 payload = generated
 
-            if evidence is None:
-                evidence = GenerationEvidence(candidate_payload=deepcopy(payload))
-            elif evidence.candidate_payload is None:
-                evidence = GenerationEvidence(
-                    provider_request_sha256=evidence.provider_request_sha256,
-                    raw_response=evidence.raw_response,
-                    finish_reason=evidence.finish_reason,
-                    usage=evidence.usage,
-                    assistant_content=evidence.assistant_content,
-                    candidate_payload=deepcopy(payload),
-                )
+            evidence = self._candidate_evidence(payload, evidence)
 
             if "model_metadata" in payload:
                 exc = CaseContractError(
@@ -769,6 +799,7 @@ class CaseStructuringService:
                 )
                 self._record_rejection(
                     attempt_id=attempt_id,
+                    raw_request_sha256=raw_request_sha256,
                     case_input=case_input,
                     route=route,
                     started_at=started_at,
@@ -791,9 +822,8 @@ class CaseStructuringService:
                 "generated_at": utc_now(),
                 "routing_role": route.routing_role,
             }
-            # The existing authoritative validator runs exactly as before.
-            # Only after rejection do we replay the schema-only check to classify
-            # the forensic stage; this never repairs or accepts model output.
+            # The authoritative validator remains the first and final application
+            # validity gate. Schema replay after rejection is classification only.
             try:
                 validate_case_draft(case_input, draft)
             except CaseContractError as exc:
@@ -805,6 +835,7 @@ class CaseStructuringService:
                     failure_stage = "semantic_validation"
                 self._record_rejection(
                     attempt_id=attempt_id,
+                    raw_request_sha256=raw_request_sha256,
                     case_input=case_input,
                     route=route,
                     started_at=started_at,
@@ -816,23 +847,34 @@ class CaseStructuringService:
                 raise
             return draft
         except LLMClientError as exc:
-            self._record_rejection(
-                attempt_id=attempt_id,
-                case_input=case_input,
-                route=route,
-                started_at=started_at,
-                failure_stage=exc.failure_stage or "transport",
-                failure_code=exc.code,
-                failure_detail=exc.detail,
-                evidence=exc.evidence or evidence,
-            )
+            failure_evidence = exc.evidence or evidence
+            if (
+                failure_evidence is not None
+                and failure_evidence.provider_request_attempted
+            ):
+                self._record_rejection(
+                    attempt_id=attempt_id,
+                    raw_request_sha256=raw_request_sha256,
+                    case_input=case_input,
+                    route=route,
+                    started_at=started_at,
+                    failure_stage=exc.failure_stage or "transport",
+                    failure_code=exc.code,
+                    failure_detail=exc.detail,
+                    evidence=failure_evidence,
+                )
             raise
         except CaseContractError:
             # Validation failures above are already recorded with the exact
             # schema/semantic stage and must not create a second artifact.
             raise
 
-    def structure(self, case_input: dict[str, Any]) -> StructuringOutcome:
+    def structure(
+        self,
+        case_input: dict[str, Any],
+        *,
+        raw_request_sha256: str | None = None,
+    ) -> StructuringOutcome:
         self._require_generation_compatibility()
         attempts = 0
         last_invalid: Exception | None = None
@@ -842,7 +884,11 @@ class CaseStructuringService:
             attempts += 1
             try:
                 return StructuringOutcome(
-                    draft=self._attempt(case_input, self.config.primary),
+                    draft=self._attempt(
+                        case_input,
+                        self.config.primary,
+                        raw_request_sha256=raw_request_sha256,
+                    ),
                     attempts=attempts,
                     used_review=False,
                 )
@@ -871,7 +917,11 @@ class CaseStructuringService:
             attempts += 1
             try:
                 return StructuringOutcome(
-                    draft=self._attempt(case_input, self.config.review),
+                    draft=self._attempt(
+                        case_input,
+                        self.config.review,
+                        raw_request_sha256=raw_request_sha256,
+                    ),
                     attempts=attempts,
                     used_review=True,
                 )
