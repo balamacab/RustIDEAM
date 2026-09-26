@@ -126,6 +126,12 @@ python3 tools/case_validation.py readiness --capabilities /path/to/capabilities.
 FastFlowLM backends remain optional diagnostics. Their absence does not fail core
 readiness and they may not silently substitute model or generation parameters.
 
+## Controlled failure and Phase B gate
+
+Runtime/profile readiness does not itself authorize a retry. Controlled execution failures, retries, amendments, aborts, post-fix reruns and independent-control isolation are governed by [`case-controlled-failure-protocol.md`](case-controlled-failure-protocol.md).
+
+For #17/#67-style controlled runs, Phase B is eligible only after a canonical Phase A attempt is frozen as a completed, accepted, validator-passing CaseResult and its semantic content has not been exposed to the independent Phase B context. A rejected/failed attempt is preserved and classified; it is not retried ad hoc until something passes.
+
 ## Historical boundary
 
 The issue #65 benchmark package remains historical evidence. DEF-0013 does not
