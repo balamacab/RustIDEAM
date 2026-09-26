@@ -218,6 +218,15 @@ def error_response(exc: Exception) -> HTTPErrorResponse:
             status = HTTPStatus.INTERNAL_SERVER_ERROR
         else:
             status = HTTPStatus.INTERNAL_SERVER_ERROR
+        if exc.code == INVALID_CASE_DRAFT:
+            payload: dict[str, Any] = {
+                "error": exc.code,
+                "detail": "provider output failed authoritative CaseDraft validation",
+            }
+            match = re.match(r"^(\$[^:]*):", exc.detail)
+            if match is not None:
+                payload["validation_path"] = match.group(1)
+            return HTTPErrorResponse(status, payload)
         return HTTPErrorResponse(
             status,
             {"error": exc.code, "detail": exc.detail},
@@ -232,7 +241,11 @@ def error_response(exc: Exception) -> HTTPErrorResponse:
         )
         payload: dict[str, Any] = {
             "error": exc.code,
-            "detail": exc.detail,
+            "detail": (
+                "provider structured output was rejected by CASE"
+                if exc.code == INVALID_CASE_DRAFT
+                else exc.detail
+            ),
         }
         metadata = getattr(exc, "metadata", None)
         if metadata is not None:
@@ -277,10 +290,28 @@ class CaseHTTPApplication:
     def __init__(
         self,
         analyzer: Callable[[dict[str, Any]], AnalysisOutcome],
+        *,
+        fingerprinted_analyzer: (
+            Callable[[dict[str, Any], str], AnalysisOutcome] | None
+        ) = None,
     ):
         self._analyzer = analyzer
+        self._fingerprinted_analyzer = fingerprinted_analyzer
 
-    def analyze(self, case_input: dict[str, Any]) -> AnalysisOutcome:
+    def analyze(
+        self,
+        case_input: dict[str, Any],
+        *,
+        raw_request_sha256: str | None = None,
+    ) -> AnalysisOutcome:
+        if (
+            raw_request_sha256 is not None
+            and self._fingerprinted_analyzer is not None
+        ):
+            return self._fingerprinted_analyzer(
+                case_input,
+                raw_request_sha256,
+            )
         return self._analyzer(case_input)
 
 
@@ -420,7 +451,10 @@ class CaseHTTPRequestHandler(BaseHTTPRequestHandler):
             raw_body = self._read_json_body()
             raw_sha = _raw_sha256(raw_body)
             prepared = prepare_case_request(raw_body)
-            outcome = self.server.application.analyze(prepared.case_input)
+            outcome = self.server.application.analyze(
+                prepared.case_input,
+                raw_request_sha256=prepared.raw_request_sha256,
+            )
             payload = outcome_payload(outcome, prepared)
         except CaseHTTPProtocolError as exc:
             payload = {"error": exc.code, "detail": exc.detail}
@@ -501,8 +535,25 @@ def build_runtime_application(
             include_debug_provenance=False,
         )
 
+    def fingerprinted_analyzer(
+        case_input: dict[str, Any],
+        raw_request_sha256: str,
+    ) -> AnalysisOutcome:
+        return analyze_case(
+            case_input=case_input,
+            db_path=db_path,
+            case_root=case_root,
+            structurer=structurer,
+            dry_run=dry_run,
+            include_debug_provenance=False,
+            raw_request_sha256=raw_request_sha256,
+        )
+
     return (
-        CaseHTTPApplication(analyzer),
+        CaseHTTPApplication(
+            analyzer,
+            fingerprinted_analyzer=fingerprinted_analyzer,
+        ),
         config.provider,
         config.primary.name,
     )
