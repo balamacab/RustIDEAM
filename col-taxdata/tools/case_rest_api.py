@@ -10,6 +10,7 @@ import re
 import sys
 from typing import Any, Callable
 
+from case_application import CaseAnalysisIntegrityError
 from case_contract_validation import CaseContractError
 from case_contract_validation_v4 import (
     CONTRACT_VERSION as CASE_CONTRACT_VERSION,
@@ -526,6 +527,15 @@ class CaseRESTRequestHandler(BaseHTTPRequestHandler):
         except CaseRESTUnavailable:
             self._send_registered_error(
                 CASE_API_SERVICE_UNAVAILABLE,
+                fingerprints=prepared.fingerprints,
+            )
+            return
+        except CaseAnalysisIntegrityError:
+            # Explicit application -> transport integrity boundary.  Only the
+            # typed CASE integrity family belongs here; arbitrary RuntimeError
+            # and unexpected programming failures must remain internal errors.
+            self._send_registered_error(
+                CASE_API_INTEGRITY_FAILURE,
                 fingerprints=prepared.fingerprints,
             )
             return

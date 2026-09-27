@@ -41,6 +41,26 @@ def normalize_text(value: str) -> str:
     return " ".join(value.casefold().split())
 
 
+def exact_unambiguous_substring_offset(
+    source_text: str,
+    exact_text: str,
+) -> int | None:
+    """Return the sole exact offset for citable text, otherwise None.
+
+    Empty/blank text and zero-or-multiple matches are non-citable. Callers
+    must preserve the containing verified segment as evidence instead of
+    inventing an anchor.
+    """
+    if not exact_text or not exact_text.strip():
+        return None
+    first = source_text.find(exact_text)
+    if first < 0:
+        return None
+    if source_text.find(exact_text, first + 1) >= 0:
+        return None
+    return first
+
+
 def _query_terms(value: str, *, maximum: int = 18) -> list[str]:
     terms: list[str] = []
     seen: set[str] = set()
@@ -230,17 +250,31 @@ class CorpusRetrievalService:
         self,
         extracted_segment_id: str,
     ) -> dict[str, Any] | None:
+        """Return one provision only when its observation is exactly citable.
+
+        Provision identity and citable provision text are separate facts. A
+        heading-only/empty observation, a quote absent from the segment, or a
+        quote with multiple exact anchors may still be useful canonical
+        structure, but it must not be promoted to provision-level CASE
+        evidence or rule semantics.
+        """
         rows = self.con.execute(
             """
-            SELECT DISTINCT
+            SELECT
                 p.provision_id,
                 p.document_id,
                 p.provision_type,
                 p.designation,
-                p.title
+                p.title,
+                po.normative_text,
+                po.normative_text_sha256,
+                es.text,
+                es.text_sha256
             FROM provision_observations po
             JOIN provisions p
               ON p.provision_id = po.provision_id
+            JOIN extracted_segments es
+              ON es.extracted_segment_id = po.extracted_segment_id
             WHERE po.extracted_segment_id = ?
             ORDER BY p.provision_id
             """,
@@ -248,7 +282,30 @@ class CorpusRetrievalService:
         ).fetchall()
         if len(rows) != 1:
             return None
+
         row = rows[0]
+        normative_text = row[5]
+        normative_sha = hashlib.sha256(normative_text.encode("utf-8")).hexdigest()
+        if normative_sha != row[6]:
+            raise RetrievalIntegrityError(
+                "provision normative-text fingerprint mismatch: "
+                f"{row[0]} expected={row[6]} actual={normative_sha}"
+            )
+
+        segment_text = row[7]
+        segment_sha = hashlib.sha256(segment_text.encode("utf-8")).hexdigest()
+        if segment_sha != row[8]:
+            raise RetrievalIntegrityError(
+                "extracted segment text fingerprint mismatch: "
+                f"{extracted_segment_id} expected={row[8]} actual={segment_sha}"
+            )
+
+        if exact_unambiguous_substring_offset(
+            segment_text,
+            normative_text,
+        ) is None:
+            return None
+
         return {
             "provision_id": row[0],
             "document_id": row[1],
