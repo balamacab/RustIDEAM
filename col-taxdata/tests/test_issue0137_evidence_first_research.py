@@ -12,6 +12,7 @@ sys.path.insert(0, str(ROOT / "tools"))
 
 from case_research import (
     PlatformResearchService,
+    _explicit_conflict_unresolved_items,
     build_research_plan,
 )
 from case_retrieval import RetrievalIntegrityError
@@ -703,6 +704,58 @@ class Issue0137EvidenceFirstResearchTests(unittest.TestCase):
             any(item["category"] == "unresolved_identity" for item in execution.unresolved)
         )
         self.assertNotIn("document_ref", execution.evidence_candidates[0])
+
+    def test_explicit_canonical_conflict_remains_unresolved(self):
+        relationships = [
+            {
+                "kind": "normative_relationship",
+                "contract_version": "4.0.0",
+                "relationship_ref": "relationship:explicit-conflict",
+                "relationship_type": "conflicts_with",
+                "source_authority_ref": "authority:DOC-a",
+                "target_authority_ref": "authority:DOC-b",
+                "evidence_refs": ["evidence:fixture"],
+                "provenance_ref": "provenance:fixture",
+                "status": "resolved",
+            },
+            {
+                "kind": "normative_relationship",
+                "contract_version": "4.0.0",
+                "relationship_ref": "relationship:ordinary-reference",
+                "relationship_type": "references",
+                "source_authority_ref": "authority:DOC-a",
+                "target_authority_ref": "authority:DOC-b",
+                "evidence_refs": ["evidence:fixture"],
+                "provenance_ref": "provenance:fixture",
+                "status": "resolved",
+            },
+        ]
+
+        unresolved = _explicit_conflict_unresolved_items(
+            relationships,
+            ["authority:DOC-a", "authority:DOC-b"],
+        )
+
+        self.assertEqual(len(unresolved), 1)
+        self.assertEqual(unresolved[0]["category"], "conflicting_authority")
+        self.assertEqual(
+            unresolved[0]["related_authority_refs"],
+            ["authority:DOC-a", "authority:DOC-b"],
+        )
+        self.assertEqual(
+            unresolved[0]["next_action"],
+            "external_interpretive_synthesis",
+        )
+
+        # A relationship to an authority that was not actually retrieved must
+        # not manufacture a conflict state or pull that identity into research.
+        self.assertEqual(
+            _explicit_conflict_unresolved_items(
+                relationships,
+                ["authority:DOC-a"],
+            ),
+            [],
+        )
 
     def test_segment_hash_mismatch_fails_closed(self):
         primary = self.add_document_with_segment(
