@@ -409,7 +409,7 @@ def validate_case_input(case_input: dict[str, Any]) -> None:
 
 
 def _intake_source_quote_candidates(problem_text: str) -> list[str]:
-    """Return bounded exact quote choices from coarse to fact-sized spans.
+    """Return bounded exact quote choices from fact-sized to coarse spans.
 
     v3 intentionally keeps its historical paragraph-only quote vocabulary.
     v4 adds exact sentence/clause fragments so one stated fact can retain a
@@ -505,12 +505,14 @@ def _question_category_conflicts(question: dict[str, Any]) -> bool:
     if question.get("category") == "legal":
         return False
     text = str(question.get("text", ""))
-    if _PURE_TEMPORAL_QUESTION_RE.search(text):
-        return False
-    return bool(
+    if (
         _TAX_LEGAL_TOPIC_RE.search(text)
         and _LEGAL_TREATMENT_RE.search(text)
-    )
+    ):
+        return True
+    if _PURE_TEMPORAL_QUESTION_RE.search(text):
+        return False
+    return False
 
 
 def intake_draft_generation_schema(
