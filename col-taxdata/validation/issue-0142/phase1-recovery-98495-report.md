@@ -191,3 +191,24 @@ Product fixes must remain outside this validation branch:
 4. only an explicit `AUTOMATED_TECHNICAL_GATE: PASS` may transition #142 to `AWAITING_OPERATOR_ACCEPTANCE`.
 
 The current post-#178 A/B/C artifacts are frozen historical FAIL evidence and must not be retried until they pass.
+
+## Teardown after failed gate
+
+Because Phase 1 remained FAIL, the isolated r3 stack was **not** left available for operator testing.
+
+After all scored artifacts, lifecycle evidence and hashes were frozen:
+- removed only `col-taxdata-issue142-r3-backend`, `col-taxdata-issue142-r3-web` and `col-taxdata-issue142-r3-mcp`;
+- removed the validation-only network `col-taxdata-issue142-r3-net`;
+- left `col-taxdata-llm-gemma4-e2b` running and healthy;
+- left `col-taxdata-crawler` running and untouched;
+- preserved the full validation root `/home/user/col-taxdata-validation-142-rerun3-98495` including isolated DB/logs/artifacts.
+
+Frozen scored artifact SHA-256 values after teardown:
+- A: `24c629ec7104869de14651fcd1b202197c696ffd28fac4c7680eb63497986c5c`
+- B: `d7b63c24dc15b96e28faece9507c19ac88968735a8820e385341b22f71e72b4d`
+- C: `9b854f5bcba990db1316fbf67752e41983573571e1c81a07269d95e6dd427312`
+
+The corrected recovery harness — dedicated provider network/preflight plus HTTP readiness rather than TCP-only readiness — is preserved separately as:
+`col-taxdata/validation/issue-0142/phase1-recovery-runner.py`.
+
+This does not alter or reinterpret the scored A/B/C outputs; it prevents the already-observed validation-harness wiring/readiness defects from recurring in the next affected run.
