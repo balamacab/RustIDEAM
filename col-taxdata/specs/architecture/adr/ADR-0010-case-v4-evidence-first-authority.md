@@ -200,7 +200,8 @@ It exposes, where available:
 - platform ResearchPlan;
 - ResearchResult and research trace;
 - minimal research-context fingerprint;
-- CanonicalAuthority objects;
+- OfficialSource refs/URIs;
+- CanonicalAuthority objects, including publication/promulgation and temporal metadata;
 - EvidenceSpan objects;
 - NormativeRelationship objects;
 - RuleFragment objects;
@@ -214,7 +215,7 @@ It must be possible for a consumer to distinguish exact source text, platform-st
 
 ### 10. Legal-authority metadata has no universal numeric rank
 
-CanonicalAuthority exposes structured context needed for downstream reasoning, including supported document/provision identity, instrument/source type, issuer, jurisdiction/scope, legal-function classification, official-source URI, temporal state and normative relationships.
+CanonicalAuthority exposes structured context needed for downstream reasoning, including supported document/provision identity, instrument/source type, issuer, jurisdiction/scope, legal-function classification, publication/promulgation metadata, temporal state and normative relationships. Official acquisition/source identity and URI are exposed through transport-safe OfficialSource refs rather than conflating Source with Document.
 
 Issue #146 owns implementation and detailed classification mapping against existing corpus semantics.
 
