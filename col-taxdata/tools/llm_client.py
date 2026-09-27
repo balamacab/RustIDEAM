@@ -34,6 +34,7 @@ from case_contract_dispatch import (
 from case_contract_validation import (
     CaseContractError,
     INVALID_CASE_DRAFT,
+    validate_case_draft,
     validate_schema_object,
 )
 from case_contract_validation_v4 import (
@@ -632,7 +633,13 @@ class CaseStructuringService:
             # #76 contract: this remains the first and authoritative application
             # validation call. Explicit version dispatch prevents silent v3/v4
             # relabeling while the normal entry path migrates to v4.
-            validate_structured_intake(case_input, draft)
+            if profile.contract_version == V3_CONTRACT_VERSION:
+                # Preserve the frozen #76 authoritative v3 validation surface.
+                # v4 is a separate major contract, not a replacement validator
+                # masquerading behind the historical symbol.
+                validate_case_draft(case_input, draft)
+            else:
+                validate_structured_intake(case_input, draft)
         except CaseContractError as exc:
             failure_stage = FAILURE_SEMANTIC_VALIDATION
             try:
