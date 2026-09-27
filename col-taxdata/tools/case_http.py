@@ -20,16 +20,20 @@ from case_application import (
     CaseAnalysisIntegrityError,
     CaseMaterializationError,
     CasePersistenceError,
+    CaseResearchNotImplementedError,
     CaseValidationError,
     analyze_case,
     case_input_sha256,
 )
+from case_contract_dispatch import V4_CONTRACT_VERSION
 from case_contract_validation import (
-    CONTRACT_VERSION,
     CaseContractError,
     INVALID_CASE_DRAFT,
-    INVALID_CASE_INPUT,
     INVALID_CASE_RESULT,
+)
+from case_contract_validation_v4 import (
+    INVALID_CASE_INPUT,
+    INVALID_INTAKE_DRAFT,
     validate_case_input,
 )
 from case_retrieval import RetrievalIntegrityError
@@ -95,7 +99,7 @@ def _raw_sha256(raw_body: bytes) -> str:
 
 
 def prepare_case_request(raw_body: bytes) -> PreparedCaseRequest:
-    """Validate the public HTTP body and construct the canonical v3 CaseInput.
+    """Validate the public HTTP body and construct the canonical v4 CaseInput.
 
     The transport intentionally exposes only client-owned CaseInput fields.
     Application-owned kind/version and all internal identifiers are generated
@@ -151,7 +155,7 @@ def prepare_case_request(raw_body: bytes) -> PreparedCaseRequest:
 
     case_input: dict[str, Any] = {
         "kind": "case_input",
-        "contract_version": CONTRACT_VERSION,
+        "contract_version": V4_CONTRACT_VERSION,
         "problem_text": external["problem_text"],
         "as_of_date": external["as_of_date"],
     }
@@ -190,6 +194,16 @@ def outcome_payload(
 
 def error_response(exc: Exception) -> HTTPErrorResponse:
     """Map transport-neutral CASE failures to stable HTTP JSON semantics."""
+    if isinstance(exc, CaseResearchNotImplementedError):
+        return HTTPErrorResponse(
+            HTTPStatus.NOT_IMPLEMENTED,
+            {
+                "error": exc.code,
+                "detail": exc.detail,
+                "transition_state": "intake_accepted_research_pending",
+                "intake_draft": exc.intake_draft,
+            },
+        )
     if isinstance(exc, ContextLimitError):
         return HTTPErrorResponse(
             HTTPStatus.UNPROCESSABLE_ENTITY,
@@ -211,7 +225,7 @@ def error_response(exc: Exception) -> HTTPErrorResponse:
     if isinstance(exc, CaseContractError):
         if exc.code == INVALID_CASE_INPUT:
             status = HTTPStatus.BAD_REQUEST
-        elif exc.code == INVALID_CASE_DRAFT:
+        elif exc.code in {INVALID_CASE_DRAFT, INVALID_INTAKE_DRAFT}:
             status = HTTPStatus.BAD_GATEWAY
         elif exc.code == INVALID_CASE_RESULT:
             status = HTTPStatus.INTERNAL_SERVER_ERROR
@@ -535,7 +549,7 @@ def build_runtime_application(
 def main() -> int:
     parser = argparse.ArgumentParser(
         description=(
-            "Expose the existing col-taxdata v3 CASE application through "
+            "Expose the col-taxdata v4 intake-only CASE transition through "
             f"POST {DEFAULT_ENDPOINT}."
         )
     )
