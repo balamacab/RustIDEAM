@@ -77,12 +77,12 @@ specs/
 
 Stable application-facing contracts live under [`application/`](application/). They define consumer/domain boundaries downstream of canonical corpus evidence without claiming that deferred transports or orchestrators are already implemented.
 
-The current implemented natural-language case-contract line remains v3 while the #130 migration is staged. Issue #132 defines an accepted **target v4 contract** without claiming that the v4 runtime exists yet:
+The #130 migration is now split at an explicit compatibility boundary. After #136, new natural-language structuring uses the v4 **intake-only** contract; platform research and LegalResearchBundle production remain staged for #137+. Historical v3 stays available only for explicit compatibility/interpretation and is never silently relabeled as v4:
 
-- [`application/case-contracts-v4.md`](application/case-contracts-v4.md) — accepted target v4.0.0 evidence-first contract: internal inference is intake-only; the platform owns research/evidence/rules/deterministic evaluations; `LegalResearchBundle` is the durable integration object; external consumer inference remains non-canonical.
+- [`application/case-contracts-v4.md`](application/case-contracts-v4.md) — v4.0.0 evidence-first contract. The IntakeDraft generation/validation boundary is active after #136; research/evidence/rules/deterministic evaluations and LegalResearchBundle production remain platform-owned staged work; external consumer inference remains non-canonical.
 - [`application/schemas/case-contracts-v4.schema.json`](application/schemas/case-contracts-v4.schema.json) — machine-readable target v4 schema/delta used by downstream implementation issue #134.
 - [`architecture/adr/ADR-0010-case-v4-evidence-first-authority.md`](architecture/adr/ADR-0010-case-v4-evidence-first-authority.md) — accepted authority/dependency decision for the #130 program.
-- [`application/case-contracts-v3.md`](application/case-contracts-v3.md) — current contract for new implementations and current runtime behavior until the staged v4 migration switches the active path; CaseResult requires self-contained facts/questions while preserving provider-neutral structuring metadata and typed graph validation.
+- [`application/case-contracts-v3.md`](application/case-contracts-v3.md) — frozen historical compatibility contract. Explicit v3 inputs remain interpretable and may use the historical v3 analysis path, but normal new structuring no longer emits v3 CaseDraft candidate-claim authority.
 - [`application/schemas/case-contracts-v3.schema.json`](application/schemas/case-contracts-v3.schema.json) — machine-readable JSON Schema for the v3 serialized contracts.
 - [`application/case-contracts-v2.md`](application/case-contracts-v2.md) — retained v2.0.0 compatibility contract; its CaseResult does not serialize facts/questions and therefore may require its originating accepted CaseDraft for fact/question ref validation.
 - [`application/schemas/case-contracts-v2.schema.json`](application/schemas/case-contracts-v2.schema.json) — retained machine-readable v2 schema.
