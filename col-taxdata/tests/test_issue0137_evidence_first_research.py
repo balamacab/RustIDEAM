@@ -553,6 +553,44 @@ class Issue0137EvidenceFirstResearchTests(unittest.TestCase):
             )
         )
 
+    def test_missing_client_fact_blocks_research_without_guessing(self):
+        blocked = intake()
+        blocked["facts"].append(
+            {
+                "kind": "intake_fact",
+                "contract_version": "4.0.0",
+                "fact_ref": "fact:tax-year",
+                "label": "Periodo gravable",
+                "state": "missing",
+                "requires_confirmation": True,
+                "needed_information": "Indicar el periodo gravable consultado.",
+            }
+        )
+        blocked["questions"][0]["status"] = "blocked"
+        blocked["questions"][0]["depends_on_fact_refs"] = [
+            "fact:person",
+            "fact:tax-year",
+        ]
+
+        execution = PlatformResearchService(self.db).research(
+            case_input=case_input(),
+            intake_draft=blocked,
+            generated_at=NOW,
+        )
+
+        self.assertEqual(execution.plan["tasks"], [])
+        self.assertEqual(execution.result["trace"], [])
+        self.assertEqual(execution.result["status"], "blocked")
+        self.assertEqual(execution.result["authority_refs"], [])
+        self.assertTrue(
+            any(
+                item["category"] == "missing_fact"
+                and item["related_fact_refs"] == ["fact:tax-year"]
+                and item["next_action"] == "ask_client"
+                for item in execution.unresolved
+            )
+        )
+
     def test_duplicate_hits_are_stable_and_repeated_research_is_idempotent(self):
         self.add_document_with_segment(
             document_id="DOC-dedupe",
