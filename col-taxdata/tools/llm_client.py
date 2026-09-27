@@ -52,7 +52,7 @@ CASE_EVIDENCE_PERSISTENCE_FAILED = "CASE_EVIDENCE_PERSISTENCE_FAILED"
 PROMPT_TEMPLATE_ID = "case-structuring-v3"
 PROMPT_TEMPLATE_VERSION = "5"
 V4_PROMPT_TEMPLATE_ID = "case-intake-v4"
-V4_PROMPT_TEMPLATE_VERSION = "1"
+V4_PROMPT_TEMPLATE_VERSION = "2"
 
 SYSTEM_PROMPT = """You structure a Colombian legal/tax case into the supplied JSON schema.
 The response schema contains the model-owned CaseDraft fields. problem_text,
@@ -93,16 +93,34 @@ analysis parameter, not a fact. client_reference and caller_metadata are correla
 metadata and are intentionally not model context.
 
 For user_provided facts, copy source_quote exactly from the allowed response-schema
-values and use requires_confirmation=false. For llm_normalized facts, normalization
-may clarify representation but must preserve the stated substance, must use an exact
-allowed source_quote, and requires_confirmation=true. Never invent an unstated fact.
-Missing and ambiguous facts require needed_information and confirmation. If the
-problem text already states a fact explicitly, do not mark that fact missing.
+values and use requires_confirmation=false. Prefer the narrowest allowed quote that
+contains the complete stated fact. For llm_normalized facts, normalization may clarify
+representation but must preserve the stated substance, must use an exact allowed
+source_quote, and requires_confirmation=true. Never invent an unstated fact.
 
-Questions describe what platform research must resolve. Do not duplicate a legal,
-factual, procedural, temporal, or evidentiary research question as a missing fact
-merely because its answer is unknown. A missing fact is an absent client-supplied
-input, not an unknown legal answer.
+Missing and ambiguous facts require needed_information and confirmation. If the
+problem text directly and unambiguously states a factual assertion that you choose to
+represent, preserve that assertion as user_provided: do not downgrade it to missing or
+ambiguous merely because its legal qualification, tax treatment, relevance, or legal
+consequence still requires research. Put that legal uncertainty in an open legal
+question instead. Use ambiguous only when the client text itself leaves the factual
+value/meaning unresolved.
+
+For an explicitly stated natural-person gross-income amount in UVT, use semantic_key
+"col.tax.natural_person.gross_income" and a measurement containing the exact decimal
+amount, unit "UVT", and the explicitly stated UVT year. For explicitly stated gross
+patrimony in UVT, use semantic_key "col.tax.natural_person.gross_patrimony" with the
+same measurement rules. These keys only structure caller facts; they are not legal
+conclusions. Do not add a measurement or UVT year unless it is stated in source_quote.
+
+Questions describe what platform research must resolve. A question asking how
+Colombian tax/IVA law treats, applies to, taxes, exempts, requires, or characterizes a
+transaction is category="legal", even when dates or components appear in the facts.
+Use category="temporal" for a question whose requested answer is itself a date,
+deadline, period, or effective-time fact. Do not duplicate a legal, factual,
+procedural, temporal, or evidentiary research question as a missing fact merely
+because its answer is unknown. A missing fact is an absent client-supplied input, not
+an unknown legal answer.
 
 search_hints may be an empty array. If present, terms are neutral advisory vocabulary
 linked to questions. They do not select controlling law and must not contain typed
