@@ -269,6 +269,10 @@ class Issue0136IntakeOnlyV4Tests(unittest.TestCase):
 
     def test_generation_schema_contains_only_intake_authority(self):
         schema = intake_draft_generation_schema(case_input())
+        self.assertEqual(
+            set(schema["$defs"]),
+            {"IntakeDraft", "IntakeFact", "CaseQuestion", "SearchHint"},
+        )
         root = schema["$defs"]["IntakeDraft"]
         properties = root["properties"]
 
