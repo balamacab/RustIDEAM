@@ -335,7 +335,75 @@ def _validate_success_envelope(
         )
 
 
-def _map_http_error(status: int, payload: dict[str, Any]) -> GatewayError:
+def _validate_error_envelope(
+    payload: dict[str, Any],
+    *,
+    raw_request: bytes,
+) -> None:
+    if not {"api_version", "error"}.issubset(payload) or not set(payload).issubset(
+        {"api_version", "error", "request_fingerprints"}
+    ):
+        raise GatewayError(
+            "MCP_CASE_UPSTREAM_CONTRACT_ERROR",
+            "CASE REST returned a non-contract error envelope.",
+        )
+    if payload.get("api_version") != REST_API_VERSION:
+        raise GatewayError(
+            "MCP_CASE_UPSTREAM_CONTRACT_ERROR",
+            "CASE REST error response uses an unsupported API version.",
+        )
+
+    error = payload.get("error")
+    if not isinstance(error, dict) or set(error) != {
+        "code",
+        "message",
+        "retryable",
+    }:
+        raise GatewayError(
+            "MCP_CASE_UPSTREAM_CONTRACT_ERROR",
+            "CASE REST returned an invalid public error object.",
+        )
+    if not isinstance(error.get("code"), str) or not isinstance(
+        error.get("message"), str
+    ) or not isinstance(error.get("retryable"), bool):
+        raise GatewayError(
+            "MCP_CASE_UPSTREAM_CONTRACT_ERROR",
+            "CASE REST public error fields have invalid types.",
+        )
+
+    fingerprints = payload.get("request_fingerprints")
+    if fingerprints is not None:
+        if (
+            not isinstance(fingerprints, dict)
+            or not fingerprints
+            or not set(fingerprints).issubset(
+                {"raw_request_sha256", "case_input_sha256"}
+            )
+        ):
+            raise GatewayError(
+                "MCP_CASE_UPSTREAM_CONTRACT_ERROR",
+                "CASE REST public error fingerprints have an invalid shape.",
+            )
+        for field, value in fingerprints.items():
+            _validate_sha256(value, field)
+        if (
+            "raw_request_sha256" in fingerprints
+            and fingerprints["raw_request_sha256"]
+            != hashlib.sha256(raw_request).hexdigest()
+        ):
+            raise GatewayError(
+                "MCP_CASE_UPSTREAM_CONTRACT_ERROR",
+                "CASE REST error fingerprint does not match the request sent.",
+            )
+
+
+def _map_http_error(
+    status: int,
+    payload: dict[str, Any],
+    *,
+    raw_request: bytes,
+) -> GatewayError:
+    _validate_error_envelope(payload, raw_request=raw_request)
     error = payload.get("error")
     if not isinstance(error, dict):
         return GatewayError(
@@ -431,7 +499,11 @@ class CaseRestClient:
                 )
             finally:
                 exc.close()
-            raise _map_http_error(int(exc.code), error_payload) from None
+            raise _map_http_error(
+                int(exc.code),
+                error_payload,
+                raw_request=raw,
+            ) from None
         except (TimeoutError, socket.timeout) as exc:
             raise GatewayError(
                 "MCP_CASE_UPSTREAM_TIMEOUT",
