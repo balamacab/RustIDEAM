@@ -19,6 +19,7 @@ from case_attempt_evidence import (
 )
 from case_contract_validation import INVALID_CASE_DRAFT, case_draft_generation_schema
 from llm_client import (
+    CASE_PROVIDER_TIMEOUT,
     CASE_STRUCTURING_UNAVAILABLE,
     ContextLimitError,
     GeneratedCaseDraft,
