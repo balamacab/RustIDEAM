@@ -1,0 +1,12 @@
+{
+  "api_version": "1.0.0",
+  "error": {
+    "code": "CASE_API_SERVICE_UNAVAILABLE",
+    "message": "CASE research is temporarily unavailable.",
+    "retryable": true
+  },
+  "request_fingerprints": {
+    "raw_request_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "case_input_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  }
+}
