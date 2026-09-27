@@ -12,6 +12,23 @@ Read the selected issue, current repository contracts, dependencies, blockers, e
 
 Create or reuse `agent/issue-<number>-<slug>` from the accepted current `main`. One issue owns one branch. Use an isolated checkout/worktree when local execution is required. Do not develop directly on `main`, force-push `main`, rewrite applied migrations, rewrite immutable evidence, or widen scope for convenience.
 
+## Remote runtime access
+
+GitHub remains the primary repository inspection/editing surface for normal work.
+
+When acceptance criteria materially require the real development/runtime host, use the private **Morichal** plugin / SSH MCP path first:
+
+- configured server: `morichalserver`;
+- expected SSH account: `user`;
+- development repository root: `/home/user/RustIDEAM`;
+- development project path: `/home/user/RustIDEAM/col-taxdata`.
+
+The separate `/home/user/col-taxdata` directory may contain runtime/data state but is not the development Git worktree. Do not rewrite historical audits merely because they record that runtime path.
+
+Remote host access does not expand issue scope or mutation authority. Prefer read-only verification, batch related commands, and keep production/corpus safety rules unchanged.
+
+Use Remote Desktop Commander only as a fallback when Morichal is unavailable or lacks a required capability. Do not use either remote path for ordinary source inspection/editing that GitHub can perform.
+
 ## Pull request
 
 Open or update one PR targeting `main`. Include the selected issue using GitHub closing syntax, base SHA, scope summary, validation evidence, concurrency metadata, semantic domains, and likely touched paths. Keep the issue open until merge.
