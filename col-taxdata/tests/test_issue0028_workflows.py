@@ -22,6 +22,27 @@ class WorkflowStructureTests(unittest.TestCase):
         self.assertIn("workflow_dispatch:", text)
         self.assertNotIn("  pull_request:\n", text)
 
+    def test_required_ci_gate_publishes_commit_status_for_ruleset(self):
+        text = self.read("col-taxdata-ci.yml")
+        self.assertIn("statuses: write", text)
+        self.assertIn('"repos/$GITHUB_REPOSITORY/statuses/$HEAD_SHA"', text)
+        self.assertIn('-f state="$CONCLUSION"', text)
+        self.assertIn("-f context='CI Gate'", text)
+        self.assertIn(
+            '-f description="Trusted col-taxdata validation: $CONCLUSION"',
+            text,
+        )
+        self.assertIn(
+            '-f target_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"',
+            text,
+        )
+        # The detailed Checks API artifact is intentionally retained. If a
+        # check and commit status share a required name, GitHub requires both
+        # to pass, so both are derived from the same CONCLUSION.
+        self.assertIn('"repos/$GITHUB_REPOSITORY/check-runs"', text)
+        self.assertIn('-f conclusion="$CONCLUSION"', text)
+        self.assertIn("-f name='CI Gate'", text)
+
     def test_dispatched_revalidation_reenters_lifecycle_from_trusted_main(self):
         text = self.read("col-taxdata-ci.yml")
         self.assertIn("name: Complete dispatched lifecycle", text)
@@ -40,7 +61,7 @@ class WorkflowStructureTests(unittest.TestCase):
         self.assertIn("workflow_dispatch:", text)
         self.assertNotIn("  pull_request:\n", text)
         self.assertIn("--ci-conclusion success", text)
-        self.assertIn("--ci-head-sha \"$CI_HEAD_SHA\"", text)
+        self.assertIn('--ci-head-sha "$CI_HEAD_SHA"', text)
         self.assertIn("contents: write", text)
         self.assertIn("issues: write", text)
         self.assertIn("pull-requests: write", text)
