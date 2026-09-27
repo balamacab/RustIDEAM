@@ -2,13 +2,13 @@
 
 ## Status and authority
 
-Status: **Accepted architectural/application contract; intake and platform research/retrieval implemented, evidence/bundle stages pending**
+Status: **Accepted architectural/application contract; intake, platform research/retrieval, citable evidence/rule graph and read-only bundle construction implemented; deterministic evaluation and persistence stages pending**
 
 Contract package version: **4.0.0**
 
 Driver: GitHub issue #132 under epic #130, after DEF-0015 / issue #131.
 
-This specification defines the evidence-first CASE application boundary. Issues #134-#136 implement the v4 contract primitives, semantic intake port, and active intake generation/validation path. Issue #137 implements platform-owned `ResearchPlan` generation plus bounded, read-only evidence-first canonical-corpus retrieval and `ResearchResult` tracing. Exact legal-corpus `EvidenceSpan` / `RuleFragment` derivation and `LegalResearchBundle` production remain staged for #138/#140. The active v4 path never falls back to v3 candidate-claim synthesis, and historical v3 remains an explicit compatibility contract only.
+This specification defines the evidence-first CASE application boundary. Issues #134-#136 implement the v4 contract primitives, semantic intake port, and active intake generation/validation path. Issue #137 implements platform-owned `ResearchPlan` generation plus bounded, read-only evidence-first canonical-corpus retrieval and `ResearchResult` tracing. Issue #138 implements exact legal-corpus `EvidenceSpan` derivation, the first registered deterministic `RuleFragment` families, and read-only `LegalResearchBundle` graph construction. Deterministic evaluators/calculations remain staged for #139 and durable bundle persistence/materialization remains staged for #140. The active v4 path never falls back to v3 candidate-claim synthesis, and historical v3 remains an explicit compatibility contract only.
 
 The companion machine-readable schema is `schemas/case-contracts-v4.schema.json`. The schema is normative for serialized shape. This document is normative for ownership, trust, dependency direction, lifecycle, cross-object semantics, compatibility and canonical-authority rules.
 
