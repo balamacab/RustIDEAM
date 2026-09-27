@@ -226,7 +226,7 @@ Not reached because no LegalResearchBundle could be materialized:
 
 Planned: 2–3 batched runtime calls.
 
-Actual: 14 remote calls during Phase 1.
+Actual: 15 remote calls during Phase 1.
 
 The overrun is recorded as a validation-process defect/cost:
 - the initially expected runtime checkout was stale and did not contain the validated main object;
@@ -234,7 +234,8 @@ The overrun is recorded as a validation-process defect/cost:
 - the host lacked the `sqlite3` CLI, forcing a safe Python online-backup path;
 - one harness readiness race required a corrected pre-execution rerun;
 - the real E2E then exposed a sanitized 500, requiring bounded read-only diagnostics to distinguish provider/network failure from research/evidence-graph failure;
-- final diagnostics identified the systemic #178 defect without rerunning any scored case.
+- final diagnostics identified the systemic #178 defect without rerunning any scored case;
+- one final bounded call removed only the three failed #142 validation containers after the automated gate failed, while preserving the isolated DB/artifacts and leaving the production crawler untouched.
 
 No production mutation/polling loop was used. The same runtime/device/path facts were reused after discovery.
 
@@ -265,6 +266,8 @@ No production mutation/polling loop was used. The same runtime/device/path facts
 #142 MUST remain open and MUST NOT enter `AWAITING_OPERATOR_ACCEPTANCE`.
 
 Recovery is owned by #178. After #178 independently converges on protected `main`, #142 requires a fresh affected controlled run with new provider-reaching attempts as required by the issue. Product code must not be patched inside #142.
+
+Because Phase 1 failed, no operator handoff was requested. The failed isolated backend/web/MCP containers were torn down after evidence capture; the isolated validation DB and captured artifacts remain preserved for audit/reproduction.
 
 ## Remaining limitations
 
