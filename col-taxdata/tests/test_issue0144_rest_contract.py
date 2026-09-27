@@ -17,16 +17,25 @@ from urllib import request as urlrequest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
 
+from case_application import (
+    CaseAnalysisIntegrityError,
+    CaseMaterializationError,
+    CasePersistenceError,
+    CaseValidationError,
+)
 from case_contract_validation import CaseContractError
 from case_rest_api import (
     API_VERSION,
     CASE_API_INTEGRITY_FAILURE,
+    CASE_API_INTERNAL_ERROR,
     CASE_API_INVALID_REQUEST,
     CASE_API_METHOD_NOT_ALLOWED,
     CASE_API_NOT_FOUND,
     CASE_API_SERVICE_UNAVAILABLE,
+    CASE_API_TIMEOUT,
     CaseRESTApplication,
     CaseRESTServer,
+    CaseRESTTimeout,
     CaseRESTUnavailable,
     DEFAULT_ENDPOINT,
     prepare_case_request,
@@ -389,6 +398,124 @@ class Issue0144LiveAdapterTests(unittest.TestCase):
         self.assertNotIn("127.0.0.1", serialized)
         self.assertNotIn("token", serialized)
         self.assertNotIn("provider", serialized)
+
+    def test_application_integrity_family_maps_to_public_integrity_error(self):
+        prepared = prepare_case_request(request_bytes())
+        integrity_errors = (
+            CaseAnalysisIntegrityError(
+                "evidence graph failed at /srv/private/corpus token=research-secret"
+            ),
+            CasePersistenceError(
+                "persistence failed at /srv/private/case.db token=persist-secret"
+            ),
+            CaseMaterializationError(
+                "materialization failed at /srv/private/case.json"
+            ),
+            CaseValidationError(
+                "validation failed with private canonical detail"
+            ),
+        )
+
+        for application_error in integrity_errors:
+            with self.subTest(error=type(application_error).__name__):
+                self.assertIsInstance(
+                    application_error,
+                    CaseAnalysisIntegrityError,
+                )
+
+                def researcher(_case_input: dict, error=application_error) -> dict:
+                    raise error
+
+                with RunningServer(researcher) as running:
+                    req = urlrequest.Request(
+                        running.base_url + DEFAULT_ENDPOINT,
+                        data=request_bytes(),
+                        headers={"Content-Type": "application/json"},
+                        method="POST",
+                    )
+                    with mock.patch(
+                        "case_rest_api.sys.stderr",
+                        io.StringIO(),
+                    ):
+                        with self.assertRaises(urlerror.HTTPError) as raised:
+                            urlrequest.urlopen(req, timeout=3)
+                    error = raised.exception
+                    payload = json.loads(error.read())
+
+                self.assertEqual(error.code, HTTPStatus.INTERNAL_SERVER_ERROR)
+                validate_error_payload(payload)
+                self.assertEqual(
+                    payload["error"]["code"],
+                    CASE_API_INTEGRITY_FAILURE,
+                )
+                self.assertEqual(
+                    payload["request_fingerprints"],
+                    prepared.fingerprints,
+                )
+                serialized = json.dumps(payload)
+                for forbidden in (
+                    "/srv/private",
+                    "token=",
+                    "research-secret",
+                    "persist-secret",
+                    "canonical detail",
+                ):
+                    self.assertNotIn(forbidden, serialized)
+
+    def test_unexpected_runtime_error_remains_internal_and_sanitized(self):
+        prepared = prepare_case_request(request_bytes())
+
+        def researcher(_case_input: dict) -> dict:
+            raise RuntimeError(
+                "unexpected bug /srv/private/runtime token=do-not-leak"
+            )
+
+        with RunningServer(researcher) as running:
+            req = urlrequest.Request(
+                running.base_url + DEFAULT_ENDPOINT,
+                data=request_bytes(),
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with mock.patch("case_rest_api.sys.stderr", io.StringIO()):
+                with self.assertRaises(urlerror.HTTPError) as raised:
+                    urlrequest.urlopen(req, timeout=3)
+            error = raised.exception
+            payload = json.loads(error.read())
+
+        self.assertEqual(error.code, HTTPStatus.INTERNAL_SERVER_ERROR)
+        validate_error_payload(payload)
+        self.assertEqual(payload["error"]["code"], CASE_API_INTERNAL_ERROR)
+        self.assertEqual(payload["request_fingerprints"], prepared.fingerprints)
+        serialized = json.dumps(payload)
+        self.assertNotIn("/srv/private", serialized)
+        self.assertNotIn("token=", serialized)
+        self.assertNotIn("do-not-leak", serialized)
+
+    def test_timeout_mapping_remains_distinct_and_preserves_fingerprints(self):
+        prepared = prepare_case_request(request_bytes())
+
+        def researcher(_case_input: dict) -> dict:
+            raise CaseRESTTimeout("private timeout detail")
+
+        with RunningServer(researcher) as running:
+            req = urlrequest.Request(
+                running.base_url + DEFAULT_ENDPOINT,
+                data=request_bytes(),
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with mock.patch("case_rest_api.sys.stderr", io.StringIO()):
+                with self.assertRaises(urlerror.HTTPError) as raised:
+                    urlrequest.urlopen(req, timeout=3)
+            error = raised.exception
+            payload = json.loads(error.read())
+
+        self.assertEqual(error.code, HTTPStatus.GATEWAY_TIMEOUT)
+        validate_error_payload(payload)
+        self.assertEqual(payload["error"]["code"], CASE_API_TIMEOUT)
+        self.assertEqual(payload["request_fingerprints"], prepared.fingerprints)
+        self.assertNotIn("private timeout detail", json.dumps(payload))
 
     def test_contract_invalid_or_rebound_bundle_fails_as_integrity_error(self):
         mutations = []
