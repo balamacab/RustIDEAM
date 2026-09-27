@@ -394,6 +394,10 @@ class Issue0144LiveAdapterTests(unittest.TestCase):
             payload["error"]["code"],
             CASE_API_SERVICE_UNAVAILABLE,
         )
+        self.assertEqual(
+            payload["request_fingerprints"],
+            prepare_case_request(request_bytes()).fingerprints,
+        )
         serialized = json.dumps(payload)
         self.assertNotIn("127.0.0.1", serialized)
         self.assertNotIn("token", serialized)
