@@ -58,6 +58,12 @@ _PLATFORM_REF_IN_MODEL_TEXT = re.compile(
 # whose meaning spans multiple clauses; the additional fragments are exact
 # contiguous substrings and therefore never synthesize client text.
 _INTAKE_QUOTE_BOUNDARY = re.compile(r"(?<=[.!?;:])\s+|\s+y\s+")
+_UVT_MEASUREMENT_RE = re.compile(
+    r"(?<![A-Za-z0-9])"
+    r"(?:[0-9]{1,3}(?:[.\s][0-9]{3})+|[0-9]+(?:[.,][0-9]+)?)"
+    r"\s*UVT\b",
+    re.IGNORECASE,
+)
 
 # A declarative span that explicitly advertises uncertainty must not be treated
 # as proof that the client supplied one unambiguous factual value.
@@ -427,13 +433,18 @@ def _intake_source_quote_candidates(problem_text: str) -> list[str]:
             seen.add(value)
 
     for paragraph in paragraphs:
-        fragments = [
-            fragment
-            for fragment in _INTAKE_QUOTE_BOUNDARY.split(paragraph)
-            if fragment.strip()
-        ]
-        for fragment in fragments:
-            add(fragment)
+        # Preserve the historical paragraph-only generation vocabulary unless
+        # one quote would contain multiple UVT measurements.  Only that case
+        # needs finer exact spans so the existing bounded evaluator can retain
+        # its one-measurement-per-quote provenance invariant.
+        if len(_UVT_MEASUREMENT_RE.findall(paragraph)) >= 2:
+            fragments = [
+                fragment
+                for fragment in _INTAKE_QUOTE_BOUNDARY.split(paragraph)
+                if fragment.strip()
+            ]
+            for fragment in fragments:
+                add(fragment)
         add(paragraph)
 
     if not candidates and problem_text:
@@ -760,6 +771,15 @@ def validate_intake_draft(
                 "missing/ambiguous facts cannot carry a numeric measurement",
             )
 
+        if _missing_fact_duplicates_question(fact, draft["questions"]):
+            _fail(
+                INVALID_INTAKE_DRAFT,
+                f"$.facts[{index}].state",
+                (
+                    "research question was duplicated as a missing fact; "
+                    "missing facts must describe absent client inputs"
+                ),
+            )
         if (
             _missing_fact_conflicts_with_explicit_text(
                 fact,
@@ -776,15 +796,6 @@ def validate_intake_draft(
                 (
                     "missing/ambiguous fact conflicts with information "
                     "already stated in explicit client text"
-                ),
-            )
-        if _missing_fact_duplicates_question(fact, draft["questions"]):
-            _fail(
-                INVALID_INTAKE_DRAFT,
-                f"$.facts[{index}].state",
-                (
-                    "research question was duplicated as a missing fact; "
-                    "missing facts must describe absent client inputs"
                 ),
             )
         if fact["state"] in {"user_provided", "llm_normalized"}:
