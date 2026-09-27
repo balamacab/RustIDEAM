@@ -11,15 +11,13 @@ from case_application import (
     analyze_case,
 )
 from case_attempt_evidence import RejectedStructuringEvidenceStore
+from case_intake_factory import build_case_intake_composition
 from case_contract_validation import CaseContractError, CONTRACT_VERSION
 from case_retrieval import RetrievalIntegrityError
 from llm_client import (
     ContextLimitError,
     OutputLimitError,
     LLMClientError,
-    OpenAICompatibleLLMClient,
-    CaseStructuringService,
-    load_platform_config,
 )
 
 
@@ -91,17 +89,15 @@ def main() -> int:
         case_input["client_reference"] = args.client_reference
 
     try:
-        config = load_platform_config(Path(args.config))
         case_root = Path(args.case_root)
-        client = OpenAICompatibleLLMClient(config)
         evidence_store = RejectedStructuringEvidenceStore(
             case_root / "_audit" / "rejected-structuring-attempts"
         )
-        structurer = CaseStructuringService(
-            config,
-            client,
+        composition = build_case_intake_composition(
+            Path(args.config),
             evidence_store=evidence_store,
         )
+        structurer = composition.structurer
         outcome = analyze_case(
             case_input=case_input,
             db_path=Path(args.db),

@@ -120,7 +120,7 @@ class RecordingClient:
         self.provider_id = provider_id
         self.calls = 0
 
-    def complete_case_draft(self, *, case_input: dict, route: ModelRoute) -> dict:
+    def structure_intake(self, *, case_input: dict, route: ModelRoute) -> dict:
         del case_input, route
         self.calls += 1
         return deepcopy(self.output)
