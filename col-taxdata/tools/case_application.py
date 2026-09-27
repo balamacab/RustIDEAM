@@ -32,6 +32,11 @@ from case_evidence_graph import (
     EvidenceGraphIntegrityError,
     build_legal_research_bundle,
 )
+from case_bundle_persistence_v4 import (
+    BundleMaterializationError as V4BundleMaterializationError,
+    BundlePersistenceError as V4BundlePersistenceError,
+    persist_and_materialize_legal_research_bundle,
+)
 from case_research import (
     PlatformResearchService,
     ResearchIntegrityError,
@@ -110,7 +115,7 @@ class AnalysisOutcome:
 
 @dataclass(frozen=True)
 class ResearchAnalysisOutcome:
-    """Read-only v4 research outcome; no legal claim or CASE state is persisted."""
+    """v4 evidence-first outcome with ownership-safe bundle persistence."""
 
     case_ref: str
     intake_draft: dict[str, Any]
@@ -121,7 +126,9 @@ class ResearchAnalysisOutcome:
     relationships: tuple[dict[str, Any], ...]
     unresolved: tuple[dict[str, Any], ...]
     bundle: dict[str, Any]
-    persistence_mode: str = "read-only"
+    persistence: dict[str, Any]
+    materialization: dict[str, Any]
+    persistence_mode: str
 
 
 def utc_now() -> str:
@@ -656,9 +663,9 @@ def analyze_case(
     """Analyze one natural-language case under its explicit CASE contract.
 
     Explicit v3 inputs retain the historical candidate-claim/persistence path.
-    v4 performs deterministic, read-only platform research from IntakeDraft
-    facts/questions and returns the citable EvidenceSpan/RuleFragment graph as
-    a LegalResearchBundle without creating or persisting a platform legal claim.
+    v4 performs deterministic platform research from IntakeDraft facts/questions,
+    persists only ownership-safe LegalResearchBundle artifacts, and never creates
+    or promotes a legacy/model-authored legal claim.
     """
     contract_version = validate_dispatched_case_input(case_input)
     structuring = structurer.structure(
@@ -669,8 +676,8 @@ def analyze_case(
 
     if contract_version == V4_CONTRACT_VERSION:
         # v4 research is deliberately separated from the historical v3 claim
-        # promoter. It is read-only and starts from accepted facts/questions,
-        # never from a model-authored proposed legal answer.
+        # promoter and starts from accepted facts/questions, never from a
+        # model-authored proposed legal answer.
         try:
             research = PlatformResearchService(db_path).research(
                 case_input=case_input,
@@ -697,6 +704,21 @@ def analyze_case(
             "case",
             "col-taxdata:case-input:v4:" + canonical_case_input_json(case_input),
         )
+        try:
+            persistence, materialization = (
+                persist_and_materialize_legal_research_bundle(
+                    db_path=db_path,
+                    case_root=case_root,
+                    case_ref=case_ref,
+                    bundle=bundle,
+                    dry_run=dry_run,
+                )
+            )
+        except V4BundleMaterializationError as exc:
+            raise CaseMaterializationError(str(exc)) from exc
+        except (V4BundlePersistenceError, sqlite3.Error) as exc:
+            raise CasePersistenceError(str(exc)) from exc
+
         return ResearchAnalysisOutcome(
             case_ref=case_ref,
             intake_draft=deepcopy(structuring.intake),
@@ -707,6 +729,9 @@ def analyze_case(
             relationships=research.relationships,
             unresolved=research.unresolved,
             bundle=bundle,
+            persistence=persistence,
+            materialization=materialization,
+            persistence_mode="dry-run" if dry_run else "write",
         )
     if contract_version != V3_CONTRACT_VERSION:
         raise AssertionError(

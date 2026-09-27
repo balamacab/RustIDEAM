@@ -140,7 +140,19 @@ def main() -> int:
             "persistence": {
                 "mode": outcome.persistence_mode,
                 "claims_persisted": 0,
-                "research_state_persisted": False,
+                "research_state_persisted": outcome.persistence_mode == "write",
+                "bundle_ref": outcome.persistence["bundle_ref"],
+                "bundle_sha256": outcome.persistence["bundle_sha256"],
+                "research_context_sha256": outcome.persistence[
+                    "research_context_sha256"
+                ],
+                "action": outcome.persistence["action"],
+                "artifacts_inserted": outcome.persistence["artifacts_inserted"],
+                "artifacts_reused": outcome.persistence["artifacts_reused"],
+                "would_insert_artifacts": outcome.persistence[
+                    "would_insert_artifacts"
+                ],
+                "materialization": outcome.materialization,
             },
         }
     else:
