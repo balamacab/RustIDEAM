@@ -28,7 +28,11 @@ from case_retrieval import (
     RetrievalHit,
     RetrievalIntegrityError,
 )
-from case_research import PlatformResearchService
+from case_research import (
+    PlatformResearchService,
+    ResearchIntegrityError,
+    ResearchPlanningError,
+)
 from llm_client import CaseStructuringService
 from register_case_bundle import deterministic_id, register_case
 from rematerialize_case import refresh_case_materializations
@@ -667,7 +671,7 @@ def analyze_case(
                 case_input=case_input,
                 intake_draft=structuring.intake,
             )
-        except sqlite3.Error as exc:
+        except (sqlite3.Error, ResearchPlanningError, ResearchIntegrityError) as exc:
             raise CaseAnalysisIntegrityError(
                 f"v4 corpus research failed safely: {exc}"
             ) from exc
