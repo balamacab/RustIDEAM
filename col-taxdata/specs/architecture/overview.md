@@ -176,6 +176,48 @@ immutable evidence
 
 A consumer may read, rank, summarize, explain, or propose candidates. It must not overwrite raw evidence or become the authority that decides canonical legal identity, relationship truth, temporal state, or provenance.
 
+## Accepted target CASE v4 architecture
+
+Issue #132 / ADR-0010 defines the accepted target for the #130 CASE migration. This is a **target contract, not current runtime state**: the current implementation remains the v3 candidate-claim path until the dependent implementation issues converge.
+
+```text
+self-contained CaseInput
+        |
+        v
+internal intake-only LLM
+        |
+        v
+IntakeDraft
+        |
+        v
+platform ResearchPlan
+        |
+        v
+canonical retrieval + document/provision/temporal/normative resolution
+        |
+        v
+CanonicalAuthority + exact EvidenceSpan
+        |
+        v
+structured RuleFragment
+        |
+        +--> DeterministicEvaluation / CalculationTrace
+        |    only where an explicit evaluator exists
+        |
+        v
+LegalResearchBundle
+        |
+        v
+#144 REST
+   /          \
+  v            v
+#143 web     #145 MCP -> external consumer LLM
+```
+
+The internal LLM may structure facts/questions, identify missing/ambiguous facts, and supply optional advisory search vocabulary. It does not author canonical legal conclusions or drive research through a proposed answer. The platform owns research planning, canonical evidence, structured rule data, deterministic evaluations/calculations and unresolved state. An external MCP consumer may synthesize or infer from the bundle, but its inference remains outside canonical col-taxdata state.
+
+See [ADR-0010](adr/ADR-0010-case-v4-evidence-first-authority.md) and [the v4 application contract](../application/case-contracts-v4.md) for the authoritative target ownership and dependency rules.
+
 ## Current versus deferred architecture
 
 | Area | Current state |
@@ -187,13 +229,14 @@ A consumer may read, rank, summarize, explain, or propose candidates. It must no
 | Canonical identity | Source-family validated; issuer-aware where required |
 | References/relationships | Mention -> resolution -> provenance-backed relationship |
 | Temporality | Candidate/resolution/event model from DEF-0004 |
-| Case analysis | SQLite-backed case items/claims/evidence plus materialized bundle files |
+| Case analysis | SQLite-backed v3 case items/claims/evidence plus materialized bundle files; target v4 evidence-first LegalResearchBundle is specified by #132 but not yet active |
 | Graph database | **Not used**; relational model is graph-like conceptually |
 | Ports and Adapters | **Deferred** to issue #10 |
 | PostgreSQL / Redis persistence | **Not implemented**; possible future adapters/capabilities only |
 | Full execution provenance manifest | **Deferred** to issue #11 |
 | Corpus doctor/invariant validator | **Deferred** to issue #12 |
-| MCP server / RAG application | Future consumer/integration work; not canonical authority |
+| CASE v4 evidence-first contracts | **Specified target** by #132 / ADR-0010; implementation staged under #130 |
+| MCP server / RAG application | Future external consumer/integration work; #145 will consume #144 REST and cannot become canonical authority |
 
 ## Documentation authority
 
