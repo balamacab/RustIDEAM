@@ -552,22 +552,22 @@ def _required_evidence_refs(
 def _statement_rule(
     *,
     span: dict[str, Any],
-    provision: dict[str, Any] | None,
+    provision: dict[str, Any],
     authority: dict[str, Any],
     as_of_date: str | None,
 ) -> dict[str, Any]:
+    """Derive a rule only from one canonical provision observation.
+
+    A verified document segment is still valid citable evidence, but retrieval
+    relevance by itself never upgrades document-level text into rule semantics.
+    """
     structured: dict[str, Any] = {
-        "statement_scope": (
-            "canonical_provision"
-            if provision is not None
-            else "canonical_document_segment"
-        ),
+        "statement_scope": "canonical_provision",
         "document_ref": span["document_ref"],
         "authority_ref": span["authority_ref"],
         "evidence_refs": [span["evidence_ref"]],
     }
-    if provision is not None:
-        structured.update(provision)
+    structured.update(provision)
 
     fragment: dict[str, Any] = {
         "kind": "rule_fragment",
@@ -822,10 +822,15 @@ def build_legal_research_bundle(
                 raise EvidenceGraphIntegrityError(
                     "resolved research evidence has no authority object"
                 )
+            provision = statement.get("provision")
+            if provision is None:
+                # Exact canonical text remains citable EvidenceSpan material.
+                # Search relevance alone is not legal-rule semantics.
+                continue
             span = spans[statement["evidence_ref"]]
             rule = _statement_rule(
                 span=span,
-                provision=statement.get("provision"),
+                provision=provision,
                 authority=authority,
                 as_of_date=case_input.get("as_of_date"),
             )
