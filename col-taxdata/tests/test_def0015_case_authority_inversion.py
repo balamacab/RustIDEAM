@@ -182,6 +182,24 @@ class Def0015AuthorityInversionCharacterizationTests(unittest.TestCase):
         finally:
             con.close()
 
+    def test_same_fixture_diverges_between_candidate_and_neutral_targeting(self) -> None:
+        """The defect is query ownership, not absence of canonical fixture evidence."""
+        canonical = self.fixture["canonical_segment"]
+        con, retrieval = self._service()
+        try:
+            candidate_hits = retrieval.search_candidate(
+                self.fixture["model_candidate"]
+            )
+            neutral_hits = retrieval.search(self.fixture["neutral_query"])
+        finally:
+            con.close()
+
+        self.assertEqual(candidate_hits, [])
+        self.assertEqual(
+            [hit.extracted_segment_id for hit in neutral_hits],
+            [canonical["extracted_segment_id"]],
+        )
+
     def test_neutral_legal_terms_retrieve_relevant_canonical_segment(self) -> None:
         canonical = self.fixture["canonical_segment"]
         con, retrieval = self._service()
