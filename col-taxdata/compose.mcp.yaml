@@ -1,0 +1,23 @@
+services:
+  mcp:
+    build:
+      context: ./mcp_gateway
+    image: col-taxdata-mcp:local
+    restart: "no"
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      CASE_REST_BASE_URL: ${CASE_REST_BASE_URL:?CASE_REST_BASE_URL is required}
+      MCP_HOST: ${MCP_HOST:?MCP_HOST is required}
+      MCP_PORT: ${MCP_PORT:-8000}
+      MCP_PATH: ${MCP_PATH:-/mcp}
+      MCP_TRANSPORT: streamable-http
+      CASE_REST_TIMEOUT_SECONDS: ${CASE_REST_TIMEOUT_SECONDS:-30}
+      MCP_MAX_REQUEST_BYTES: ${MCP_MAX_REQUEST_BYTES:-1048576}
+      MCP_MAX_RESPONSE_BYTES: ${MCP_MAX_RESPONSE_BYTES:-8388608}
+      MCP_BUNDLE_CACHE_ENTRIES: ${MCP_BUNDLE_CACHE_ENTRIES:-32}
+    ports:
+      - "${MCP_PUBLISHED_PORT:-8000}:${MCP_PORT:-8000}"
