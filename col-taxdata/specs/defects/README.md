@@ -18,5 +18,6 @@ The machine-readable ordering/dependency graph is maintained in [`specs/manifest
 | [DEF-0012](DEF-0012-user-provided-source-quote-fidelity.md) | P1 | Generated user-provided source quotes can drift from literal client text | [#91](https://github.com/balamacab/RustIDEAM/issues/91) | verified |
 | [DEF-0013](DEF-0013-issue67-runtime-envelope-drift.md) | P2 | Issue #67 canonical runtime envelope drift | [#92](https://github.com/balamacab/RustIDEAM/issues/92) | verified |
 | [DEF-0014](DEF-0014-rejected-evidence-atomic-secret-suppression.md) | — | Rejected CASE evidence can echo credentials or publish partially | [#113](https://github.com/balamacab/RustIDEAM/issues/113) | verified |
+| [DEF-0015](DEF-0015-model-authored-legal-conclusions-drive-case-research.md) | P1 | Model-authored legal conclusions improperly drive CASE research | [#131](https://github.com/balamacab/RustIDEAM/issues/131) | specified |
 
 Coverage limitations that are not parser defects are tracked separately under `specs/gaps/`; GAP-0001 is tracked by [issue #8](https://github.com/balamacab/RustIDEAM/issues/8).
