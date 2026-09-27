@@ -75,14 +75,17 @@ def main() -> int:
         "--dry-run",
         action="store_true",
         help=(
-            "Execute the same registration/materialization path against a "
-            "temporary SQLite snapshot and discard it."
+            "Compatibility option. The #136 v4 intake-only transition performs "
+            "no registration/materialization; later research stages may reuse it."
         ),
     )
     parser.add_argument(
         "--debug-provenance",
         action="store_true",
-        help="Include output-only internal provenance detail in CaseEvidence.",
+        help=(
+            "Compatibility option. The #136 v4 intake-only transition emits no "
+            "canonical CaseEvidence debug provenance."
+        ),
     )
     args = parser.parse_args()
 
