@@ -36,7 +36,7 @@ These documents are required context when an issue depends on those concepts; th
 4. **Deterministic acceptance criteria.** Every spec defines machine-checkable acceptance criteria where possible.
 5. **Reprocessing is explicit.** A fix must state which existing derived artifacts require replay and which tables/files are expected to change.
 6. **Compatibility matters.** Database migrations are append-only and existing provenance must remain traceable.
-7. **LLMs are not authorities.** LLMs may classify or propose candidates, but canonical legal identity, temporal state, relationships and provenance remain deterministic/auditable.
+7. **LLMs are not authorities.** LLM assistance is limited by the active application contract; canonical legal identity, temporal state, relationships and provenance remain deterministic/auditable. In the accepted CASE v4 target, the internal LLM is intake-only and does not author candidate legal conclusions.
 8. **Source, manifestation and document are distinct.** A source page or quoted norm must not be silently promoted to the wrong canonical Document.
 9. **Retrieval is downstream.** FTS/RAG-style retrieval consumes evidence/canonical layers; it must not overwrite them.
 
