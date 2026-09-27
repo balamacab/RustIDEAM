@@ -315,6 +315,27 @@ def v3_case_draft() -> dict:
     }
 
 
+def v3_case_result() -> dict:
+    draft = v3_case_draft()
+    return {
+        "kind": "case_result",
+        "contract_version": "3.0.0",
+        "case_ref": "case:history",
+        "analysis_status": "complete",
+        "facts": deepcopy(draft["facts"]),
+        "questions": deepcopy(draft["questions"]),
+        "supported_claims": [],
+        "remaining_candidate_claims": [],
+        "unresolved": [],
+        "evidence": [],
+        "sources": [],
+        "documents": [],
+        "provisions": [],
+        "model_metadata": deepcopy(draft["model_metadata"]),
+        "generated_at": "2026-09-24T12:01:00Z",
+    }
+
+
 class Issue0134CaseV4ContractTests(unittest.TestCase):
     def test_valid_v4_intake_is_accepted(self):
         case_input = v4_case_input()
@@ -365,6 +386,24 @@ class Issue0134CaseV4ContractTests(unittest.TestCase):
             with self.subTest(ref=ref):
                 draft = v4_intake_draft()
                 draft["search_hints"][0]["terms"] = [ref]
+                with self.assertRaises(CaseContractError) as raised:
+                    validate_intake_draft(v4_case_input(), draft)
+                self.assertEqual(raised.exception.code, INVALID_INTAKE_DRAFT)
+
+    def test_model_fact_or_question_text_cannot_inject_platform_ids(self):
+        mutations = [
+            lambda draft: draft["facts"][0].update(value="document:DOC-1"),
+            lambda draft: draft["facts"][1].update(
+                needed_information="Consultar provision:PROV-1"
+            ),
+            lambda draft: draft["questions"][0].update(
+                text="¿Qué dice evidence:EVD-1?"
+            ),
+        ]
+        for mutate in mutations:
+            with self.subTest(mutate=mutate):
+                draft = v4_intake_draft()
+                mutate(draft)
                 with self.assertRaises(CaseContractError) as raised:
                     validate_intake_draft(v4_case_input(), draft)
                 self.assertEqual(raised.exception.code, INVALID_INTAKE_DRAFT)
@@ -496,12 +535,14 @@ class Issue0134CaseV4ContractTests(unittest.TestCase):
         with self.assertRaises(CaseContractError):
             dispatch_case_input(case_input)
 
-    def test_frozen_v3_intake_remains_interpretable(self):
+    def test_frozen_v3_intake_and_result_remain_interpretable(self):
         case_input = v3_case_input()
         draft = v3_case_draft()
+        result = v3_case_result()
         validate_v3_case_draft(case_input, draft)
         self.assertEqual(dispatch_case_input(case_input), "3.0.0")
         self.assertEqual(validate_structured_intake(case_input, draft), "3.0.0")
+        self.assertEqual(validate_analysis_result(result), "3.0.0")
 
     def test_v3_object_cannot_masquerade_as_v4_by_relabeling(self):
         case_input = v4_case_input()
