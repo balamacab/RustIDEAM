@@ -58,6 +58,22 @@
       "model_path": "/models/gemma-4-E2B-it-Q4_K_M.gguf",
       "context_tokens": 16384,
       "total_slots": 4
+    },
+    "verified_runtime_identity": {
+      "evidence_date": "2026-09-27",
+      "model_artifact_sha256": "740185b21d22ceb83a11c3aa62ad5842ef32c70f6096d756bbee85a1e4ec34b8",
+      "model_artifact_size_bytes": 3106738272,
+      "container_image_id": "sha256:c5daab599318142f2b16a75d05d4c4c6763eba8b2574a9eaab85df8ffd86fce3",
+      "container_repo_digest": "ghcr.io/ggml-org/llama.cpp@sha256:1f4b9cf58982dd4d7cc497aea31b1a456ca9a3a1f94f527d317d3fdee0d60ab6",
+      "container_model_mount_read_only": true,
+      "runtime_os": "WSL2 Ubuntu 22.04.4 LTS",
+      "gpu_model": "NVIDIA GeForce RTX 3070 Laptop GPU",
+      "gpu_uuid": "GPU-a71e7801-dca9-36f4-da0a-6fc10ead8d0f",
+      "gpu_vram_mib": 8192,
+      "nvidia_driver": "596.36",
+      "effective_context_tokens": 16384,
+      "effective_gpu_layers_argument": 99,
+      "llama_cpp_build_info": "b11176-f805c57a2"
     }
   }
 }

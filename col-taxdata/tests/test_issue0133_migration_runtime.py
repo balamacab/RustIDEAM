@@ -19,6 +19,10 @@ HISTORICAL_RUNTIME_PATH = ROOT / "config" / "llm" / "case-validation-reference-v
 EXPECTED_MODEL_SHA256 = (
     "740185b21d22ceb83a11c3aa62ad5842ef32c70f6096d756bbee85a1e4ec34b8"
 )
+EXPECTED_IMAGE_DIGEST = (
+    "ghcr.io/ggml-org/llama.cpp@"
+    "sha256:1f4b9cf58982dd4d7cc497aea31b1a456ca9a3a1f94f527d317d3fdee0d60ab6"
+)
 
 
 class Issue133MigrationRuntimeProfileTests(unittest.TestCase):
@@ -77,7 +81,7 @@ class Issue133MigrationRuntimeProfileTests(unittest.TestCase):
             },
         )
 
-    def test_profile_freezes_expected_artifact_and_observed_http_identity(self) -> None:
+    def test_profile_freezes_verified_artifact_and_runtime_identity(self) -> None:
         admission = self.profile["admission"]
         self.assertEqual(admission["expected_model_artifact_sha256"], EXPECTED_MODEL_SHA256)
         self.assertEqual(len(EXPECTED_MODEL_SHA256), 64)
@@ -91,6 +95,22 @@ class Issue133MigrationRuntimeProfileTests(unittest.TestCase):
         self.assertEqual(observed["model_path"], "/models/gemma-4-E2B-it-Q4_K_M.gguf")
         self.assertEqual(observed["context_tokens"], 16384)
         self.assertEqual(observed["total_slots"], 4)
+
+        verified = admission["verified_runtime_identity"]
+        self.assertEqual(verified["model_artifact_sha256"], EXPECTED_MODEL_SHA256)
+        self.assertEqual(verified["model_artifact_size_bytes"], 3106738272)
+        self.assertEqual(verified["container_repo_digest"], EXPECTED_IMAGE_DIGEST)
+        self.assertEqual(
+            verified["container_image_id"],
+            "sha256:c5daab599318142f2b16a75d05d4c4c6763eba8b2574a9eaab85df8ffd86fce3",
+        )
+        self.assertTrue(verified["container_model_mount_read_only"])
+        self.assertEqual(verified["gpu_model"], "NVIDIA GeForce RTX 3070 Laptop GPU")
+        self.assertEqual(verified["gpu_vram_mib"], 8192)
+        self.assertEqual(verified["nvidia_driver"], "596.36")
+        self.assertEqual(verified["effective_context_tokens"], 16384)
+        self.assertEqual(verified["effective_gpu_layers_argument"], 99)
+        self.assertEqual(verified["llama_cpp_build_info"], "b11176-f805c57a2")
 
     def test_silent_truncation_and_hidden_fallback_remain_forbidden(self) -> None:
         self.assertFalse(self.profile["context"]["silent_truncation"])
