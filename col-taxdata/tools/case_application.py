@@ -28,6 +28,7 @@ from case_retrieval import (
     RetrievalHit,
     RetrievalIntegrityError,
 )
+from case_research import PlatformResearchService
 from llm_client import CaseStructuringService
 from register_case_bundle import deterministic_id, register_case
 from rematerialize_case import refresh_case_materializations
@@ -97,6 +98,21 @@ class AnalysisOutcome:
     registration: dict[str, Any]
     materialization: dict[str, Any]
     validation: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class ResearchAnalysisOutcome:
+    """Read-only v4 research outcome; no legal claim or CASE state is persisted."""
+
+    case_ref: str
+    intake_draft: dict[str, Any]
+    research_plan: dict[str, Any]
+    research_result: dict[str, Any]
+    evidence_candidates: tuple[dict[str, Any], ...]
+    authorities: tuple[dict[str, Any], ...]
+    relationships: tuple[dict[str, Any], ...]
+    unresolved: tuple[dict[str, Any], ...]
+    persistence_mode: str = "read-only"
 
 
 def utc_now() -> str:
@@ -627,13 +643,13 @@ def analyze_case(
     dry_run: bool = False,
     include_debug_provenance: bool = False,
     request_fingerprints: dict[str, str] | None = None,
-) -> AnalysisOutcome:
-    """Analyze one natural-language case and optionally persist canonical case state.
+) -> AnalysisOutcome | ResearchAnalysisOutcome:
+    """Analyze one natural-language case under its explicit CASE contract.
 
-    Explicit v3 inputs retain the historical analysis path for compatibility.
-    The normal v4 path ends at a validated IntakeDraft and raises the truthful
-    #136 transition before retrieval or persistence until #137 implements
-    platform-owned research.
+    Explicit v3 inputs retain the historical candidate-claim/persistence path.
+    v4 performs deterministic, read-only platform research from IntakeDraft
+    facts/questions and returns ResearchPlan + ResearchResult without creating
+    or persisting a platform legal claim.
     """
     contract_version = validate_dispatched_case_input(case_input)
     structuring = structurer.structure(
@@ -643,10 +659,33 @@ def analyze_case(
     draft = structuring.draft
 
     if contract_version == V4_CONTRACT_VERSION:
-        # #136 deliberately stops here. #137 will replace this transition with
-        # platform-owned ResearchPlan/retrieval. Continuing through the v3 path
-        # would silently recreate model-authored legal authority.
-        raise CaseResearchNotImplementedError(structuring.intake)
+        # v4 research is deliberately separated from the historical v3 claim
+        # promoter. It is read-only and starts from accepted facts/questions,
+        # never from a model-authored proposed legal answer.
+        try:
+            research = PlatformResearchService(db_path).research(
+                case_input=case_input,
+                intake_draft=structuring.intake,
+            )
+        except sqlite3.Error as exc:
+            raise CaseAnalysisIntegrityError(
+                f"v4 corpus research failed safely: {exc}"
+            ) from exc
+
+        case_ref = _app_ref(
+            "case",
+            "col-taxdata:case-input:v4:" + canonical_case_input_json(case_input),
+        )
+        return ResearchAnalysisOutcome(
+            case_ref=case_ref,
+            intake_draft=deepcopy(structuring.intake),
+            research_plan=research.plan,
+            research_result=research.result,
+            evidence_candidates=research.evidence_candidates,
+            authorities=research.authorities,
+            relationships=research.relationships,
+            unresolved=research.unresolved,
+        )
     if contract_version != V3_CONTRACT_VERSION:
         raise AssertionError(
             f"validated unsupported CASE contract {contract_version!r}"
