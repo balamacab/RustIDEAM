@@ -7,6 +7,10 @@ from typing import Any, Callable
 
 from case_contract_validation import (
     CaseContractError,
+    _missing_fact_conflicts_with_explicit_text,
+    _topic_signature,
+    load_contract_schema,
+    source_quote_candidates,
     validate_schema_object,
 )
 
@@ -183,6 +187,162 @@ def validate_case_input(case_input: dict[str, Any]) -> None:
     _validate_schema(case_input, "CaseInput", INVALID_CASE_INPUT)
 
 
+def intake_draft_generation_schema(
+    case_input: dict[str, Any],
+) -> dict[str, Any]:
+    """Return the constrained model-facing schema for one v4 IntakeDraft.
+
+    Caller-owned root fields and model metadata are application-owned and are
+    therefore omitted from generation. Literal/normalized intake facts are
+    constrained to exact contiguous CaseInput spans. Conditional IntakeFact
+    semantics are expressed as explicit oneOf branches because the admitted
+    llama.cpp structured-generation backend does not reliably enforce if/then.
+    """
+    validate_case_input(case_input)
+    root = load_contract_schema(SCHEMA_PATH)
+    definitions = deepcopy(root["$defs"])
+    draft = definitions["IntakeDraft"]
+
+    for name in (
+        "problem_text",
+        "as_of_date",
+        "client_reference",
+        "caller_metadata",
+        "model_metadata",
+    ):
+        draft["properties"].pop(name, None)
+        draft["required"] = [
+            item for item in draft["required"] if item != name
+        ]
+
+    fact = definitions["IntakeFact"]
+    fact_properties = deepcopy(fact["properties"])
+    fact_required = list(fact["required"])
+    candidates = source_quote_candidates(case_input["problem_text"])
+
+    def fact_variant(
+        state: str,
+        *,
+        requires_confirmation: bool,
+        source_quote: bool = False,
+        needed_information: bool = False,
+    ) -> dict[str, Any]:
+        properties = deepcopy(fact_properties)
+        properties["state"] = {"const": state}
+        properties["requires_confirmation"] = {
+            "const": requires_confirmation
+        }
+        required = list(fact_required)
+
+        if source_quote:
+            properties["source_quote"] = {
+                "type": "string",
+                "enum": deepcopy(candidates),
+            }
+            if "source_quote" not in required:
+                required.append("source_quote")
+        else:
+            properties.pop("source_quote", None)
+            required = [
+                item for item in required if item != "source_quote"
+            ]
+
+        if needed_information:
+            if "needed_information" not in required:
+                required.append("needed_information")
+        else:
+            properties.pop("needed_information", None)
+            required = [
+                item for item in required
+                if item != "needed_information"
+            ]
+
+        return {
+            "type": "object",
+            "additionalProperties": False,
+            "required": required,
+            "properties": properties,
+        }
+
+    definitions["IntakeFact"] = {
+        "oneOf": [
+            fact_variant(
+                "user_provided",
+                requires_confirmation=False,
+                source_quote=True,
+            ),
+            fact_variant(
+                "llm_normalized",
+                requires_confirmation=True,
+                source_quote=True,
+            ),
+            fact_variant(
+                "missing",
+                requires_confirmation=True,
+                needed_information=True,
+            ),
+            fact_variant(
+                "ambiguous",
+                requires_confirmation=True,
+                needed_information=True,
+            ),
+        ]
+    }
+
+    return {
+        "$schema": root["$schema"],
+        "$defs": definitions,
+        "$ref": "#/$defs/IntakeDraft",
+    }
+
+
+def _missing_fact_duplicates_question(
+    fact: dict[str, Any],
+    questions: list[dict[str, Any]],
+) -> bool:
+    """Reject high-confidence duplication of a research question as a missing fact.
+
+    Missing facts represent absent client-supplied factual inputs. A legal/factual/
+    procedural question is a research target, not a missing value merely because
+    its answer is unknown. The comparison is deliberately lexical and conservative
+    so ambiguity is preserved rather than semantically reclassified.
+    """
+    if fact.get("state") != "missing":
+        return False
+
+    missing_signature = _topic_signature(
+        " ".join(
+            str(value)
+            for value in (
+                fact.get("label", ""),
+                fact.get("needed_information", ""),
+            )
+            if value
+        )
+    )
+    if len(missing_signature) < 2:
+        return False
+
+    for question in questions:
+        question_signature = _topic_signature(str(question.get("text", "")))
+        if len(question_signature) < 2:
+            continue
+        smaller = min(len(missing_signature), len(question_signature))
+        overlap = len(missing_signature.intersection(question_signature))
+        if (
+            missing_signature == question_signature
+            or (
+                overlap >= 2
+                and overlap == smaller
+                and abs(
+                    len(missing_signature) - len(question_signature)
+                ) <= 1
+            )
+        ):
+            return True
+    return False
+
+
 def validate_intake_draft(
     case_input: dict[str, Any],
     draft: dict[str, Any],
@@ -232,6 +392,27 @@ def validate_intake_draft(
     del hints
 
     for index, fact in enumerate(draft["facts"]):
+        if _missing_fact_conflicts_with_explicit_text(
+            fact,
+            case_input["problem_text"],
+        ):
+            _fail(
+                INVALID_INTAKE_DRAFT,
+                f"$.facts[{index}].state",
+                (
+                    "missing fact generically requests information about "
+                    "a topic already stated in explicit client text"
+                ),
+            )
+        if _missing_fact_duplicates_question(fact, draft["questions"]):
+            _fail(
+                INVALID_INTAKE_DRAFT,
+                f"$.facts[{index}].state",
+                (
+                    "research question was duplicated as a missing fact; "
+                    "missing facts must describe absent client inputs"
+                ),
+            )
         if fact["state"] in {"user_provided", "llm_normalized"}:
             quote = fact["source_quote"]
             if quote not in case_input["problem_text"]:
