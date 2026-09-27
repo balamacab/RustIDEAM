@@ -1,0 +1,42 @@
+{
+  "contract_name": "CASE REST API v1",
+  "api_version": "1.0.0",
+  "method": "POST",
+  "api_path": "/v1/cases",
+  "proxy_path": "/api/v1/cases",
+  "request_fields": [
+    "problem_text",
+    "as_of_date",
+    "client_reference",
+    "caller_metadata"
+  ],
+  "success_top_level_fields": [
+    "api_version",
+    "request_fingerprints",
+    "bundle"
+  ],
+  "error_top_level_fields": [
+    "api_version",
+    "error",
+    "request_fingerprints"
+  ],
+  "bundle_fields": [
+    "kind",
+    "contract_version",
+    "bundle_ref",
+    "status",
+    "case_input",
+    "intake_draft",
+    "research_plan",
+    "research_result",
+    "sources",
+    "authorities",
+    "evidence_spans",
+    "normative_relationships",
+    "rule_fragments",
+    "deterministic_evaluations",
+    "calculation_traces",
+    "unresolved",
+    "generated_at"
+  ]
+}

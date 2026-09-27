@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>col-taxdata CASE Operator Console</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <p class="eyebrow">col-taxdata</p>
+      <h1>CASE Operator Console</h1>
+    </div>
+    <div class="contract">
+      <span id="contract-badge">Loading REST contract…</span>
+      <span class="authority">Presentation only · public REST state</span>
+    </div>
+  </header>
+
+  <main class="layout">
+    <section class="request-pane" aria-labelledby="request-title">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">Request</p>
+          <h2 id="request-title">Caller-owned input</h2>
+        </div>
+        <span class="boundary">No provider controls</span>
+      </div>
+
+      <div class="fixture-row">
+        <label for="fixture-select">Approved fixture</label>
+        <div class="inline">
+          <select id="fixture-select" aria-label="Approved request fixture"></select>
+          <button id="load-fixture" type="button" class="secondary" disabled>Load</button>
+        </div>
+        <p class="hint">Loading a fixture only fills caller-owned fields. It never submits.</p>
+      </div>
+
+      <form id="case-form">
+        <label for="problem-text">problem_text</label>
+        <textarea id="problem-text" rows="15" required spellcheck="true"></textarea>
+
+        <div class="two-columns">
+          <div>
+            <label for="as-of-date">as_of_date</label>
+            <input id="as-of-date" type="date">
+          </div>
+          <div>
+            <label for="client-reference">client_reference</label>
+            <input id="client-reference" type="text" maxlength="256" autocomplete="off">
+          </div>
+        </div>
+
+        <label for="caller-metadata">caller_metadata <span class="optional">optional JSON object</span></label>
+        <textarea id="caller-metadata" rows="4" spellcheck="false" placeholder='{"channel":"operator-console"}'></textarea>
+
+        <div class="submit-row">
+          <button id="submit-case" type="submit" disabled>Submit CASE request</button>
+          <div class="runtime" aria-live="polite">
+            <span id="request-state" data-kind="idle">Initializing…</span>
+            <span id="elapsed">—</span>
+          </div>
+        </div>
+      </form>
+    </section>
+
+    <section class="result-pane" aria-labelledby="result-title">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">Inspection</p>
+          <h2 id="result-title">LegalResearchBundle</h2>
+        </div>
+        <span class="boundary">No browser synthesis</span>
+      </div>
+
+      <div class="trust-note">
+        <strong>Authority boundary.</strong>
+        The console displays the public REST response verbatim. It does not validate
+        canonical evidence, calculate legal/tax results, infer missing state, or turn
+        provider metadata into legal authority.
+      </div>
+
+      <nav class="tabs" aria-label="Result views">
+        <button type="button" data-view="result" aria-selected="true">Result</button>
+        <button type="button" data-view="intake" aria-selected="false">Intake</button>
+        <button type="button" data-view="research" aria-selected="false">Research</button>
+        <button type="button" data-view="evidence" aria-selected="false">Evidence</button>
+        <button type="button" data-view="evaluations" aria-selected="false">Evaluations / Calculations</button>
+        <button type="button" data-view="unresolved" aria-selected="false">Unresolved</button>
+        <button type="button" data-view="diagnostics" aria-selected="false">Diagnostics</button>
+        <button type="button" data-view="raw" aria-selected="false">Raw JSON</button>
+      </nav>
+
+      <div class="panel" data-view-panel="result"></div>
+      <div class="panel" data-view-panel="intake" hidden></div>
+      <div class="panel" data-view-panel="research" hidden></div>
+      <div class="panel" data-view-panel="evidence" hidden></div>
+      <div class="panel" data-view-panel="evaluations" hidden></div>
+      <div class="panel" data-view-panel="unresolved" hidden></div>
+      <div class="panel" data-view-panel="diagnostics" hidden></div>
+      <div class="panel" data-view-panel="raw" hidden></div>
+    </section>
+  </main>
+
+  <script type="module" src="./app.js"></script>
+</body>
+</html>
