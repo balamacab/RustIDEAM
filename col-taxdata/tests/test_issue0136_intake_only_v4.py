@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
 
 from case_application import (
-    CaseResearchNotImplementedError,
+    ResearchAnalysisOutcome,
     analyze_case,
 )
 from case_contract_dispatch import validate_structured_intake
@@ -408,7 +408,7 @@ class Issue0136IntakeOnlyV4Tests(unittest.TestCase):
             "Consulta histórica por HTTP.",
         )
 
-    def test_v4_application_stops_before_retrieval_or_persistence(self):
+    def test_v4_application_hands_validated_intake_to_platform_research_only(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             db = root / "does-not-exist.sqlite"
@@ -417,9 +417,20 @@ class Issue0136IntakeOnlyV4Tests(unittest.TestCase):
                 config(),
                 DeterministicIntakeAdapter([complete_intake()]),
             )
+            research = mock.Mock(
+                plan={"kind": "research_plan"},
+                result={"kind": "research_result"},
+                evidence_candidates=(),
+                authorities=(),
+                relationships=(),
+                unresolved=(),
+            )
 
-            with self.assertRaises(CaseResearchNotImplementedError) as raised:
-                analyze_case(
+            with mock.patch(
+                "case_application.PlatformResearchService.research",
+                return_value=research,
+            ) as platform_research:
+                outcome = analyze_case(
                     case_input=case_input(),
                     db_path=db,
                     case_root=case_root,
@@ -427,10 +438,13 @@ class Issue0136IntakeOnlyV4Tests(unittest.TestCase):
                     dry_run=False,
                 )
 
-            self.assertEqual(
-                raised.exception.intake_draft["kind"],
-                "intake_draft",
-            )
+            self.assertIsInstance(outcome, ResearchAnalysisOutcome)
+            self.assertEqual(outcome.intake_draft["kind"], "intake_draft")
+            self.assertEqual(outcome.research_result["kind"], "research_result")
+            platform_research.assert_called_once()
+            call = platform_research.call_args.kwargs
+            self.assertEqual(call["case_input"], case_input())
+            self.assertEqual(call["intake_draft"], complete_intake())
             self.assertFalse(db.exists())
             self.assertFalse(case_root.exists())
 
