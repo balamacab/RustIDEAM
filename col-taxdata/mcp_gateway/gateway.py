@@ -205,6 +205,17 @@ def _compact_json(value: Any) -> bytes:
         ) from exc
 
 
+def _canonical_json(value: Any) -> bytes:
+    """Match REST v1's documented deterministic CaseInput fingerprint JSON."""
+    return json.dumps(
+        value,
+        ensure_ascii=False,
+        allow_nan=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+
+
 def _read_limited(stream: Any, limit: int) -> bytes:
     data = stream.read(limit + 1)
     if len(data) > limit:
@@ -239,6 +250,7 @@ def _validate_sha256(value: object, field: str) -> None:
 def _validate_success_envelope(
     payload: dict[str, Any],
     submitted_request: Mapping[str, Any],
+    raw_request: bytes,
 ) -> None:
     if set(payload) != {"api_version", "request_fingerprints", "bundle"}:
         raise GatewayError(
@@ -262,6 +274,13 @@ def _validate_success_envelope(
         )
     _validate_sha256(fingerprints["raw_request_sha256"], "raw_request_sha256")
     _validate_sha256(fingerprints["case_input_sha256"], "case_input_sha256")
+
+    expected_raw_sha256 = hashlib.sha256(raw_request).hexdigest()
+    if fingerprints["raw_request_sha256"] != expected_raw_sha256:
+        raise GatewayError(
+            "MCP_CASE_UPSTREAM_CONTRACT_ERROR",
+            "CASE REST response raw-request fingerprint does not match the request sent.",
+        )
 
     bundle = payload.get("bundle")
     if not isinstance(bundle, dict) or set(bundle) != _REQUIRED_BUNDLE_FIELDS:
@@ -304,6 +323,15 @@ def _validate_success_envelope(
         raise GatewayError(
             "MCP_CASE_UPSTREAM_CONTRACT_ERROR",
             "CASE REST response did not preserve the submitted CaseInput exactly.",
+        )
+
+    expected_case_sha256 = hashlib.sha256(
+        _canonical_json(expected_case_input)
+    ).hexdigest()
+    if fingerprints["case_input_sha256"] != expected_case_sha256:
+        raise GatewayError(
+            "MCP_CASE_UPSTREAM_CONTRACT_ERROR",
+            "CASE REST response CaseInput fingerprint does not match the accepted input.",
         )
 
 
@@ -435,7 +463,7 @@ class CaseRestClient:
             error_code="MCP_CASE_UPSTREAM_CONTRACT_ERROR",
             message="CASE REST success response is not valid JSON.",
         )
-        _validate_success_envelope(response_payload, payload)
+        _validate_success_envelope(response_payload, payload, raw)
         return response_payload
 
 
