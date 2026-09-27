@@ -201,7 +201,8 @@ for (const fixturePath of process.argv.slice(3)) {
         # Regression intent: external values are JSON-serialized and assigned to
         # textContent; there is no HTML parser sink in the frontend.
         rendered = json.dumps({"exact_text": malicious}, ensure_ascii=False, indent=2)
-        self.assertIn(malicious, rendered)
+        self.assertEqual(json.loads(rendered)["exact_text"], malicious)
+        self.assertIn("<img src=x onerror=", rendered)
         self.assertIn("pre.textContent = JSON.stringify(value, null, 2);", app)
         self.assertNotIn("innerHTML", app)
 
