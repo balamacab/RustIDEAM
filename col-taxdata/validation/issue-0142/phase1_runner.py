@@ -121,6 +121,26 @@ def get_json(url: str, timeout: float = 15.0) -> tuple[int, dict]:
         return exc.code, json.loads(exc.read().decode("utf-8"))
 
 
+def wait_rest_ready(url: str, timeout: float = 60.0) -> None:
+    """Wait for the actual #144 HTTP adapter, not merely Docker's published port."""
+    deadline = time.monotonic() + timeout
+    last: object = None
+    while time.monotonic() < deadline:
+        try:
+            status, payload = get_json(url, timeout=1.0)
+            if (
+                status == 405
+                and payload.get("error", {}).get("code")
+                == "CASE_API_METHOD_NOT_ALLOWED"
+            ):
+                return
+            last = (status, payload)
+        except (OSError, ValueError, json.JSONDecodeError) as exc:
+            last = exc
+        time.sleep(0.25)
+    raise RuntimeError(f"CASE REST adapter did not become ready: {last}")
+
+
 def post_json(url: str, payload: dict, timeout: float = 900.0) -> tuple[int, dict, dict]:
     raw = canonical_bytes(payload)
     req = Request(
@@ -454,7 +474,7 @@ def main() -> int:
             "python3", "/validation/runtime_server.py",
         ]
     ).stdout.strip()
-    wait_tcp("127.0.0.1", REST_PORT, 60)
+    wait_rest_ready(f"http://127.0.0.1:{REST_PORT}/v1/cases", 60)
 
     web = run(
         [
