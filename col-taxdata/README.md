@@ -55,6 +55,14 @@ Successful responses include the normal deterministic `CASE-<hash>`, the v3 Case
 
 The server defaults to loopback. A deployment that binds it to another interface is responsible for its surrounding network/authentication controls; those controls are not encoded in CaseInput.
 
+## Independent MCP legal-research gateway
+
+Issue #145 provides an independently deployable `col-taxdata-mcp` adapter under [`mcp_gateway/`](mcp_gateway/README.md). It communicates with CASE only through the published REST v1 contract and exposes semantic research/evidence tools to external MCP-capable LLMs/agents.
+
+The originating LLM is responsible for reading any user files in its own environment and submitting a self-contained textual case description. The gateway accepts no file uploads, local paths, arbitrary document URLs, OCR jobs, provider controls, or consumer-inference write-back.
+
+See [`specs/application/case-mcp-gateway-v1.md`](specs/application/case-mcp-gateway-v1.md) for the tool/authority/deployment contract and [`compose.mcp.yaml`](compose.mcp.yaml) for the independent container lifecycle.
+
 ## Architecture and specifications
 
 Start with:
@@ -90,8 +98,9 @@ official source
   -> provisions / references / resolutions / relationships
   -> temporal candidates / events
   -> FTS retrieval
-  -> case analysis
-  -> future MCP / RAG / LLM consumer
+  -> case analysis / LegalResearchBundle
+  -> public CASE REST v1
+  -> independent MCP / external LLM consumer
 ```
 
 Raw evidence is immutable. Derived state may be rebuilt from preserved evidence under deterministic, auditable rules.
@@ -207,6 +216,6 @@ These are **not current implementation**:
 - complete code/config/runtime execution-provenance manifests — issue #11;
 - PostgreSQL/Redis persistence adapters;
 - a graph database;
-- an MCP/RAG layer with authority to overwrite canonical/evidence state.
+- any MCP/RAG integration with authority to overwrite canonical/evidence state (the implemented MCP gateway is read/research-only over public REST).
 
 Future work must preserve the domain and provenance contracts documented in `specs/architecture/`.

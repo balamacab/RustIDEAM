@@ -59,6 +59,7 @@ specs/
 │   ├── case-contracts-v3.md
 │   ├── case-contracts-v4.md
 │   ├── case-rest-api-v1.md
+│   ├── case-mcp-gateway-v1.md
 │   ├── openapi/
 │   │   └── case-rest-api-v1.openapi.json
 │   ├── examples/
@@ -88,6 +89,7 @@ The #130 migration is now split at an explicit compatibility boundary. After #13
 - [`application/case-contracts-v4.md`](application/case-contracts-v4.md) — v4.0.0 evidence-first contract. The IntakeDraft generation/validation boundary is active after #136; research/evidence/rules/deterministic evaluations and LegalResearchBundle production remain platform-owned staged work; external consumer inference remains non-canonical.
 - [`application/schemas/case-contracts-v4.schema.json`](application/schemas/case-contracts-v4.schema.json) — machine-readable target v4 schema/delta used by downstream implementation issue #134.
 - [`application/case-rest-api-v1.md`](application/case-rest-api-v1.md) — authoritative external REST v1 transport contract from #144; `POST /v1/cases` transports validated v4 LegalResearchBundle objects without exposing backend implementation or persistence internals.
+- [`application/case-mcp-gateway-v1.md`](application/case-mcp-gateway-v1.md) — implemented #145 independent MCP legal-research adapter contract; seven semantic tools consume REST v1 only, preserve citable bundle evidence, and expose no canonical inference write-back path.
 - [`application/openapi/case-rest-api-v1.openapi.json`](application/openapi/case-rest-api-v1.openapi.json) — OpenAPI 3.1 contract consumed by independent web/MCP clients; standalone examples live under [`application/examples/case-rest-v1/`](application/examples/case-rest-v1/).
 - [`application/schemas/case-rest-api-v1.schema.json`](application/schemas/case-rest-api-v1.schema.json) — closed public request/success/error transport schemas referencing the authoritative v4 application schema.
 - [`architecture/adr/ADR-0010-case-v4-evidence-first-authority.md`](architecture/adr/ADR-0010-case-v4-evidence-first-authority.md) — accepted authority/dependency decision for the #130 program.
@@ -100,7 +102,7 @@ The #130 migration is now split at an explicit compatibility boundary. After #13
 
 Issue #24 introduced required result structuring metadata as the v2 breaking change. Issue #27 introduced v3 because required CaseResult facts/questions and standalone result-owned fact/question reference namespaces are another breaking wire/validation change. Issue #132 defines v4 as a breaking **ownership** change: model-authored `CandidateClaim` semantics are replaced by intake-only model output plus platform-owned evidence-first research. Historical v1/v2/v3 contracts remain frozen and must never be silently relabeled as v4.
 
-CLI/API adapters must preserve the applicable contract semantics rather than embedding their own case logic. Issue #144 now publishes REST v1 as the external transport for v4 LegalResearchBundle objects; #143 web and #145 MCP are independent consumers of that versioned REST boundary. The historical #66 v3 HTTP adapter remains compatibility evidence and is not silently relabeled as v4. External LLM synthesis through MCP is consumer-owned and never canonical col-taxdata authority.
+CLI/API adapters must preserve the applicable contract semantics rather than embedding their own case logic. Issue #144 now publishes REST v1 as the external transport for v4 LegalResearchBundle objects; #145 implements the independent MCP consumer of that boundary, while #143 owns the separate web-console consumer. The historical #66 v3 HTTP adapter remains compatibility evidence and is not silently relabeled as v4. External LLM synthesis through MCP is consumer-owned and never canonical col-taxdata authority.
 
 Case report/source materialization freshness is governed by [`architecture/data-lifecycle.md` §14](architecture/data-lifecycle.md#14-case-analysis-and-materialization). The 2026-09-23 post-P1 audit remains the historical record of the CASE-0001 six-line drift; DEF-0008 / issue #18 subsequently refreshed CASE-0001 through the canonical `tools/rematerialize_case.py` path. Canonical case/corpus state remains authoritative over these generated materializations.
 
