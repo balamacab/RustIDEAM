@@ -26,6 +26,12 @@ GENERAL_RULE = (
     "declaración de renta según los umbrales aplicables de ingresos brutos "
     "y patrimonio."
 )
+ARTICLE_592_THRESHOLD_RULE = (
+    "ARTÍCULO 592. QUIÉNES NO ESTÁN OBLIGADOS A DECLARAR. "
+    "Para las personas naturales la obligación de presentar declaración de renta "
+    "se determina, entre otros supuestos legales, con umbrales de patrimonio bruto, "
+    "ingresos brutos y valores expresados en UVT."
+)
 REFERENCE_RULE = (
     "LEY 999 DE 2020 contiene una disposición general expresamente referenciada."
 )
@@ -355,13 +361,14 @@ class Issue0137EvidenceFirstResearchTests(unittest.TestCase):
 
     def test_domain_word_mismatch_discovers_general_filing_authority(self):
         primary = self.add_document_with_segment(
-            document_id="DOC-filing",
-            number="1",
-            year=2026,
-            text=GENERAL_RULE,
-            filename="ley_0001_2026.htm",
+            document_id="DOC-tax-statute-592",
+            number="624",
+            year=1989,
+            text=ARTICLE_592_THRESHOLD_RULE,
+            filename="decreto_0624_1989.htm",
+            document_type="DECRETO",
         )
-        self.assertNotIn("webcam", GENERAL_RULE.casefold())
+        self.assertNotIn("webcam", ARTICLE_592_THRESHOLD_RULE.casefold())
 
         execution = PlatformResearchService(self.db).research(
             case_input=case_input(),
@@ -378,9 +385,23 @@ class Issue0137EvidenceFirstResearchTests(unittest.TestCase):
         self.assertEqual(candidate["extracted_segment_id"], primary["segment_id"])
         self.assertEqual(candidate["manifestation_sha256"], primary["raw_sha"])
         self.assertEqual(candidate["text_sha256"], primary["text_sha"])
-        self.assertEqual(candidate["document_ref"], "document:DOC-filing")
+        self.assertEqual(
+            candidate["document_ref"],
+            f"document:{primary['document_id']}",
+        )
+        self.assertIn("ARTÍCULO 592", candidate["text"])
+        self.assertIn("ingresos brutos", candidate["text"].casefold())
+        self.assertIn("patrimonio bruto", candidate["text"].casefold())
         self.assertTrue(candidate["task_refs"])
         self.assertTrue(candidate["query_texts"])
+        self.assertTrue(
+            any("ingresos brutos" in query.casefold() for query in candidate["query_texts"])
+        )
+        self.assertTrue(
+            all("592" not in query for query in candidate["query_texts"]),
+            "platform research must discover Article 592-family material without "
+            "hardcoding the article number into the query",
+        )
 
     def test_resolved_reference_expands_within_bounds(self):
         source_text = GENERAL_RULE + " Véase LEY 999 DE 2020."
