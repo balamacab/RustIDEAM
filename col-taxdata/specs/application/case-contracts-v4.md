@@ -88,7 +88,7 @@ The named v4 contract objects are:
 - `UnresolvedItem`;
 - `LegalResearchBundle`.
 
-Supporting value objects include `IntakeFact`, `CaseQuestion`, `SearchHint`, `ResearchTask`, `ResearchTraceStep`, `ResearchContextFingerprint` and intake metadata.
+Supporting value objects include `IntakeFact`, `CaseQuestion`, `SearchHint`, `ResearchTask`, `ResearchTraceStep`, `ResearchContextFingerprint`, `OfficialSource`, authority publication metadata and intake metadata.
 
 There is deliberately no generic free-text `claim` object in the active v4 authority path.
 
@@ -100,6 +100,7 @@ There is deliberately no generic free-text `claim` object in the active v4 autho
 | IntakeDraft facts/questions/search hints | internal intake model after application validation | intake structure only; never canonical legal authority |
 | ResearchPlan | platform | platform research intent and bounds |
 | ResearchResult / trace | platform | record of bounded research execution; relevance is not authority |
+| OfficialSource | platform/canonical corpus | transport-safe official acquisition-source identity/URI; not a Document identity |
 | CanonicalAuthority | platform/canonical corpus | resolved legal authority identity and supported metadata |
 | EvidenceSpan | platform/canonical corpus | exact citable legal source text with provenance |
 | NormativeRelationship | platform/canonical corpus | supported relationship with evidence/provenance |
@@ -400,7 +401,8 @@ It carries:
 - source family where known;
 - legal-function classification;
 - classification state;
-- official-source URI where available;
+- official source refs;
+- publication/promulgation metadata with explicit resolution state;
 - temporal state;
 - evidence refs;
 - normative relationship refs.
@@ -420,13 +422,39 @@ Classification may be `resolved`, `partial`, `ambiguous`, or `unknown`.
 
 Issue #146 implements mapping from existing canonical corpus semantics. Unknown/ambiguous values remain explicit.
 
-### 10.2 No universal authority rank
+### 10.2 OfficialSource
+
+`OfficialSource` is a transport-safe view of the acquisition/source identity used by canonical evidence.
+
+It carries:
+
+- `source_ref`;
+- source authority/owner label;
+- official `source_uri`;
+- optional source kind;
+- optional display title.
+
+`source_ref` is an application-level opaque ref and is not a Document identity. A source page may contain or cite several legal documents, and the source/canonical-document distinction from the corpus domain model remains mandatory.
+
+### 10.3 Publication/promulgation metadata
+
+CanonicalAuthority contains a publication metadata object with:
+
+- `state = resolved | partial | ambiguous | unknown`;
+- zero or more supported publication dates;
+- zero or more supported promulgation dates;
+- optional publication reference/identifier text;
+- supporting evidence refs.
+
+Multiple candidate dates remain visible when the state is ambiguous. This metadata does not imply effectiveness; effectiveness remains a separate temporal resolution.
+
+### 10.4 No universal authority rank
 
 CanonicalAuthority has no numeric rank, weight, precedence score or universal ordering field.
 
 Where deterministic legal effect/precedence is explicitly implemented later, it must be represented as a separately supported rule/evaluation with evidence, not as a magic authority score.
 
-### 10.3 Temporal state
+### 10.5 Temporal state
 
 The transport representation records:
 
@@ -449,8 +477,8 @@ It carries:
 - opaque stable `span_ref`;
 - owning `authority_ref`;
 - `document_ref` and optional `provision_ref`;
+- `source_ref` resolving to one OfficialSource in the bundle;
 - `exact_text`;
-- official source URI;
 - raw/source SHA-256;
 - exact-text SHA-256;
 - opaque provenance ref;
@@ -586,6 +614,7 @@ It embeds or contains:
 - accepted IntakeDraft;
 - ResearchPlan;
 - ResearchResult;
+- OfficialSource collection;
 - CanonicalAuthority collection;
 - EvidenceSpan collection;
 - NormativeRelationship collection;
@@ -622,6 +651,7 @@ At minimum the v4 namespaces are:
 - `research:`;
 - `trace:`;
 - `authority:`;
+- `source:`;
 - `document:`;
 - `provision:`;
 - `evidence:`;
@@ -657,7 +687,9 @@ Inside a bundle:
 
 ### 18.3 Evidence/authority graph
 
+- every CanonicalAuthority source ref resolves to exactly one OfficialSource in the bundle;
 - CanonicalAuthority evidence/relationship refs resolve to bundle EvidenceSpan / NormativeRelationship collections;
+- EvidenceSpan.source_ref resolves to exactly one OfficialSource;
 - EvidenceSpan.authority_ref resolves to exactly one authority;
 - EvidenceSpan.document_ref must match that authority's document ref;
 - EvidenceSpan.provision_ref, when present, must occur in the authority's provision refs;
@@ -731,7 +763,8 @@ The MCP gateway may expose semantic research tools, but it is not a raw privileg
 | model `target_hints` attached to claims | optional standalone advisory SearchHint vocabulary |
 | `SupportedClaim` | no direct equivalent; split into EvidenceSpan / RuleFragment / DeterministicEvaluation |
 | `remaining_candidate_claims` | removed; unresolved legal work uses UnresolvedItem |
-| `CaseEvidence` | replaced by canonical legal EvidenceSpan with explicit authority/span/hash semantics |
+| `PublicSourceRef` | replaced by OfficialSource as the transport-safe source identity/URI object |
+| `CaseEvidence` | replaced by canonical legal EvidenceSpan with explicit source/authority/span/hash semantics |
 | `CaseResult` | replaced by LegalResearchBundle |
 | no ResearchPlan | platform-owned ResearchPlan |
 | no ResearchResult trace/fingerprint | platform-owned ResearchResult + ResearchContextFingerprint |
