@@ -1,0 +1,97 @@
+{
+  "schema_version": 1,
+  "issue": 142,
+  "created_for_main_sha": "8c98ffe3379f7a270f201bb809e119d150a7fd14",
+  "discipline": {
+    "purpose": "Independent authority/evidence controls, not golden prose answers.",
+    "control_canonicalization": "UTF-8 JSON; ensure_ascii=false; sort_keys=true; separators=(',', ':')",
+    "isolation": "Only each case problem_text is submitted to the internal intake model. The control object and its commitment are never included in the model request."
+  },
+  "cases": {
+    "A": {
+      "role": "natural_person_filing_obligation_regression",
+      "as_of_date": "2026-09-27",
+      "problem_text": "Una persona natural residente fiscal en Colombia obtuvo durante el año gravable 2025 ingresos brutos por 1.100 UVT y tenía un patrimonio bruto de 3.900 UVT al 31 de diciembre de 2025. Los dos valores están expresados usando la UVT del año 2025. Sus ingresos provinieron de actividades digitales prestadas por cuenta propia. A 27 de septiembre de 2026 quiere saber qué condiciones legales deben revisarse para establecer si estaba obligada a presentar declaración de renta por el año gravable 2025, qué parte puede evaluarse de forma objetiva con esos datos y qué aspectos no pueden concluirse sin información adicional.",
+      "problem_text_sha256": "410a96f2d738846b541e6a4b468c111f090a9ab54f8f45d8cf5f33bd31db0bd6",
+      "control": {
+        "control_purpose": "Verify evidence coverage and bounded deterministic treatment; not a target prose answer.",
+        "research_questions": [
+          "Identify the controlling Colombian natural-person filing/non-filer rule applicable to taxable year 2025 as of 2026-09-27.",
+          "Verify that gross-income and gross-patrimony threshold language is supported by exact canonical evidence.",
+          "Verify that the platform does not turn the bounded threshold evaluator into a universal filing conclusion."
+        ],
+        "expected_authority_classes": [
+          "Colombian national tax statute / Estatuto Tributario provision governing natural-person non-filers",
+          "official/canonical source manifestation with exact provision evidence"
+        ],
+        "specific_controlling_provisions_if_independently_known": [
+          "Estatuto Tributario article 592 family (subject to canonical identity and as-of temporal verification)"
+        ],
+        "required_checks": [
+          "Both 1,100 UVT gross income and 3,900 UVT gross patrimony must remain traceable to exact client text and UVT year 2025.",
+          "Any deterministic result must expose evaluator/version, rule/evidence refs, formula/calculation trace as applicable.",
+          "Other filing conditions or interpretive conclusions not deterministically implemented must remain unresolved/requires-synthesis."
+        ]
+      },
+      "control_sha256": "be125739327fcef4c972c1e7f7dc1fa7744a8a0354c884bdab767b7cb0982305"
+    },
+    "B": {
+      "role": "basic_legal_case_compatibility",
+      "as_of_date": "2026-09-27",
+      "problem_text": "Una SAS colombiana responsable del IVA presta desde Bogotá servicios de analítica y optimización de campañas digitales a una sociedad domiciliada en Canadá. El cliente extranjero no tiene domicilio, sucursal, establecimiento permanente, empleados ni activos en Colombia. El trabajo se ejecuta desde Colombia, pero los informes, tableros y recomendaciones se usan exclusivamente por el cliente para campañas dirigidas a Canadá y Chile; no se usan ni se explotan en Colombia. La SAS conserva contrato escrito, facturas, comprobantes bancarios, entregables y constancias de aceptación del cliente. En agosto de 2026 factura y recibe el pago del servicio. A 27 de septiembre de 2026 pregunta si el servicio puede tratarse como exportación de servicios para efectos del IVA y qué requisitos, autoridades y soportes deben revisarse para sustentar ese tratamiento.",
+      "problem_text_sha256": "79acbbc54bdb4e4970ae90e2cf775852a2d050fb417b29fd4a5d16963f564458",
+      "control": {
+        "control_purpose": "Verify relevant export-of-services VAT authorities/evidence without prescribing a prose conclusion.",
+        "research_questions": [
+          "Identify Colombian VAT authority governing exempt export of services and the legal conditions for services used exclusively abroad.",
+          "Identify regulatory/official support requirements relevant to substantiating export treatment.",
+          "Verify temporal applicability as of 2026-09-27 and preserve any unresolved condition."
+        ],
+        "expected_authority_classes": [
+          "Colombian national tax statute governing VAT/export of services",
+          "applicable decree/regulation or official tax authority material on export-of-services requirements, if present in the corpus"
+        ],
+        "specific_controlling_provisions_if_independently_known": [
+          "Estatuto Tributario article 481 export-of-services family, subject to canonical provision and current-text verification"
+        ],
+        "required_checks": [
+          "No internal-model proposed IVA conclusion may become the research target or authority.",
+          "Exact evidence/source-span and authority metadata must be reproducible.",
+          "If the corpus cannot resolve a regulatory condition, it must be explicit rather than guessed."
+        ]
+      },
+      "control_sha256": "7ddf7098a2c76e149abdb36ed825c1f37c42f12e3167d4099a718dcb578c1c01"
+    },
+    "C": {
+      "role": "complex_multi_question",
+      "as_of_date": "2026-09-27",
+      "problem_text": "Una SAS colombiana contrató con una sociedad residente fiscal en España una solución empresarial compuesta por acceso SaaS, implementación remota, soporte técnico, capacitación y un conector instalable en servidores del cliente en Colombia. El contrato anual de 2026 vale USD 96.000: USD 58.000 por SaaS, USD 15.000 por implementación, USD 9.000 por soporte, USD 8.000 por capacitación y USD 6.000 por el conector ejecutable. El proveedor español conserva la propiedad intelectual, no entrega código fuente y prohíbe sublicenciar o comercializar el software.\n\nLa plataforma principal opera en infraestructura fuera de Colombia y la usan principalmente empleados ubicados en Colombia. La implementación fue realizada en forma remota desde España, salvo una visita de dos ingenieros durante ocho días a Bogotá para pruebas finales. De 32 horas de capacitación, 12 fueron presenciales durante esa visita y 20 se impartieron por videoconferencia desde España. Una filial colombiana del mismo grupo atiende consultas básicas y remite los casos complejos al equipo español; el contrato afirma que esa filial no puede celebrar contratos, fijar precios ni recibir pagos por cuenta del proveedor, pero la SAS cliente no ha verificado cómo opera en la práctica.\n\nLa sociedad española entregó certificado de residencia fiscal para 2026 y una declaración de que es beneficiaria efectiva de los pagos y no tiene establecimiento permanente en Colombia. La SAS pagó una primera factura de USD 48.000 en enero de 2026 y una segunda factura de USD 48.000 en septiembre de 2026.\n\nA 27 de septiembre de 2026 la SAS pregunta: (1) cómo debe analizar el IVA colombiano para cada componente; (2) si procede retención en la fuente a título de renta y de qué depende; (3) qué efecto puede tener el convenio para evitar la doble imposición entre Colombia y España; (4) si la filial colombiana o la visita de los ingenieros puede afectar el análisis de establecimiento permanente; y (5) qué hechos o documentos faltantes deben permanecer expresamente sin resolver antes de adoptar una posición.",
+      "problem_text_sha256": "05941a02065e0596cd2fcb8deec05034469f4b244920eb131a0e9d8fe015e0b9",
+      "control": {
+        "control_purpose": "Verify branched multi-question research, temporal/normative support and explicit unresolved material; not a golden answer.",
+        "research_questions": [
+          "Research Colombian VAT treatment relevant to cross-border SaaS/services and distinguish components where the evidence supports doing so.",
+          "Research Colombian source/withholding provisions relevant to payments to a Spanish provider.",
+          "Research the Colombia-Spain tax treaty authority relevant to business profits, royalties/services and permanent establishment, without assuming characterization.",
+          "Research permanent-establishment facts potentially implicated by a Colombian affiliate and short provider personnel presence.",
+          "Identify unresolved allocation, characterization or factual questions that prevent deterministic conclusions."
+        ],
+        "expected_authority_classes": [
+          "Colombian national tax statute",
+          "Colombia-Spain tax treaty / treaty-implementing authority if present in the corpus",
+          "applicable regulations and official tax-administration interpretation where canonically supported"
+        ],
+        "specific_controlling_provisions_if_independently_known": [
+          "No single preselected provision is treated as a golden answer; treaty/statute provisions must be selected by platform research and verified canonically."
+        ],
+        "required_checks": [
+          "Research must branch from the five legal questions rather than one model-authored conclusion.",
+          "Evidence/rule fragments must preserve canonical identity, temporal status and normative relationships where available.",
+          "Characterization, allocation and permanent-establishment questions unsupported by an explicit evaluator must remain requires-synthesis/unresolved.",
+          "External MCP consumer must receive enough cited support to synthesize but cannot write inference back as canonical state."
+        ]
+      },
+      "control_sha256": "80d15c4c6ce25f088f20d78d13574cf5fa96ac1baba468d341120742fe82c928"
+    }
+  }
+}
