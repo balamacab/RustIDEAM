@@ -235,7 +235,7 @@ def prepare_case_request(raw_body: bytes) -> PreparedRESTCaseRequest:
         reserved = sorted(
             key
             for key in caller_metadata
-            if isinstance(key, str) and key.lower() in _RESERVED_METADATA_KEYS
+            if isinstance(key, str) and key in _RESERVED_METADATA_KEYS
         )
         if reserved:
             raise _invalid_request(
