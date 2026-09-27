@@ -443,6 +443,21 @@ class Issue0136IntakeOnlyV4Tests(unittest.TestCase):
                     "case_application.build_legal_research_bundle",
                     return_value=bundle,
                 ) as evidence_graph,
+                mock.patch(
+                    "case_application.persist_and_materialize_legal_research_bundle",
+                    return_value=(
+                        {
+                            "bundle_ref": "bundle:test",
+                            "bundle_sha256": "a" * 64,
+                            "research_context_sha256": "b" * 64,
+                            "action": "insert",
+                            "artifacts_inserted": 4,
+                            "artifacts_reused": 0,
+                            "would_insert_artifacts": 0,
+                        },
+                        {"mode": "write", "updated": True},
+                    ),
+                ) as persistence,
             ):
                 outcome = analyze_case(
                     case_input=case_input(),
@@ -466,6 +481,14 @@ class Issue0136IntakeOnlyV4Tests(unittest.TestCase):
                 research=research,
                 db_path=db,
             )
+            persistence.assert_called_once_with(
+                db_path=db,
+                case_root=case_root,
+                case_ref=outcome.case_ref,
+                bundle=bundle,
+                dry_run=False,
+            )
+            self.assertEqual(outcome.persistence_mode, "write")
             expected_intake = complete_intake()
             for field in (
                 "kind",
