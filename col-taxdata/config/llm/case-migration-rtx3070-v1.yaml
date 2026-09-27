@@ -1,0 +1,63 @@
+{
+  "version": 1,
+  "profile_id": "case-migration-rtx3070-v1",
+  "adapter": "openai-compatible",
+  "provider": "operator-llama-cpp-migration-test",
+  "base_url": "http://127.0.0.1:8080/v1",
+  "request_timeout_seconds": 7200,
+  "api_key_env": null,
+  "models": {
+    "primary": {
+      "name": "gemma-4-E2B-it-Q4_K_M",
+      "routing_role": "primary",
+      "context_tokens": 16384,
+      "max_output_tokens": 9000
+    }
+  },
+  "routing": {
+    "primary_attempts": 1,
+    "review_on_invalid_output": false,
+    "review_on_provider_error": false
+  },
+  "context": {
+    "chars_per_token_estimate": 4,
+    "silent_truncation": false
+  },
+  "residency": {
+    "strategy": "on_demand",
+    "simultaneous_large_models_required": false
+  },
+  "security": {
+    "raw_endpoint_scope": "loopback_or_private_authenticated_transport",
+    "model_shell_access": false,
+    "model_sql_access": false
+  },
+  "request_options": {
+    "top_p": 1,
+    "top_k": 0,
+    "stream": false,
+    "n": 1,
+    "chat_template_kwargs": {
+      "enable_thinking": false
+    }
+  },
+  "admission": {
+    "issue_number": 133,
+    "program_issue_number": 130,
+    "purpose": "case-v4-migration-test-only",
+    "production_backend": false,
+    "historical_reference_runtime": false,
+    "endpoint_env": "COL_TAXDATA_LLM_BASE_URL",
+    "expected_model_artifact_sha256": "740185b21d22ceb83a11c3aa62ad5842ef32c70f6096d756bbee85a1e4ec34b8",
+    "requested_gpu_layers": 99,
+    "observed_http_identity": {
+      "llama_cpp_build_info": "b11176-f805c57a2",
+      "model_alias": "gemma-4-E2B-it-Q4_K_M",
+      "model_format": "gguf",
+      "model_ftype": "Q4_K - Medium",
+      "model_path": "/models/gemma-4-E2B-it-Q4_K_M.gguf",
+      "context_tokens": 16384,
+      "total_slots": 4
+    }
+  }
+}
