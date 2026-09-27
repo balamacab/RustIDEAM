@@ -276,6 +276,24 @@ def _validate_node(
             if name not in value:
                 _fail(code, path, f"missing required field {name!r}")
 
+        min_properties = schema.get("minProperties")
+        if min_properties is not None and len(value) < min_properties:
+            _fail(code, path, f"requires at least {min_properties} properties")
+        max_properties = schema.get("maxProperties")
+        if max_properties is not None and len(value) > max_properties:
+            _fail(code, path, f"allows at most {max_properties} properties")
+
+        property_names = schema.get("propertyNames")
+        if isinstance(property_names, dict):
+            for name in value:
+                _validate_node(
+                    name,
+                    property_names,
+                    root=root,
+                    code=code,
+                    path=f"{path}.<property-name>",
+                )
+
         properties = schema.get("properties", {})
         extras = sorted(set(value) - set(properties))
         additional_properties = schema.get("additionalProperties")
