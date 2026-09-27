@@ -11,7 +11,9 @@
 - Fuentes canónicas: 7
 - Pendientes fácticos: 8
 
-## Claims jurídicos históricos v3 (compatibilidad)\n\n> Propiedad: `historical_v3_claim_state`. Esta sección conserva el modelo de persistencia v3 para compatibilidad y auditoría. Sus claims mantienen el estado registrado; no son CanonicalAuthority, EvidenceSpan, RuleFragment ni DeterministicEvaluation v4, y un claim `candidate` o no soportado no constituye autoridad jurídica canónica.
+## Claims jurídicos históricos v3 (compatibilidad)
+
+> Propiedad: `historical_v3_claim_state`. Esta sección conserva el modelo de persistencia v3 para compatibilidad y auditoría. Sus claims mantienen el estado registrado; no son CanonicalAuthority, EvidenceSpan, RuleFragment ni DeterministicEvaluation v4, y un claim `candidate` o no soportado no constituye autoridad jurídica canónica.
 
 ### CLM-0001
 
