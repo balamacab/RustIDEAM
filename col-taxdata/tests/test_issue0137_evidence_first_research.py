@@ -479,6 +479,59 @@ class Issue0137EvidenceFirstResearchTests(unittest.TestCase):
         )
         self.assertIsNone(authority["temporal_state"]["effective"])
 
+    def test_non_effective_authority_does_not_satisfy_current_question(self):
+        primary = self.add_document_with_segment(
+            document_id="DOC-expired",
+            number="8",
+            year=2020,
+            text=GENERAL_RULE,
+            filename="ley_0008_2020.htm",
+        )
+        con = sqlite3.connect(self.db)
+        try:
+            con.execute(
+                """
+                INSERT INTO temporal_events(
+                    temporal_event_id, entity_type, entity_id, event_type,
+                    event_date, effective_from, effective_to, caused_by_type,
+                    caused_by_id, scope, status, evidence_id, confidence,
+                    requires_human_review
+                ) VALUES (
+                    'TEV-issue137-expired', 'document', ?, 'enters_into_force',
+                    '2020-01-01', '2020-01-01', '2021-01-01',
+                    NULL, NULL, 'document', 'validated', NULL, 1.0, 0
+                )
+                """,
+                (primary["document_id"],),
+            )
+            con.commit()
+        finally:
+            con.close()
+
+        execution = PlatformResearchService(self.db).research(
+            case_input=case_input(),
+            intake_draft=intake(),
+            generated_at=NOW,
+        )
+
+        self.assertIn("authority:DOC-expired", execution.result["authority_refs"])
+        authority = next(
+            item for item in execution.authorities
+            if item["authority_ref"] == "authority:DOC-expired"
+        )
+        self.assertFalse(authority["temporal_state"]["effective"])
+        self.assertEqual(execution.result["status"], "partial")
+        self.assertNotEqual(
+            execution.result["trace"][-1].get("stop_reason"),
+            "questions_satisfied",
+        )
+        self.assertTrue(
+            any(
+                "not effective" in item["description"]
+                for item in execution.unresolved
+            )
+        )
+
     def test_duplicate_hits_are_stable_and_repeated_research_is_idempotent(self):
         self.add_document_with_segment(
             document_id="DOC-dedupe",
