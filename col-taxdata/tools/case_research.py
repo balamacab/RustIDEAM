@@ -14,6 +14,7 @@ import unicodedata
 from case_contract_validation_v4 import (
     CONTRACT_VERSION,
     validate_contract_object,
+    validate_intake_draft,
     validate_research_plan,
     validate_research_result,
 )
@@ -294,6 +295,11 @@ def build_research_plan(
     model hints are considered. Hint tasks can add recall but can neither
     replace nor suppress the platform task.
     """
+    # Research is independently callable. Revalidate the intake boundary here
+    # so legacy/model-authored claim prose can never become a query merely
+    # because an upstream caller forgot to run the v4 intake validator.
+    validate_intake_draft(case_input, intake_draft)
+
     effective_bounds = dict(DEFAULT_BOUNDS)
     if bounds is not None:
         effective_bounds.update(bounds)
