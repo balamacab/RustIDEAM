@@ -1,0 +1,171 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "col-taxdata CASE Public REST API",
+    "version": "1.0.0",
+    "description": "Stable external CASE research contract. REST v1 transports validated CASE v4 LegalResearchBundle objects."
+  },
+  "paths": {
+    "/v1/cases": {
+      "post": {
+        "operationId": "researchCase",
+        "summary": "Research a self-contained legal/tax case",
+        "description": "Accepts caller-owned scalar case input and returns a validated CASE v4 LegalResearchBundle. The operation does not accept files, paths, arbitrary source URLs, OCR payloads, canonical identifiers, evidence bindings or provider controls.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "../schemas/case-rest-api-v1.schema.json#/$defs/CaseSubmissionRequest"
+              },
+              "examples": {
+                "standard": {
+                  "$ref": "../examples/case-rest-v1/request.json"
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Research completed, partially completed, or truthfully blocked; inspect bundle.status and bundle.unresolved.",
+            "headers": {
+              "X-Col-Taxdata-API-Version": {
+                "required": true,
+                "schema": {
+                  "type": "string",
+                  "const": "1.0.0"
+                }
+              },
+              "Cache-Control": {
+                "required": true,
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "../schemas/case-rest-api-v1.schema.json#/$defs/CaseResearchResponse"
+                },
+                "examples": {
+                  "complete": {
+                    "$ref": "../examples/case-rest-v1/complete-response.json"
+                  },
+                  "partial": {
+                    "$ref": "../examples/case-rest-v1/partial-response.json"
+                  },
+                  "unresolved": {
+                    "$ref": "../examples/case-rest-v1/unresolved-response.json"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed or contract-invalid caller input.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "../schemas/case-rest-api-v1.schema.json#/$defs/ErrorResponse"
+                },
+                "examples": {
+                  "invalid_request": {
+                    "$ref": "../examples/case-rest-v1/invalid-request-error.json"
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown public REST path.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "../schemas/case-rest-api-v1.schema.json#/$defs/ErrorResponse"
+                }
+              }
+            }
+          },
+          "405": {
+            "description": "HTTP method is not supported by this public operation.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "../schemas/case-rest-api-v1.schema.json#/$defs/ErrorResponse"
+                }
+              }
+            }
+          },
+          "411": {
+            "description": "Content-Length is required.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "../schemas/case-rest-api-v1.schema.json#/$defs/ErrorResponse"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Request body exceeds the configured transport limit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "../schemas/case-rest-api-v1.schema.json#/$defs/ErrorResponse"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Content-Type must be application/json.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "../schemas/case-rest-api-v1.schema.json#/$defs/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "CASE integrity failure or unexpected internal failure. Internal diagnostics are not exposed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "../schemas/case-rest-api-v1.schema.json#/$defs/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "CASE research service is temporarily unavailable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "../schemas/case-rest-api-v1.schema.json#/$defs/ErrorResponse"
+                },
+                "examples": {
+                  "unavailable": {
+                    "$ref": "../examples/case-rest-v1/service-unavailable-error.json"
+                  }
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "CASE research service timed out.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "../schemas/case-rest-api-v1.schema.json#/$defs/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

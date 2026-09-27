@@ -1,0 +1,9 @@
+{
+  "problem_text": "El cliente consulta qué norma controla el tratamiento jurídico de dos fechas posibles: 1 y 15 de septiembre de 2026.",
+  "as_of_date": "2026-09-27",
+  "client_reference": "matter-144",
+  "caller_metadata": {
+    "channel": "contract-fixture",
+    "attempt": 1
+  }
+}
