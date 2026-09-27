@@ -480,6 +480,55 @@ class Issue0138CitableEvidenceGraphTests(unittest.TestCase):
             }
         )
 
+    def test_retrieval_similarity_without_canonical_provision_yields_evidence_not_rule(self):
+        fixture = self.add_provision_document(
+            token="segment-only",
+            document_id="DOC-segment-only",
+            document_type="DECRETO",
+            number="624",
+            year=1989,
+            filename="decreto_0624_1989_segment.htm",
+            text=ARTICLE_592,
+            designation="Artículo 592",
+        )
+        con = sqlite3.connect(self.db)
+        try:
+            con.execute(
+                "DELETE FROM provision_observations WHERE provision_id = ?",
+                (fixture["provision_id"],),
+            )
+            con.execute(
+                "DELETE FROM provisions WHERE provision_id = ?",
+                (fixture["provision_id"],),
+            )
+            con.commit()
+        finally:
+            con.close()
+
+        research, bundle = self.research_and_bundle()
+        candidate = next(
+            item
+            for item in research.evidence_candidates
+            if item["document_ref"] == f"document:{fixture['document_id']}"
+        )
+        self.assertNotIn("provision_ref", candidate)
+
+        segment_spans = [
+            item for item in bundle["evidence_spans"]
+            if item["document_ref"] == f"document:{fixture['document_id']}"
+            and item["evidence_ref"] != f"evidence:{fixture['evidence_id']}"
+        ]
+        self.assertEqual(len(segment_spans), 1)
+        self.assertEqual(segment_spans[0]["exact_text"], ARTICLE_592)
+        self.assertFalse(
+            any(
+                item["rule_type"] == "canonical_source_statement"
+                and f"authority:{fixture['document_id']}" in item["authority_refs"]
+                for item in bundle["rule_fragments"]
+            ),
+            "FTS/research relevance alone must never promote document text to a rule",
+        )
+
     def test_resolved_cross_provision_reference_composes_all_evidence(self):
         source = self.add_provision_document(
             token="source",
