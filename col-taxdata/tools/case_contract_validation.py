@@ -150,8 +150,9 @@ class CaseContractError(ValueError):
         self.detail = detail
 
 
-def load_contract_schema() -> dict[str, Any]:
-    return json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
+def load_contract_schema(schema_path: Path = SCHEMA_PATH) -> dict[str, Any]:
+    """Load one checked-in CASE contract schema without external dependencies."""
+    return json.loads(schema_path.read_text(encoding="utf-8"))
 
 
 def _fail(code: str, path: str, detail: str) -> None:
@@ -239,6 +240,24 @@ def _validate_node(
             _fail(code, path, f"expected exactly one schema match, got {matches}")
         return
 
+    if "anyOf" in schema:
+        matches = 0
+        for option in schema["anyOf"]:
+            try:
+                _validate_node(
+                    value,
+                    option,
+                    root=root,
+                    code=code,
+                    path=path,
+                )
+            except CaseContractError:
+                continue
+            matches += 1
+        if matches < 1:
+            _fail(code, path, "expected at least one schema match")
+        return
+
     if "const" in schema and value != schema["const"]:
         _fail(code, path, f"must equal {schema['const']!r}")
 
@@ -258,10 +277,19 @@ def _validate_node(
                 _fail(code, path, f"missing required field {name!r}")
 
         properties = schema.get("properties", {})
-        if schema.get("additionalProperties") is False:
-            extras = sorted(set(value) - set(properties))
-            if extras:
-                _fail(code, path, f"unexpected field(s): {', '.join(extras)}")
+        extras = sorted(set(value) - set(properties))
+        additional_properties = schema.get("additionalProperties")
+        if additional_properties is False and extras:
+            _fail(code, path, f"unexpected field(s): {', '.join(extras)}")
+        if isinstance(additional_properties, dict):
+            for name in extras:
+                _validate_node(
+                    value[name],
+                    additional_properties,
+                    root=root,
+                    code=code,
+                    path=f"{path}.{name}",
+                )
 
         for name, item in value.items():
             rule = properties.get(name)
@@ -334,15 +362,21 @@ def _validate_node(
             _validate_node(value, rule["else"], root=root, code=code, path=path)
 
 
-def validate_schema_object(value: dict[str, Any], definition: str, code: str) -> None:
-    """Validate one v3 public object with the repository JSON Schema.
+def validate_schema_object(
+    value: dict[str, Any],
+    definition: str,
+    code: str,
+    *,
+    schema_path: Path = SCHEMA_PATH,
+) -> None:
+    """Validate one public object with a checked-in CASE JSON Schema.
 
-    The project intentionally has no runtime Python dependencies. This validator
-    implements the JSON-Schema vocabulary used by the checked-in v3 contract so
-    the executable application path validates the authoritative schema rather
-    than maintaining a second handwritten field list.
+    The project intentionally has no runtime Python dependencies. The validator
+    implements only the JSON-Schema vocabulary used by the checked-in CASE
+    contracts. Existing callers default to the frozen v3 schema; v4 validators
+    pass their schema path explicitly.
     """
-    root = load_contract_schema()
+    root = load_contract_schema(schema_path)
     definition_schema = root["$defs"][definition]
     _validate_node(value, definition_schema, root=root, code=code, path="$")
 
