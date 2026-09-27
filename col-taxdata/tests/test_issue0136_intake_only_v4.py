@@ -17,6 +17,7 @@ from case_application import (
 )
 from case_contract_dispatch import validate_structured_intake
 from case_contract_validation import CaseContractError
+from case_http import prepare_case_request
 from case_contract_validation_v4 import (
     INVALID_INTAKE_DRAFT,
     intake_draft_generation_schema,
@@ -388,6 +389,24 @@ class Issue0136IntakeOnlyV4Tests(unittest.TestCase):
         ).structure(case_input())
         self.assertEqual(outcome.intake["kind"], "intake_draft")
         self.assertNotIn("candidate_claims", outcome.intake)
+
+    def test_historical_http_transport_stays_v3_after_internal_v4_switch(self):
+        raw = json.dumps(
+            {
+                "problem_text": "Consulta histórica por HTTP.",
+                "as_of_date": "2026-09-27",
+                "client_reference": "issue136-http-compat",
+            },
+            ensure_ascii=False,
+        ).encode("utf-8")
+
+        prepared = prepare_case_request(raw)
+
+        self.assertEqual(prepared.case_input["contract_version"], "3.0.0")
+        self.assertEqual(
+            prepared.case_input["problem_text"],
+            "Consulta histórica por HTTP.",
+        )
 
     def test_v4_application_stops_before_retrieval_or_persistence(self):
         with tempfile.TemporaryDirectory() as tmp:
