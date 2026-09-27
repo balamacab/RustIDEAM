@@ -12,10 +12,14 @@ import tempfile
 from typing import Any
 import uuid
 
+from case_contract_dispatch import (
+    V3_CONTRACT_VERSION,
+    V4_CONTRACT_VERSION,
+    validate_case_input as validate_dispatched_case_input,
+)
 from case_contract_validation import (
     CONTRACT_VERSION,
     CaseContractError,
-    validate_case_input,
     validate_case_result,
     validate_result_preserves_draft,
 )
@@ -38,6 +42,7 @@ CASE_ANALYSIS_INTEGRITY_FAILURE = "CASE_ANALYSIS_INTEGRITY_FAILURE"
 CASE_PERSISTENCE_FAILURE = "CASE_PERSISTENCE_FAILURE"
 CASE_MATERIALIZATION_FAILURE = "CASE_MATERIALIZATION_FAILURE"
 CASE_VALIDATION_FAILURE = "CASE_VALIDATION_FAILURE"
+CASE_RESEARCH_NOT_IMPLEMENTED = "CASE_RESEARCH_NOT_IMPLEMENTED"
 
 
 class CaseAnalysisIntegrityError(RuntimeError):
@@ -48,6 +53,21 @@ class CaseAnalysisIntegrityError(RuntimeError):
     def __init__(self, detail: str):
         super().__init__(f"{self.code}: {detail}")
         self.detail = detail
+
+
+class CaseResearchNotImplementedError(RuntimeError):
+    """Expected v4 transition: intake accepted, platform research not yet present."""
+
+    code = CASE_RESEARCH_NOT_IMPLEMENTED
+
+    def __init__(self, intake_draft: dict[str, Any]):
+        self.intake_draft = deepcopy(intake_draft)
+        self.detail = (
+            "v4 intake was accepted, but the platform research engine is not "
+            "implemented yet; no legal conclusion, claim, retrieval result, "
+            "persistence, or materialization was synthesized"
+        )
+        super().__init__(f"{self.code}: {self.detail}")
 
 
 class CasePersistenceError(CaseAnalysisIntegrityError):
@@ -94,12 +114,12 @@ def _compact_json(value: Any) -> str:
 
 def canonical_case_input_json(case_input: dict[str, Any]) -> str:
     """Return the deterministic serialized CaseInput used by CASE identity."""
-    validate_case_input(case_input)
+    validate_dispatched_case_input(case_input)
     return _compact_json(case_input)
 
 
 def case_input_sha256(case_input: dict[str, Any]) -> str:
-    """Fingerprint the canonical v3 CaseInput without changing its contents."""
+    """Fingerprint an explicitly versioned CaseInput without changing it."""
     canonical = canonical_case_input_json(case_input).encode("utf-8")
     return hashlib.sha256(canonical).hexdigest()
 
@@ -610,16 +630,27 @@ def analyze_case(
 ) -> AnalysisOutcome:
     """Analyze one natural-language case and optionally persist canonical case state.
 
-    LLM work ends at a validated CaseDraft. Retrieval and claim promotion after
-    that boundary are deterministic and read-only until the fully constructed
-    v3 CaseResult has passed schema and semantic graph validation.
+    Explicit v3 inputs retain the historical analysis path for compatibility.
+    The normal v4 path ends at a validated IntakeDraft and raises the truthful
+    #136 transition before retrieval or persistence until #137 implements
+    platform-owned research.
     """
-    validate_case_input(case_input)
+    contract_version = validate_dispatched_case_input(case_input)
     structuring = structurer.structure(
         case_input,
         request_fingerprints=request_fingerprints,
     )
     draft = structuring.draft
+
+    if contract_version == V4_CONTRACT_VERSION:
+        # #136 deliberately stops here. #137 will replace this transition with
+        # platform-owned ResearchPlan/retrieval. Continuing through the v3 path
+        # would silently recreate model-authored legal authority.
+        raise CaseResearchNotImplementedError(structuring.intake)
+    if contract_version != V3_CONTRACT_VERSION:
+        raise AssertionError(
+            f"validated unsupported CASE contract {contract_version!r}"
+        )
 
     case_id = _internal_case_id(case_input)
     case_ref = _app_ref("case", f"canonical-case:{case_id}")
