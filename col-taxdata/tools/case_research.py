@@ -293,14 +293,17 @@ def build_research_plan(
                 generated_from_fact_refs=fact_refs,
             )
         )
+        scheduled_queries = {_fold_text(query)}
 
         for hint in sorted(
             hints_by_question.get(question["question_ref"], []),
             key=lambda item: item["hint_ref"],
         ):
             hint_query = " ".join(_dedupe_phrases(hint["terms"]))
-            if not hint_query:
+            folded_hint = _fold_text(hint_query)
+            if not hint_query or folded_hint in scheduled_queries:
                 continue
+            scheduled_queries.add(folded_hint)
             tasks.append(
                 _task(
                     question_ref=question["question_ref"],
