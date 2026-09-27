@@ -140,7 +140,7 @@ def render_report(
     unresolved = load_unresolved(case_dir)
 
     lines: list[str] = []
-    lines.append(f"# {case_id} — Informe canónico")
+    lines.append(f"# {case_id} — Informe histórico v3 (compatibilidad)")
     lines.append("")
     lines.append("## Estado del expediente")
     lines.append("")
