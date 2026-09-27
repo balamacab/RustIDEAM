@@ -889,7 +889,9 @@
         "classification_state",
         "temporal_state",
         "evidence_refs",
-        "relationship_refs"
+        "relationship_refs",
+        "source_refs",
+        "publication_metadata"
       ],
       "properties": {
         "kind": {
@@ -952,10 +954,6 @@
             "unknown"
           ]
         },
-        "official_source_uri": {
-          "type": "string",
-          "format": "uri"
-        },
         "temporal_state": {
           "$ref": "#/$defs/TemporalAuthorityState"
         },
@@ -974,6 +972,17 @@
             "type": "string",
             "pattern": "^relationship:[A-Za-z0-9._-]+$"
           }
+        },
+        "source_refs": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^source:[A-Za-z0-9._-]+$"
+          }
+        },
+        "publication_metadata": {
+          "$ref": "#/$defs/AuthorityPublicationMetadata"
         }
       }
     },
@@ -988,7 +997,7 @@
         "authority_ref",
         "document_ref",
         "exact_text",
-        "official_source_uri",
+        "source_ref",
         "source_sha256",
         "text_sha256",
         "provenance_ref",
@@ -1025,10 +1034,6 @@
           "type": "string",
           "minLength": 1
         },
-        "official_source_uri": {
-          "type": "string",
-          "format": "uri"
-        },
         "source_sha256": {
           "type": "string",
           "pattern": "^[A-Fa-f0-9]{64}$"
@@ -1048,6 +1053,10 @@
         "retrieved_at": {
           "type": "string",
           "format": "date-time"
+        },
+        "source_ref": {
+          "type": "string",
+          "pattern": "^source:[A-Za-z0-9._-]+$"
         }
       }
     },
@@ -1689,6 +1698,7 @@
         "intake_draft",
         "research_plan",
         "research_result",
+        "sources",
         "authorities",
         "evidence_spans",
         "normative_relationships",
@@ -1773,6 +1783,99 @@
         "generated_at": {
           "type": "string",
           "format": "date-time"
+        },
+        "sources": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/OfficialSource"
+          }
+        }
+      }
+    },
+    "OfficialSource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "contract_version",
+        "source_ref",
+        "authority",
+        "source_uri"
+      ],
+      "properties": {
+        "kind": {
+          "const": "official_source"
+        },
+        "contract_version": {
+          "const": "4.0.0"
+        },
+        "source_ref": {
+          "type": "string",
+          "pattern": "^source:[A-Za-z0-9._-]+$"
+        },
+        "authority": {
+          "type": "string",
+          "minLength": 1
+        },
+        "source_uri": {
+          "type": "string",
+          "format": "uri"
+        },
+        "source_kind": {
+          "type": "string",
+          "minLength": 1
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "AuthorityPublicationMetadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "state",
+        "publication_dates",
+        "promulgation_dates",
+        "evidence_refs"
+      ],
+      "properties": {
+        "state": {
+          "enum": [
+            "resolved",
+            "partial",
+            "ambiguous",
+            "unknown"
+          ]
+        },
+        "publication_dates": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "format": "date"
+          }
+        },
+        "promulgation_dates": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "format": "date"
+          }
+        },
+        "publication_reference": {
+          "type": "string",
+          "minLength": 1
+        },
+        "evidence_refs": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^evidence:[A-Za-z0-9._-]+$"
+          }
         }
       }
     }
