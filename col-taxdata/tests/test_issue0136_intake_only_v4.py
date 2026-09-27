@@ -408,7 +408,7 @@ class Issue0136IntakeOnlyV4Tests(unittest.TestCase):
             "Consulta histórica por HTTP.",
         )
 
-    def test_v4_application_hands_validated_intake_to_platform_research_only(self):
+    def test_v4_application_hands_validated_intake_to_platform_research_before_evidence_graph(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             db = root / "does-not-exist.sqlite"
@@ -425,11 +425,18 @@ class Issue0136IntakeOnlyV4Tests(unittest.TestCase):
                 relationships=(),
                 unresolved=(),
             )
+            bundle = {"kind": "legal_research_bundle"}
 
-            with mock.patch(
-                "case_application.PlatformResearchService.research",
-                return_value=research,
-            ) as platform_research:
+            with (
+                mock.patch(
+                    "case_application.PlatformResearchService.research",
+                    return_value=research,
+                ) as platform_research,
+                mock.patch(
+                    "case_application.build_legal_research_bundle",
+                    return_value=bundle,
+                ) as evidence_graph,
+            ):
                 outcome = analyze_case(
                     case_input=case_input(),
                     db_path=db,
@@ -441,10 +448,17 @@ class Issue0136IntakeOnlyV4Tests(unittest.TestCase):
             self.assertIsInstance(outcome, ResearchAnalysisOutcome)
             self.assertEqual(outcome.intake_draft["kind"], "intake_draft")
             self.assertEqual(outcome.research_result["kind"], "research_result")
+            self.assertIs(outcome.bundle, bundle)
             platform_research.assert_called_once()
             call = platform_research.call_args.kwargs
             self.assertEqual(call["case_input"], case_input())
             self.assertEqual(call["intake_draft"], outcome.intake_draft)
+            evidence_graph.assert_called_once_with(
+                case_input=case_input(),
+                intake_draft=outcome.intake_draft,
+                research=research,
+                db_path=db,
+            )
             expected_intake = complete_intake()
             for field in (
                 "kind",

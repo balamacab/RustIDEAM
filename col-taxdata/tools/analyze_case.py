@@ -136,6 +136,7 @@ def main() -> int:
             "canonical_authorities": list(outcome.authorities),
             "normative_relationships": list(outcome.relationships),
             "unresolved": list(outcome.unresolved),
+            "legal_research_bundle": outcome.bundle,
             "persistence": {
                 "mode": outcome.persistence_mode,
                 "claims_persisted": 0,

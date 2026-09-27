@@ -90,6 +90,161 @@ _RULE_FRAGMENT_VALIDATORS: dict[
 ] = {}
 
 
+_RULE_REF_RE = re.compile(r"^(?:authority|document|provision|evidence):[A-Za-z0-9._-]+$")
+_SHA256_RE = re.compile(r"^[A-Fa-f0-9]{64}$")
+
+
+def _rule_keys(
+    value: dict[str, Any],
+    *,
+    required: set[str],
+    optional: set[str] | None = None,
+) -> None:
+    if not isinstance(value, dict):
+        raise ValueError("structured rule data must be an object")
+    allowed = required | (optional or set())
+    missing = sorted(required - set(value))
+    extra = sorted(set(value) - allowed)
+    if missing:
+        raise ValueError("missing structured rule field(s): " + ", ".join(missing))
+    if extra:
+        raise ValueError("unsupported structured rule field(s): " + ", ".join(extra))
+
+
+def _rule_ref(value: object, namespace: str) -> str:
+    if (
+        not isinstance(value, str)
+        or not value.startswith(namespace + ":")
+        or _RULE_REF_RE.fullmatch(value) is None
+    ):
+        raise ValueError(f"expected valid {namespace}: typed reference")
+    return value
+
+
+def _rule_refs(value: object, namespace: str) -> list[str]:
+    if not isinstance(value, list) or not value:
+        raise ValueError(f"{namespace} refs must be a non-empty array")
+    if len(value) != len(set(value)):
+        raise ValueError(f"{namespace} refs must be unique")
+    return [_rule_ref(item, namespace) for item in value]
+
+
+def _validate_canonical_source_statement(fragment: dict[str, Any]) -> None:
+    data = fragment["structured_data"]
+    _rule_keys(
+        data,
+        required={
+            "statement_scope",
+            "document_ref",
+            "authority_ref",
+            "evidence_refs",
+            "provision_ref",
+            "provision_type",
+            "designation",
+        },
+    )
+    if data["statement_scope"] != "canonical_provision":
+        raise ValueError(
+            "canonical_source_statement v1 is restricted to canonical provisions"
+        )
+    _rule_ref(data["document_ref"], "document")
+    authority_ref = _rule_ref(data["authority_ref"], "authority")
+    evidence_refs = _rule_refs(data["evidence_refs"], "evidence")
+    _rule_ref(data["provision_ref"], "provision")
+    if not isinstance(data["provision_type"], str) or not data["provision_type"]:
+        raise ValueError("provision_type must be non-empty")
+    if not isinstance(data["designation"], str) or not data["designation"]:
+        raise ValueError("designation must be non-empty")
+
+    if fragment["derivation"] != {
+        "method": "extractive_normalization",
+        "version": "1",
+    }:
+        raise ValueError(
+            "canonical_source_statement requires extractive_normalization v1"
+        )
+    if fragment["authority_refs"] != [authority_ref]:
+        raise ValueError(
+            "canonical_source_statement authority_refs must match structured data"
+        )
+    if fragment["evidence_refs"] != evidence_refs:
+        raise ValueError(
+            "canonical_source_statement evidence_refs must match structured data"
+        )
+    if fragment.get("relationship_refs"):
+        raise ValueError(
+            "canonical_source_statement does not accept relationship refs"
+        )
+
+
+def _reference_member(value: object) -> tuple[str, list[str]]:
+    if not isinstance(value, dict):
+        raise ValueError("reference member must be an object")
+    _rule_keys(
+        value,
+        required={"provision_ref", "authority_ref", "evidence_refs"},
+    )
+    _rule_ref(value["provision_ref"], "provision")
+    authority_ref = _rule_ref(value["authority_ref"], "authority")
+    evidence_refs = _rule_refs(value["evidence_refs"], "evidence")
+    return authority_ref, evidence_refs
+
+
+def _validate_resolved_provision_reference(fragment: dict[str, Any]) -> None:
+    data = fragment["structured_data"]
+    _rule_keys(
+        data,
+        required={
+            "source",
+            "target",
+            "resolution_method",
+            "resolution_fingerprint_sha256",
+        },
+    )
+    source_authority, source_evidence = _reference_member(data["source"])
+    target_authority, target_evidence = _reference_member(data["target"])
+    if not isinstance(data["resolution_method"], str) or not data["resolution_method"]:
+        raise ValueError("resolution_method must be non-empty")
+    fingerprint = data["resolution_fingerprint_sha256"]
+    if (
+        not isinstance(fingerprint, str)
+        or _SHA256_RE.fullmatch(fingerprint) is None
+    ):
+        raise ValueError("resolution_fingerprint_sha256 must be SHA-256")
+
+    if fragment["authority_refs"] != sorted(
+        {source_authority, target_authority}
+    ):
+        raise ValueError(
+            "resolved_provision_reference authority_refs do not match members"
+        )
+    if fragment["evidence_refs"] != sorted(
+        set(source_evidence) | set(target_evidence)
+    ):
+        raise ValueError(
+            "resolved_provision_reference must preserve all member evidence"
+        )
+    if fragment["derivation"] != {
+        "method": "deterministic_composition",
+        "version": "1",
+    }:
+        raise ValueError(
+            "resolved_provision_reference requires deterministic_composition v1"
+        )
+    if fragment.get("relationship_refs"):
+        raise ValueError(
+            "resolved provision reference is not a NormativeRelationship"
+        )
+
+
+_RULE_FRAGMENT_VALIDATORS.update(
+    {
+        ("canonical_source_statement", "1"): _validate_canonical_source_statement,
+        ("resolved_provision_reference", "1"): _validate_resolved_provision_reference,
+    }
+)
+
+
 def _fail(code: str, path: str, detail: str) -> None:
     raise CaseContractError(code, f"{path}: {detail}")
 
@@ -667,7 +822,7 @@ def _validate_registered_rule_fragment(
             ),
         )
     try:
-        validator(fragment["structured_data"])
+        validator(fragment)
     except CaseContractError:
         raise
     except (TypeError, ValueError) as exc:
