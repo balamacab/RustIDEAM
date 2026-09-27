@@ -701,7 +701,30 @@ class PlatformResearchService:
                 authority_ref = str(authority["authority_ref"])
                 authorities[authority_ref] = deepcopy(authority)
                 step_authorities.add(authority_ref)
-                question_authorities.setdefault(question_ref, set()).add(authority_ref)
+
+                temporal_state = authority["temporal_state"]
+                as_of_requested = plan.get("as_of_date") is not None
+                current_effect = temporal_state.get("effective")
+                if not as_of_requested or current_effect is True:
+                    question_authorities.setdefault(question_ref, set()).add(authority_ref)
+                elif current_effect is False:
+                    item = _unresolved(
+                        category="other",
+                        description=(
+                            "Canonical authority was retrieved but the supported "
+                            "temporal state says it is not effective for the "
+                            "requested as-of date; it is not accepted as current."
+                        ),
+                        question_ref=question_ref,
+                        authority_ref=authority_ref,
+                        next_action="expand_research",
+                        material=(task["task_ref"], authority_ref, "not-effective"),
+                    )
+                    unresolved[item["unresolved_ref"]] = item
+                    step_unresolved.add(item["unresolved_ref"])
+                # effective=None is already represented by the classifier's
+                # temporal_uncertainty UnresolvedItem and likewise cannot satisfy
+                # the current-authority requirement.
 
                 for relation in classified["relationships"]:
                     relationships[str(relation["relationship_ref"])] = deepcopy(relation)
