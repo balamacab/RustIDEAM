@@ -120,16 +120,27 @@ def _operator_code(text: str) -> str:
     raise ValueError(f"unsupported threshold operator {text!r}")
 
 
-def _numeric_values_in_quote(quote: str) -> set[Decimal]:
+def _uvt_values_in_quote(quote: str) -> set[Decimal]:
+    """Return only numeric amounts explicitly attached to the UVT unit.
+
+    An arbitrary number elsewhere in the client quote (for example a tax year)
+    is not provenance for a measurement merely because its decimal value happens
+    to match a model-structured field.
+    """
     values: set[Decimal] = set()
-    for token in re.findall(
-        r"(?<![A-Za-z0-9])(?:[0-9]{1,3}(?:[.\s][0-9]{3})+|[0-9]+(?:[.,][0-9]+)?)(?![A-Za-z0-9])",
+    for match in re.finditer(
+        r"(?<![A-Za-z0-9])"
+        r"(?P<value>[0-9]{1,3}(?:[.\\s][0-9]{3})+|[0-9]+(?:[.,][0-9]+)?)"
+        r"\\s*UVT\\b",
         quote,
+        re.IGNORECASE,
     ):
-        compact = token.replace(" ", "")
+        compact = match.group("value").replace(" ", "")
         try:
-            if re.fullmatch(r"[0-9]{1,3}(?:\.[0-9]{3})+", compact):
+            if re.fullmatch(r"[0-9]{1,3}(?:\\.[0-9]{3})+", compact):
                 values.add(Decimal(compact.replace(".", "")))
+            elif re.fullmatch(r"[0-9]{1,3}(?:,[0-9]{3})+", compact):
+                values.add(Decimal(compact.replace(",", "")))
             elif "," in compact and "." not in compact:
                 values.add(Decimal(compact.replace(",", ".")))
             else:
@@ -137,7 +148,6 @@ def _numeric_values_in_quote(quote: str) -> set[Decimal]:
         except InvalidOperation:
             continue
     return values
-
 
 def _threshold_conditions(
     *,
@@ -282,7 +292,10 @@ def _fact_measurement(
     folded_quote = _fold(quote)
     if not all(term in folded_quote for term in _FACT_QUOTE_TERMS[semantic_key]):
         return None
-    if decimal_value not in _numeric_values_in_quote(quote):
+    # The quote must identify exactly one UVT amount for this fact. A quote
+    # containing several UVT amounts is factually ambiguous and therefore not a
+    # safe deterministic calculation input.
+    if _uvt_values_in_quote(quote) != {decimal_value}:
         return None
     return decimal_value, uvt_year
 
