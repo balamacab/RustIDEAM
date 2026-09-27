@@ -14,6 +14,7 @@ from case_contract_validation_v4 import (
 )
 from case_evaluators import evaluate_supported_rules
 from case_research import ResearchExecution
+from case_retrieval import exact_unambiguous_substring_offset
 from legal_authority_classification import (
     AuthorityClassificationError,
     classify_canonical_authority,
@@ -285,11 +286,12 @@ def _candidate_span(
     provision_meta: dict[str, Any] | None = None
     provenance_parts: tuple[object, ...]
 
-    provision_ref = candidate.get("provision_ref")
-    if provision_ref is not None:
+    requested_provision_ref = candidate.get("provision_ref")
+    provision_ref: str | None = None
+    if requested_provision_ref is not None:
         observation = _provision_observation(
             con,
-            provision_ref=provision_ref,
+            provision_ref=requested_provision_ref,
             extracted_segment_id=row["extracted_segment_id"],
         )
         if observation["document_id"] != row["document_id"]:
@@ -315,36 +317,32 @@ def _candidate_span(
                 "provision normative-text fingerprint mismatch"
             )
 
-        offsets: list[int] = []
-        start = 0
-        while True:
-            offset = row["text"].find(observation["normative_text"], start)
-            if offset < 0:
-                break
-            offsets.append(offset)
-            start = offset + 1
-        if len(offsets) != 1:
-            raise EvidenceGraphIntegrityError(
-                "normative text is not one exact unambiguous substring of "
-                "the verified source segment"
+        offset = exact_unambiguous_substring_offset(
+            row["text"],
+            observation["normative_text"],
+        )
+        if offset is not None:
+            provision_ref = requested_provision_ref
+            exact_text = observation["normative_text"]
+            exact_sha = observation["normative_text_sha256"]
+            anchor_start = int(row["char_start"]) + offset
+            anchor_end = anchor_start + len(exact_text)
+            provision_meta = {
+                "provision_ref": provision_ref,
+                "provision_type": observation["provision_type"],
+                "designation": observation["designation"],
+            }
+            provenance_parts = (
+                "provision_observation",
+                observation["provision_observation_id"],
+                observation["parser_name"],
+                observation["parser_version"],
             )
 
-        exact_text = observation["normative_text"]
-        exact_sha = observation["normative_text_sha256"]
-        anchor_start = int(row["char_start"]) + offsets[0]
-        anchor_end = anchor_start + len(exact_text)
-        provision_meta = {
-            "provision_ref": provision_ref,
-            "provision_type": observation["provision_type"],
-            "designation": observation["designation"],
-        }
-        provenance_parts = (
-            "provision_observation",
-            observation["provision_observation_id"],
-            observation["parser_name"],
-            observation["parser_version"],
-        )
-    else:
+    if provision_ref is None:
+        # A provision identity can be canonical while its observation is not
+        # citable at one exact span. Preserve the verified segment as evidence
+        # instead of guessing an empty/ambiguous provision anchor.
         provenance_parts = (
             "research_segment",
             row["extracted_segment_id"],
