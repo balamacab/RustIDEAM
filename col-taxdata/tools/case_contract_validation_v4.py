@@ -7,6 +7,8 @@ from typing import Any, Callable
 
 from case_contract_validation import (
     CaseContractError,
+    _assertive_client_spans,
+    _fold_lexical_text,
     _missing_fact_conflicts_with_explicit_text,
     _topic_signature,
     load_contract_schema,
@@ -49,6 +51,76 @@ _PLATFORM_REF_IN_MODEL_TEXT = re.compile(
     r"(?:plan|task|research|trace|authority|source|document|provision|evidence|"
     r"span|relationship|rule|evaluation|calculation|unresolved|provenance|bundle)"
     r":[A-Za-z0-9._-]+(?:$|[^A-Za-z0-9._-])"
+)
+
+# v4 intake needs exact quotes narrow enough to support one stated fact without
+# weakening downstream provenance checks.  Paragraphs remain available for facts
+# whose meaning spans multiple clauses; the additional fragments are exact
+# contiguous substrings and therefore never synthesize client text.
+_INTAKE_QUOTE_BOUNDARY = re.compile(r"(?<=[.!?;:])\s+|\s+y\s+")
+_UVT_MEASUREMENT_RE = re.compile(
+    r"(?<![A-Za-z0-9])"
+    r"(?:[0-9]{1,3}(?:[.\s][0-9]{3})+|[0-9]+(?:[.,][0-9]+)?)"
+    r"\s*UVT\b",
+    re.IGNORECASE,
+)
+
+# A declarative span that explicitly advertises uncertainty must not be treated
+# as proof that the client supplied one unambiguous factual value.
+_CLIENT_AMBIGUITY_PATTERNS = (
+    " o ",
+    "aproximad",
+    "posiblemente",
+    "tal vez",
+    "no queda claro",
+    "no esta claro",
+    "no se sabe",
+    "dudoso",
+)
+
+_CONFIRMATION_PREFIXES = (
+    "confirmacion de que ",
+    "confirmar que ",
+    "confirmar ",
+)
+
+# These are instruction/meta words, not the factual content of a confirmation
+# request.  Values are the same shallow stems produced by _topic_signature.
+_CONFIRMATION_META_STEMS = frozenset(
+    {
+        "aclar",
+        "confi",
+        "dato",
+        "deter",
+        "hecho",
+        "indic",
+        "infor",
+        "neces",
+        "preci",
+        "valid",
+        "verif",
+    }
+)
+
+_TAX_LEGAL_TOPIC_RE = re.compile(
+    r"\b(?:iva|impuesto(?:s)?|tributari[oa]s?|retenci[oó]n|renta|"
+    r"exportaci[oó]n\s+de\s+servicios|doble\s+imposici[oó]n|convenio|"
+    r"establecimiento\s+permanente)\b",
+    re.IGNORECASE,
+)
+_LEGAL_TREATMENT_RE = re.compile(
+    r"(?:c[oó]mo\s+debe\s+analizar|tratar(?:se)?\s+como|"
+    r"para\s+efectos\s+del?|si\s+procede|qu[eé]\s+efecto\s+puede\s+tener|"
+    r"est[aá]\s+(?:gravado|exento|sujeto)|"
+    r"debe\s+(?:pagar|declarar|retener|facturar|liquidar)|"
+    r"qu[eé]\s+tarifa\b)",
+    re.IGNORECASE,
+)
+_PURE_TEMPORAL_QUESTION_RE = re.compile(
+    r"^\s*[¿(0-9).\s]*(?:desde\s+cu[aá]ndo|hasta\s+cu[aá]ndo|cu[aá]ndo|"
+    r"en\s+qu[eé]\s+fecha|a\s+partir\s+de\s+qu[eé]\s+fecha|"
+    r"qu[eé]\s+plazo)\b",
+    re.IGNORECASE,
 )
 
 _FINGERPRINT_OPTIONAL_FIELDS = frozenset(
@@ -342,6 +414,118 @@ def validate_case_input(case_input: dict[str, Any]) -> None:
     _validate_schema(case_input, "CaseInput", INVALID_CASE_INPUT)
 
 
+def _intake_source_quote_candidates(problem_text: str) -> list[str]:
+    """Return bounded exact quote choices from fact-sized to coarse spans.
+
+    v3 intentionally keeps its historical paragraph-only quote vocabulary.
+    v4 adds exact sentence/clause fragments so one stated fact can retain a
+    source quote without dragging unrelated measurements into the same quote.
+    Every returned value is still a literal contiguous substring.
+    """
+    paragraphs = source_quote_candidates(problem_text)
+    candidates: list[str] = []
+    seen: set[str] = set()
+
+    def add(value: str) -> None:
+        value = value.strip()
+        if value and value in problem_text and value not in seen:
+            candidates.append(value)
+            seen.add(value)
+
+    for paragraph in paragraphs:
+        # Preserve the historical paragraph-only generation vocabulary unless
+        # one quote would contain multiple UVT measurements.  Only that case
+        # needs finer exact spans so the existing bounded evaluator can retain
+        # its one-measurement-per-quote provenance invariant.
+        if len(_UVT_MEASUREMENT_RE.findall(paragraph)) >= 2:
+            fragments = [
+                fragment
+                for fragment in _INTAKE_QUOTE_BOUNDARY.split(paragraph)
+                if fragment.strip()
+            ]
+            for fragment in fragments:
+                add(fragment)
+        add(paragraph)
+
+    if not candidates and problem_text:
+        add(problem_text)
+    return candidates
+
+
+def _unambiguous_assertive_spans(problem_text: str) -> list[str]:
+    result: list[str] = []
+    for span in _assertive_client_spans(problem_text):
+        folded = f" {_fold_lexical_text(span)} "
+        if any(marker in folded for marker in _CLIENT_AMBIGUITY_PATTERNS):
+            continue
+        result.append(span)
+    return result
+
+
+def _fact_downgrade_conflicts_with_explicit_text(
+    fact: dict[str, Any],
+    problem_text: str,
+) -> bool:
+    """Reject a high-confidence downgrade of a stated client fact.
+
+    This is a contradiction guard, not extraction or repair.  It never creates
+    a fact/source quote.  It only rejects a model draft when either its own fact
+    label faithfully restates one unambiguous client assertion or its
+    confirmation request substantially repeats an assertion already supplied.
+    """
+    state = fact.get("state")
+    if state not in {"missing", "ambiguous"}:
+        return False
+
+    spans = _unambiguous_assertive_spans(problem_text)
+    label_signature = _topic_signature(str(fact.get("label", "")))
+    if len(label_signature) >= 2 and any(
+        label_signature.issubset(_topic_signature(span))
+        for span in spans
+    ):
+        return True
+
+    needed = str(fact.get("needed_information", ""))
+    folded_needed = _fold_lexical_text(needed).strip()
+    if not any(folded_needed.startswith(prefix) for prefix in _CONFIRMATION_PREFIXES):
+        return False
+
+    needed_signature = _topic_signature(needed) - _CONFIRMATION_META_STEMS
+    if len(needed_signature) < 2:
+        return False
+
+    for span in spans:
+        span_signature = _topic_signature(span)
+        overlap = len(needed_signature.intersection(span_signature))
+        if overlap < 2:
+            continue
+        # Confirmation requests often change grammatical voice ("se emitió"
+        # versus "factura") while retaining the concrete factual anchors.
+        if overlap / len(needed_signature) >= 0.60:
+            return True
+    return False
+
+
+def _question_category_conflicts(question: dict[str, Any]) -> bool:
+    """Detect high-confidence tax/legal treatment questions miscategorized.
+
+    Date/effective-period questions remain eligible for the temporal category.
+    The function does not infer an answer or rewrite the category; invalid
+    model output is rejected through the normal intake validation path.
+    """
+    if question.get("category") == "legal":
+        return False
+    text = str(question.get("text", ""))
+    if (
+        _TAX_LEGAL_TOPIC_RE.search(text)
+        and _LEGAL_TREATMENT_RE.search(text)
+    ):
+        return True
+    if _PURE_TEMPORAL_QUESTION_RE.search(text):
+        return False
+    return False
+
+
 def intake_draft_generation_schema(
     case_input: dict[str, Any],
 ) -> dict[str, Any]:
@@ -387,7 +571,7 @@ def intake_draft_generation_schema(
     fact = definitions["IntakeFact"]
     fact_properties = deepcopy(fact["properties"])
     fact_required = list(fact["required"])
-    candidates = source_quote_candidates(case_input["problem_text"])
+    candidates = _intake_source_quote_candidates(case_input["problem_text"])
 
     def fact_variant(
         state: str,
@@ -587,18 +771,6 @@ def validate_intake_draft(
                 "missing/ambiguous facts cannot carry a numeric measurement",
             )
 
-        if _missing_fact_conflicts_with_explicit_text(
-            fact,
-            case_input["problem_text"],
-        ):
-            _fail(
-                INVALID_INTAKE_DRAFT,
-                f"$.facts[{index}].state",
-                (
-                    "missing fact generically requests information about "
-                    "a topic already stated in explicit client text"
-                ),
-            )
         if _missing_fact_duplicates_question(fact, draft["questions"]):
             _fail(
                 INVALID_INTAKE_DRAFT,
@@ -606,6 +778,24 @@ def validate_intake_draft(
                 (
                     "research question was duplicated as a missing fact; "
                     "missing facts must describe absent client inputs"
+                ),
+            )
+        if (
+            _missing_fact_conflicts_with_explicit_text(
+                fact,
+                case_input["problem_text"],
+            )
+            or _fact_downgrade_conflicts_with_explicit_text(
+                fact,
+                case_input["problem_text"],
+            )
+        ):
+            _fail(
+                INVALID_INTAKE_DRAFT,
+                f"$.facts[{index}].state",
+                (
+                    "missing/ambiguous fact conflicts with information "
+                    "already stated in explicit client text"
                 ),
             )
         if fact["state"] in {"user_provided", "llm_normalized"}:
@@ -626,6 +816,15 @@ def validate_intake_draft(
                 )
 
     for index, question in enumerate(draft["questions"]):
+        if _question_category_conflicts(question):
+            _fail(
+                INVALID_INTAKE_DRAFT,
+                f"$.questions[{index}].category",
+                (
+                    "substantive tax/legal-treatment question has an "
+                    "incompatible non-legal category"
+                ),
+            )
         if _PLATFORM_REF_IN_MODEL_TEXT.search(question["text"]):
             _fail(
                 INVALID_INTAKE_DRAFT,
