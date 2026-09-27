@@ -17,7 +17,14 @@ from case_attempt_evidence import (
     canonical_json_bytes,
     sha256_hex,
 )
-from case_contract_validation import INVALID_CASE_DRAFT, case_draft_generation_schema
+from case_contract_validation import (
+    INVALID_CASE_DRAFT,
+    case_draft_generation_schema,
+)
+from case_contract_validation_v4 import (
+    INVALID_INTAKE_DRAFT,
+    intake_draft_generation_schema,
+)
 from llm_client import (
     CASE_PROVIDER_TIMEOUT,
     CASE_STRUCTURING_UNAVAILABLE,
@@ -28,11 +35,11 @@ from llm_client import (
     ModelRoute,
     OutputLimitError,
     StructuredGenerationCapability,
-    SYSTEM_PROMPT,
     _compact_json,
     _estimate_request_tokens,
     _materialize_client_owned_fields,
     _model_input_context,
+    _structuring_contract_profile,
 )
 
 class OpenAICompatibleIntakeAdapter:
@@ -77,13 +84,23 @@ class OpenAICompatibleIntakeAdapter:
         case_input: dict[str, Any],
         route: ModelRoute,
     ) -> dict[str, Any]:
-        response_schema = case_draft_generation_schema(case_input)
+        """Compatibility name for the version-dispatched structured intake call."""
+        profile = _structuring_contract_profile(case_input)
+        if profile.invalid_output_code == INVALID_CASE_DRAFT:
+            response_schema = case_draft_generation_schema(case_input)
+        elif profile.invalid_output_code == INVALID_INTAKE_DRAFT:
+            response_schema = intake_draft_generation_schema(case_input)
+        else:
+            raise AssertionError(
+                f"unsupported structured intake code {profile.invalid_output_code!r}"
+            )
         response_schema_sha256 = sha256_hex(canonical_json_bytes(response_schema))
         model_input = _model_input_context(case_input)
         char_count, estimated_tokens = _estimate_request_tokens(
             model_input=model_input,
             response_schema=response_schema,
             chars_per_token=self.config.chars_per_token_estimate,
+            system_prompt=profile.system_prompt,
         )
         total_budget = estimated_tokens + route.max_output_tokens
         if total_budget > route.context_tokens:
@@ -124,7 +141,7 @@ class OpenAICompatibleIntakeAdapter:
             "temperature": 0,
             "max_tokens": route.max_output_tokens,
             "messages": [
-                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "system", "content": profile.system_prompt},
                 {
                     "role": "user",
                     "content": _compact_json(model_input),
@@ -133,7 +150,7 @@ class OpenAICompatibleIntakeAdapter:
             "response_format": {
                 "type": "json_schema",
                 "json_schema": {
-                    "name": "case_draft_v3_generation",
+                    "name": profile.response_schema_name,
                     "strict": True,
                     "schema": response_schema,
                 },
@@ -263,7 +280,7 @@ class OpenAICompatibleIntakeAdapter:
             envelope = json.loads(raw)
         except (json.JSONDecodeError, UnicodeDecodeError) as exc:
             raise LLMClientError(
-                INVALID_CASE_DRAFT,
+                profile.invalid_output_code,
                 f"backend returned malformed provider envelope: {exc}",
                 retryable=True,
                 generation_evidence=evidence(raw=raw, http_status=http_status),
@@ -271,7 +288,7 @@ class OpenAICompatibleIntakeAdapter:
             ) from exc
         if not isinstance(envelope, dict):
             raise LLMClientError(
-                INVALID_CASE_DRAFT,
+                profile.invalid_output_code,
                 "backend returned malformed provider envelope: root is not an object",
                 retryable=True,
                 generation_evidence=evidence(raw=raw, http_status=http_status),
@@ -309,7 +326,7 @@ class OpenAICompatibleIntakeAdapter:
                 raise TypeError("message.content is not a string")
         except (KeyError, IndexError, TypeError) as exc:
             raise LLMClientError(
-                INVALID_CASE_DRAFT,
+                profile.invalid_output_code,
                 f"backend returned malformed provider envelope: {exc}",
                 retryable=True,
                 generation_evidence=evidence(
@@ -370,7 +387,7 @@ class OpenAICompatibleIntakeAdapter:
             draft_payload = json.loads(content)
         except json.JSONDecodeError as exc:
             raise LLMClientError(
-                INVALID_CASE_DRAFT,
+                profile.invalid_output_code,
                 f"backend returned malformed structured JSON: {exc}",
                 retryable=True,
                 generation_evidence=observed,
@@ -389,7 +406,7 @@ class OpenAICompatibleIntakeAdapter:
         )
         if not isinstance(draft_payload, dict):
             raise LLMClientError(
-                INVALID_CASE_DRAFT,
+                profile.invalid_output_code,
                 "structured output root is not an object",
                 retryable=True,
                 generation_evidence=observed,
