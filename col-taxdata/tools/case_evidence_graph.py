@@ -97,16 +97,72 @@ def _official_source(
     return source
 
 
+def _identity_evidence_refs(
+    con: sqlite3.Connection,
+    document_id: str,
+) -> set[str]:
+    """Return canonical identifier evidence owned by the authority view."""
+    return {
+        f"evidence:{row[0]}"
+        for row in con.execute(
+            """
+            SELECT DISTINCT die.evidence_id
+            FROM document_identifiers di
+            JOIN document_identifier_evidence die
+              ON die.identifier_id = di.identifier_id
+            WHERE di.document_id = ?
+            """,
+            (document_id,),
+        ).fetchall()
+    }
+
+
+def _project_relationship_endpoint_authority(
+    con: sqlite3.Connection,
+    *,
+    authority: dict[str, Any],
+    classified_relationships: Iterable[dict[str, Any]],
+    included_relationships: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    """Project one endpoint authority onto the already-selected relationship graph.
+
+    The authority classifier exposes evidence for every canonical relationship
+    touching a document. An endpoint pulled in only for graph traceability must
+    not recursively import those unrelated relationships through its aggregate
+    evidence_refs. Keep intrinsic identity/publication/temporal evidence plus
+    evidence for relationships that are already in the materialized graph.
+    """
+    projected = deepcopy(authority)
+    included_refs = set(included_relationships)
+    projected["relationship_refs"] = sorted(
+        set(projected["relationship_refs"]).intersection(included_refs)
+    )
+
+    document_id = _typed_value(projected["authority_ref"], "authority")
+    retained_evidence = _identity_evidence_refs(con, document_id)
+    retained_evidence.update(
+        projected["publication_metadata"]["evidence_refs"]
+    )
+    retained_evidence.update(
+        projected["temporal_state"]["basis_evidence_refs"]
+    )
+    for relation in classified_relationships:
+        if relation["relationship_ref"] in included_refs:
+            retained_evidence.update(relation["evidence_refs"])
+    projected["evidence_refs"] = sorted(retained_evidence)
+    return projected
+
+
 def _close_relationship_endpoints(
     *,
+    con: sqlite3.Connection,
     db_path: Path,
     authorities: dict[str, dict[str, Any]],
     relationships: dict[str, dict[str, Any]],
     unresolved: dict[str, dict[str, Any]],
     as_of_date: str | None,
 ) -> None:
-    """Include relationship endpoint authority metadata without recursive research."""
-    included_relationships = set(relationships)
+    """Include relationship endpoints without recursively importing their graph."""
     endpoint_refs = sorted(
         {
             ref
@@ -137,18 +193,16 @@ def _close_relationship_endpoints(
             raise EvidenceGraphIntegrityError(
                 "authority classifier returned a different endpoint identity"
             )
-        # #138 closes only the already-researched relationship graph. Pulling
-        # every relationship of a newly included endpoint would silently turn
-        # graph materialization into another unbounded research stage.
-        authority["relationship_refs"] = sorted(
-            set(authority["relationship_refs"]).intersection(
-                included_relationships
-            )
+        authorities[authority_ref] = _project_relationship_endpoint_authority(
+            con,
+            authority=authority,
+            classified_relationships=classified["relationships"],
+            included_relationships=relationships,
         )
-        authorities[authority_ref] = authority
         for item in classified["unresolved"]:
             unresolved[item["unresolved_ref"]] = deepcopy(item)
 
+    included_relationships = set(relationships)
     for authority in authorities.values():
         authority["relationship_refs"] = sorted(
             set(authority["relationship_refs"]).intersection(
@@ -156,6 +210,259 @@ def _close_relationship_endpoints(
             )
         )
 
+
+def _canonical_evidence_owner_ref(
+    con: sqlite3.Connection,
+    evidence_ref: str,
+) -> str | None:
+    """Resolve canonical Evidence to its manifestation's canonical Document."""
+    evidence_id = _typed_value(evidence_ref, "evidence")
+    row = con.execute(
+        """
+        SELECT
+            m.document_id,
+            d.document_id AS canonical_document_id
+        FROM evidence e
+        JOIN manifestations m ON m.manifestation_id = e.manifestation_id
+        LEFT JOIN documents d ON d.document_id = m.document_id
+        WHERE e.evidence_id = ?
+        """,
+        (evidence_id,),
+    ).fetchone()
+    if row is None:
+        raise EvidenceGraphIntegrityError(
+            f"canonical metadata references missing evidence {evidence_ref}"
+        )
+    if row["document_id"] is None:
+        return None
+    if row["canonical_document_id"] is None:
+        raise EvidenceGraphIntegrityError(
+            "canonical evidence points to a missing owner document: "
+            f"{evidence_ref}"
+        )
+    return f"authority:{row['document_id']}"
+
+
+def _remove_unresolved_owner_dependency(
+    *,
+    evidence_ref: str,
+    authorities: dict[str, dict[str, Any]],
+    relationships: dict[str, dict[str, Any]],
+    unresolved: dict[str, dict[str, Any]],
+) -> None:
+    """Remove one unmaterializable evidence dependency and expose it as unresolved.
+
+    An EvidenceSpan cannot be emitted without a canonical owner authority. The
+    v4 contract nevertheless permits partial state, so metadata that points to
+    an unbound manifestation is conservatively removed from the materialized
+    reference graph and represented by an evidence-stage UnresolvedItem.
+    """
+    related_authorities: set[str] = set()
+
+    for authority_ref, authority in authorities.items():
+        touched = evidence_ref in authority["evidence_refs"]
+        if evidence_ref in authority["publication_metadata"]["evidence_refs"]:
+            touched = True
+            authority["publication_metadata"]["evidence_refs"] = [
+                ref
+                for ref in authority["publication_metadata"]["evidence_refs"]
+                if ref != evidence_ref
+            ]
+        if evidence_ref in authority["temporal_state"]["basis_evidence_refs"]:
+            touched = True
+            authority["temporal_state"]["basis_evidence_refs"] = [
+                ref
+                for ref in authority["temporal_state"]["basis_evidence_refs"]
+                if ref != evidence_ref
+            ]
+        authority["evidence_refs"] = [
+            ref for ref in authority["evidence_refs"] if ref != evidence_ref
+        ]
+        if touched:
+            related_authorities.add(authority_ref)
+
+    removed_relationships: set[str] = set()
+    for relationship_ref, relationship in list(relationships.items()):
+        if evidence_ref not in relationship["evidence_refs"]:
+            continue
+        related_authorities.update(
+            {
+                relationship["source_authority_ref"],
+                relationship["target_authority_ref"],
+            }
+        )
+        remaining = [
+            ref for ref in relationship["evidence_refs"] if ref != evidence_ref
+        ]
+        if remaining:
+            relationship["evidence_refs"] = remaining
+        else:
+            removed_relationships.add(relationship_ref)
+            del relationships[relationship_ref]
+
+    if removed_relationships:
+        for authority in authorities.values():
+            authority["relationship_refs"] = [
+                ref
+                for ref in authority["relationship_refs"]
+                if ref not in removed_relationships
+            ]
+
+    for item in unresolved.values():
+        refs = item.get("related_evidence_refs")
+        if not refs or evidence_ref not in refs:
+            continue
+        remaining = [ref for ref in refs if ref != evidence_ref]
+        if remaining:
+            item["related_evidence_refs"] = remaining
+        else:
+            item.pop("related_evidence_refs", None)
+
+    item_ref = _stable_ref(
+        "unresolved",
+        "canonical_evidence_owner",
+        evidence_ref,
+    )
+    item: dict[str, Any] = {
+        "kind": "unresolved_item",
+        "contract_version": CONTRACT_VERSION,
+        "unresolved_ref": item_ref,
+        "stage": "evidence",
+        "category": "unresolved_identity",
+        "description": (
+            "Canonical metadata references evidence whose manifestation has "
+            "no resolved canonical document owner; no EvidenceSpan owner is "
+            "guessed."
+        ),
+        "next_action": "human_review",
+    }
+    if related_authorities:
+        item["related_authority_refs"] = sorted(related_authorities)
+    unresolved[item_ref] = item
+
+
+def _project_supporting_owner(
+    *,
+    authority: dict[str, Any],
+    allowed_evidence_refs: set[str],
+) -> dict[str, Any]:
+    """Return the minimum first-order owner authority required for traceability."""
+    projected = deepcopy(authority)
+    projected["relationship_refs"] = []
+    projected["evidence_refs"] = sorted(
+        set(projected["evidence_refs"]).intersection(allowed_evidence_refs)
+    )
+    projected["publication_metadata"]["evidence_refs"] = sorted(
+        set(projected["publication_metadata"]["evidence_refs"]).intersection(
+            allowed_evidence_refs
+        )
+    )
+    projected["temporal_state"]["basis_evidence_refs"] = sorted(
+        set(projected["temporal_state"]["basis_evidence_refs"]).intersection(
+            allowed_evidence_refs
+        )
+    )
+    return projected
+
+
+def _project_supporting_unresolved(
+    item: dict[str, Any],
+    *,
+    allowed_evidence_refs: set[str],
+) -> dict[str, Any]:
+    projected = deepcopy(item)
+    if "related_evidence_refs" in projected:
+        refs = sorted(
+            set(projected["related_evidence_refs"]).intersection(
+                allowed_evidence_refs
+            )
+        )
+        if refs:
+            projected["related_evidence_refs"] = refs
+        else:
+            projected.pop("related_evidence_refs", None)
+    return projected
+
+
+def _close_evidence_owners(
+    *,
+    con: sqlite3.Connection,
+    db_path: Path,
+    authorities: dict[str, dict[str, Any]],
+    relationships: dict[str, dict[str, Any]],
+    unresolved: dict[str, dict[str, Any]],
+    as_of_date: str | None,
+) -> list[str]:
+    """Close the graph over genuinely required evidence owners exactly once.
+
+    The dependency set is frozen before supporting owners are added. This is
+    deliberately first-order: metadata or relationships of a supporting owner
+    cannot recursively turn materialization into another research stage.
+    """
+    required_refs = _required_evidence_refs(
+        authorities.values(),
+        relationships.values(),
+        unresolved.values(),
+    )
+
+    unresolved_owner_refs = [
+        evidence_ref
+        for evidence_ref in required_refs
+        if _canonical_evidence_owner_ref(con, evidence_ref) is None
+    ]
+    for evidence_ref in unresolved_owner_refs:
+        _remove_unresolved_owner_dependency(
+            evidence_ref=evidence_ref,
+            authorities=authorities,
+            relationships=relationships,
+            unresolved=unresolved,
+        )
+
+    # Removing an unowned relationship can also remove its dependency. Freeze
+    # the safe materialization set only after that conservative reduction.
+    required_refs = _required_evidence_refs(
+        authorities.values(),
+        relationships.values(),
+        unresolved.values(),
+    )
+    allowed_evidence_refs = set(required_refs)
+
+    owner_refs = {
+        owner_ref
+        for evidence_ref in required_refs
+        for owner_ref in [_canonical_evidence_owner_ref(con, evidence_ref)]
+        if owner_ref is not None and owner_ref not in authorities
+    }
+    for authority_ref in sorted(owner_refs):
+        document_id = _typed_value(authority_ref, "authority")
+        try:
+            classified = classify_canonical_authority(
+                document_id=document_id,
+                db_path=db_path,
+                as_of_date=as_of_date,
+            )
+        except AuthorityClassificationError as exc:
+            raise EvidenceGraphIntegrityError(
+                "canonical evidence owner authority cannot be materialized: "
+                f"{authority_ref}: {exc}"
+            ) from exc
+        authority = classified["authority"]
+        if authority["authority_ref"] != authority_ref:
+            raise EvidenceGraphIntegrityError(
+                "authority classifier returned a different evidence-owner identity"
+            )
+        authorities[authority_ref] = _project_supporting_owner(
+            authority=authority,
+            allowed_evidence_refs=allowed_evidence_refs,
+        )
+        for item in classified["unresolved"]:
+            projected = _project_supporting_unresolved(
+                item,
+                allowed_evidence_refs=allowed_evidence_refs,
+            )
+            unresolved[projected["unresolved_ref"]] = projected
+
+    return required_refs
 
 def _verified_candidate_row(
     con: sqlite3.Connection,
@@ -776,24 +1083,29 @@ def build_legal_research_bundle(
         item["unresolved_ref"]: deepcopy(item)
         for item in research.unresolved
     }
-    _close_relationship_endpoints(
-        db_path=db_path,
-        authorities=authorities,
-        relationships=relationships,
-        unresolved=unresolved,
-        as_of_date=case_input.get("as_of_date"),
-    )
-
     con = _readonly(db_path)
     try:
+        _close_relationship_endpoints(
+            con=con,
+            db_path=db_path,
+            authorities=authorities,
+            relationships=relationships,
+            unresolved=unresolved,
+            as_of_date=case_input.get("as_of_date"),
+        )
+        required_evidence_refs = _close_evidence_owners(
+            con=con,
+            db_path=db_path,
+            authorities=authorities,
+            relationships=relationships,
+            unresolved=unresolved,
+            as_of_date=case_input.get("as_of_date"),
+        )
+
         spans: dict[str, dict[str, Any]] = {}
         statements: list[dict[str, Any]] = []
 
-        for evidence_ref in _required_evidence_refs(
-            authorities.values(),
-            relationships.values(),
-            unresolved.values(),
-        ):
+        for evidence_ref in required_evidence_refs:
             spans[evidence_ref] = _canonical_evidence_span(
                 con,
                 evidence_ref=evidence_ref,
