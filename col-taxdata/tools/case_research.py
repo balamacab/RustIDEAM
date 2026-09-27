@@ -13,11 +13,15 @@ import unicodedata
 
 from case_contract_validation_v4 import (
     CONTRACT_VERSION,
+    validate_contract_object,
     validate_research_plan,
     validate_research_result,
 )
 from case_retrieval import CorpusRetrievalService, RetrievalHit
-from legal_authority_classification import classify_canonical_authority
+from legal_authority_classification import (
+    AuthorityClassificationError,
+    classify_canonical_authority,
+)
 
 
 PLANNER_VERSION = "1"
@@ -56,6 +60,10 @@ _RETRIEVAL_CONFIG = {
 
 class ResearchPlanningError(RuntimeError):
     """The platform cannot create a contract-valid deterministic research plan."""
+
+
+class ResearchIntegrityError(RuntimeError):
+    """Canonical corpus state cannot be materialized safely for research."""
 
 
 @dataclass(frozen=True)
@@ -677,11 +685,17 @@ class PlatformResearchService:
                     continue
 
                 if hit.document_id not in authority_cache:
-                    authority_cache[hit.document_id] = classify_canonical_authority(
-                        document_id=hit.document_id,
-                        db_path=self.db_path,
-                        as_of_date=plan.get("as_of_date"),
-                    )
+                    try:
+                        authority_cache[hit.document_id] = classify_canonical_authority(
+                            document_id=hit.document_id,
+                            db_path=self.db_path,
+                            as_of_date=plan.get("as_of_date"),
+                        )
+                    except AuthorityClassificationError as exc:
+                        raise ResearchIntegrityError(
+                            "canonical authority classification failed safely for "
+                            f"{hit.document_id}: {exc}"
+                        ) from exc
                 classified = authority_cache[hit.document_id]
                 authority = classified["authority"]
                 authority_ref = str(authority["authority_ref"])
@@ -826,6 +840,12 @@ class PlatformResearchService:
             "generated_at": generated_at or _utc_now(),
         }
         validate_research_result(plan, result)
+        for item in authorities.values():
+            validate_contract_object(item)
+        for item in relationships.values():
+            validate_contract_object(item)
+        for item in unresolved.values():
+            validate_contract_object(item)
 
         return ResearchExecution(
             plan=deepcopy(plan),
