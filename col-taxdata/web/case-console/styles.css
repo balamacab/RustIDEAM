@@ -228,3 +228,19 @@ button.secondary { background: #172335; border-color: #3c526f; }
   .two-columns { grid-template-columns: 1fr; gap: 0; }
   .submit-row { align-items: flex-start; flex-direction: column; }
 }
+
+.local-error-title {
+  margin: 18px 18px 8px;
+  color: #e8b1b1;
+  font-size: .95rem;
+}
+
+.local-error-detail,
+.local-error-boundary {
+  margin: 0 18px 8px;
+  color: #c7d1dd;
+  font-size: .8rem;
+  line-height: 1.5;
+}
+
+.local-error-boundary { color: #8da2bd; }

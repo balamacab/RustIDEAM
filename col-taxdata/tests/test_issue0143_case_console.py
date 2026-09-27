@@ -121,6 +121,8 @@ class CaseConsoleContractTests(unittest.TestCase):
         self.assertIn(".textContent", app)
         self.assertIn('credentials: "omit"', app)
         self.assertNotIn("api_key", combined.lower())
+        self.assertNotIn("CONSOLE_TRANSPORT_ERROR", combined)
+        self.assertIn("local console state, not a CASE REST response", app)
 
     def test_proxy_and_container_are_strictly_independent(self):
         template = (CONSOLE / "nginx" / "case-console.conf.template").read_text(

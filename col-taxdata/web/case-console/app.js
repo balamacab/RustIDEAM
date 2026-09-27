@@ -75,6 +75,31 @@ function renderViews(payload) {
   renderJson(viewPanels.get("raw"), views.raw, "No response.");
 }
 
+function renderLocalTransportError(message) {
+  for (const [name, panel] of viewPanels) {
+    renderJson(
+      panel,
+      null,
+      name === "raw"
+        ? "No CASE JSON response was received."
+        : "No public CASE response is available for this view.",
+    );
+  }
+  const panel = viewPanels.get("result");
+  panel.replaceChildren();
+  const title = document.createElement("h3");
+  title.className = "local-error-title";
+  title.textContent = "Console transport error";
+  const detail = document.createElement("p");
+  detail.className = "local-error-detail";
+  detail.textContent = message;
+  const boundary = document.createElement("p");
+  boundary.className = "local-error-boundary";
+  boundary.textContent =
+    "This is local console state, not a CASE REST response or legal result.";
+  panel.append(title, detail, boundary);
+}
+
 function startElapsed() {
   startedAt = performance.now();
   setText(elapsed, "0.0 s");
@@ -172,14 +197,7 @@ form.addEventListener("submit", async (event) => {
       showState(`CASE request failed: ${code}`, "error");
     }
   } catch (error) {
-    renderViews({
-      api_version: contract.api_version,
-      error: {
-        code: "CONSOLE_TRANSPORT_ERROR",
-        message: error.message,
-        retryable: true,
-      },
-    });
+    renderLocalTransportError(error.message);
     activateTab("result");
     showState(error.message, "error");
   } finally {
