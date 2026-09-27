@@ -37,6 +37,16 @@ _TYPED_REF_IN_TEXT = re.compile(
     r"(?:$|[^A-Za-z0-9._-])"
 )
 
+# Intake refs (fact/question/hint/intake) are legitimate model-owned graph keys.
+# Platform-owned namespaces are not legitimate content in model-authored labels,
+# normalized values, questions, or search vocabulary.
+_PLATFORM_REF_IN_MODEL_TEXT = re.compile(
+    r"(?i)(?:^|[^A-Za-z0-9._-])"
+    r"(?:plan|task|research|trace|authority|source|document|provision|evidence|"
+    r"span|relationship|rule|evaluation|calculation|unresolved|provenance|bundle)"
+    r":[A-Za-z0-9._-]+(?:$|[^A-Za-z0-9._-])"
+)
+
 _FINGERPRINT_OPTIONAL_FIELDS = frozenset(
     {
         "corpus_snapshot_sha256",
@@ -230,8 +240,22 @@ def validate_intake_draft(
                     f"$.facts[{index}].source_quote",
                     "source quote is not present verbatim in CaseInput.problem_text",
                 )
+        for name in ("label", "value", "needed_information"):
+            value = fact.get(name)
+            if isinstance(value, str) and _PLATFORM_REF_IN_MODEL_TEXT.search(value):
+                _fail(
+                    INVALID_INTAKE_DRAFT,
+                    f"$.facts[{index}].{name}",
+                    "model-authored intake content attempted to inject a platform-owned identifier",
+                )
 
     for index, question in enumerate(draft["questions"]):
+        if _PLATFORM_REF_IN_MODEL_TEXT.search(question["text"]):
+            _fail(
+                INVALID_INTAKE_DRAFT,
+                f"$.questions[{index}].text",
+                "model-authored question attempted to inject a platform-owned identifier",
+            )
         _require_refs(
             question.get("depends_on_fact_refs", []),
             facts,
