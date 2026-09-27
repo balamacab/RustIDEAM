@@ -162,7 +162,15 @@ def render_report(
     lines.append(f"- Pendientes fácticos: {len(unresolved)}")
     lines.append("")
 
-    lines.append("## Conclusiones jurídicas registradas")
+    lines.append("## Claims jurídicos históricos v3 (compatibilidad)")
+    lines.append("")
+    lines.append(
+        "> Propiedad: `historical_v3_claim_state`. Esta sección conserva el "
+        "modelo de persistencia v3 para compatibilidad y auditoría. Sus claims "
+        "mantienen el estado registrado; no son CanonicalAuthority, "
+        "EvidenceSpan, RuleFragment ni DeterministicEvaluation v4, y un claim "
+        "`candidate` o no soportado no constituye autoridad jurídica canónica."
+    )
     lines.append("")
     for (
         claim_id,
@@ -178,7 +186,7 @@ def render_report(
         lines.append(object_literal or "")
         lines.append("")
         lines.append(
-            f"Estado: **{status}** · "
+            f"Propiedad: `historical_v3_claim_state` · Estado: **{status}** · "
             f"Tipo: `{claim_type}` · "
             f"Evidencias directas: {len(evidence)} · "
             f"Revisión humana requerida: "
