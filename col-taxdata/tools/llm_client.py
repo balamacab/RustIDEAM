@@ -25,12 +25,20 @@ from case_attempt_evidence import (
     utc_audit_now,
 )
 from case_intake_inference import IntakeInferencePort
+from case_contract_dispatch import (
+    V3_CONTRACT_VERSION,
+    V4_CONTRACT_VERSION,
+    validate_case_input as validate_dispatched_case_input,
+    validate_structured_intake,
+)
 from case_contract_validation import (
-    CONTRACT_VERSION,
     CaseContractError,
     INVALID_CASE_DRAFT,
-    validate_case_draft,
     validate_schema_object,
+)
+from case_contract_validation_v4 import (
+    INVALID_INTAKE_DRAFT,
+    SCHEMA_PATH as V4_SCHEMA_PATH,
 )
 
 
@@ -42,6 +50,8 @@ CASE_EVIDENCE_PERSISTENCE_FAILED = "CASE_EVIDENCE_PERSISTENCE_FAILED"
 
 PROMPT_TEMPLATE_ID = "case-structuring-v3"
 PROMPT_TEMPLATE_VERSION = "5"
+V4_PROMPT_TEMPLATE_ID = "case-intake-v4"
+V4_PROMPT_TEMPLATE_VERSION = "1"
 
 SYSTEM_PROMPT = """You structure a Colombian legal/tax case into the supplied JSON schema.
 The response schema contains the model-owned CaseDraft fields. problem_text,
@@ -71,6 +81,36 @@ document, provision, evidence, manifestation, segment, relationship, source, cla
 or case identifiers. Target hints may contain ordinary human-readable legal
 references or search phrases only. Do not assert that a candidate is validated and
 do not invent evidence."""
+
+V4_SYSTEM_PROMPT = """You are an intake structurer for a Colombian legal/tax research platform.
+Return only the supplied IntakeDraft JSON shape. Your authority ends at intake
+structure: facts, questions, missing/ambiguous client facts, and optional neutral
+search vocabulary.
+
+Only problem_text is client fact source text. analysis_context.as_of_date is an
+analysis parameter, not a fact. client_reference and caller_metadata are correlation
+metadata and are intentionally not model context.
+
+For user_provided facts, copy source_quote exactly from the allowed response-schema
+values and use requires_confirmation=false. For llm_normalized facts, normalization
+may clarify representation but must preserve the stated substance, must use an exact
+allowed source_quote, and requires_confirmation=true. Never invent an unstated fact.
+Missing and ambiguous facts require needed_information and confirmation. If the
+problem text already states a fact explicitly, do not mark that fact missing.
+
+Questions describe what platform research must resolve. Do not duplicate a legal,
+factual, procedural, temporal, or evidentiary research question as a missing fact
+merely because its answer is unknown. A missing fact is an absent client-supplied
+input, not an unknown legal answer.
+
+search_hints may be an empty array. If present, terms are neutral advisory vocabulary
+linked to questions. They do not select controlling law and must not contain typed
+application/canonical identifiers.
+
+Never emit legal conclusions, candidate claims, tax determinations, validated claim
+text, calculations, final-answer prose, evidence, research plans/results, canonical
+documents/provisions/sources/relationships, or platform-owned identifiers. Never
+repair, relabel, or infer around the schema."""
 
 
 class LLMClientError(RuntimeError):
@@ -199,6 +239,46 @@ class StructuredGenerationCapability:
         )
 
 
+@dataclass(frozen=True)
+class StructuringContractProfile:
+    """Version-specific intake generation/validation policy."""
+
+    contract_version: str
+    prompt_template_id: str
+    prompt_template_version: str
+    system_prompt: str
+    response_schema_name: str
+    invalid_output_code: str
+    metadata_routing_role: str | None = None
+
+
+def _structuring_contract_profile(
+    case_input: dict[str, Any],
+) -> StructuringContractProfile:
+    """Select semantics only from the explicitly validated CaseInput version."""
+    version = validate_dispatched_case_input(case_input)
+    if version == V3_CONTRACT_VERSION:
+        return StructuringContractProfile(
+            contract_version=version,
+            prompt_template_id=PROMPT_TEMPLATE_ID,
+            prompt_template_version=PROMPT_TEMPLATE_VERSION,
+            system_prompt=SYSTEM_PROMPT,
+            response_schema_name="case_draft_v3_generation",
+            invalid_output_code=INVALID_CASE_DRAFT,
+        )
+    if version == V4_CONTRACT_VERSION:
+        return StructuringContractProfile(
+            contract_version=version,
+            prompt_template_id=V4_PROMPT_TEMPLATE_ID,
+            prompt_template_version=V4_PROMPT_TEMPLATE_VERSION,
+            system_prompt=V4_SYSTEM_PROMPT,
+            response_schema_name="case_intake_v4_generation",
+            invalid_output_code=INVALID_INTAKE_DRAFT,
+            metadata_routing_role="intake_structuring",
+        )
+    raise AssertionError(f"validated unsupported CASE contract {version!r}")
+
+
 class GeneratedCaseDraft(dict[str, Any]):
     """Dict-compatible model candidate carrying non-canonical execution evidence."""
 
@@ -290,7 +370,12 @@ def _materialize_client_owned_fields(
     authoritative cross-object validator can accept an exact value or reject drift.
     """
     draft = deepcopy(generated_payload)
-    for name in ("problem_text", "as_of_date", "client_reference"):
+    for name in (
+        "problem_text",
+        "as_of_date",
+        "client_reference",
+        "caller_metadata",
+    ):
         if name in case_input and name not in draft:
             draft[name] = case_input[name]
     return draft
@@ -301,8 +386,9 @@ def _estimate_request_tokens(
     model_input: dict[str, Any],
     response_schema: dict[str, Any],
     chars_per_token: float,
+    system_prompt: str = SYSTEM_PROMPT,
 ) -> tuple[int, int]:
-    serialized_chars = len(SYSTEM_PROMPT)
+    serialized_chars = len(system_prompt)
     serialized_chars += len(_compact_json(model_input))
     serialized_chars += len(_compact_json(response_schema))
     estimated_tokens = math.ceil(serialized_chars / max(chars_per_token, 1.0))
@@ -363,6 +449,11 @@ class StructuringOutcome:
     attempts: int
     used_review: bool
 
+    @property
+    def intake(self) -> dict[str, Any]:
+        """Preferred v4 name; draft remains a frozen v3 compatibility alias."""
+        return self.draft
+
 
 class CaseStructuringService:
     """Apply retry policy while preserving rejected model execution evidence."""
@@ -422,6 +513,7 @@ class CaseStructuringService:
             or not generation.provider_contacted
         ):
             return
+        profile = _structuring_contract_profile(case_input)
         try:
             self.evidence_store.write_rejected_attempt(
                 attempt_id=attempt_id,
@@ -433,10 +525,12 @@ class CaseStructuringService:
                 adapter=self.client.adapter_id,
                 provider=self.client.provider_id,
                 requested_model=route.name,
-                routing_role=route.routing_role,
-                contract_version=CONTRACT_VERSION,
-                prompt_template_id=PROMPT_TEMPLATE_ID,
-                prompt_template_version=PROMPT_TEMPLATE_VERSION,
+                routing_role=(
+                    profile.metadata_routing_role or route.routing_role
+                ),
+                contract_version=profile.contract_version,
+                prompt_template_id=profile.prompt_template_id,
+                prompt_template_version=profile.prompt_template_version,
                 failure_code=failure_code,
                 failure_stage=failure_stage,
                 failure_path=failure_path,
@@ -462,6 +556,7 @@ class CaseStructuringService:
         *,
         request_fingerprints: dict[str, str] | None = None,
     ) -> dict[str, Any]:
+        profile = _structuring_contract_profile(case_input)
         attempt_id = f"ATT-{uuid.uuid4().hex}"
         run_reference = f"run:{uuid.uuid4().hex}"
         started_at = utc_audit_now()
@@ -496,7 +591,7 @@ class CaseStructuringService:
 
         if "model_metadata" in payload:
             detail = "$.model_metadata: model must not supply app-owned model_metadata"
-            rejection = CaseContractError(INVALID_CASE_DRAFT, detail)
+            rejection = CaseContractError(profile.invalid_output_code, detail)
             self._persist_rejection(
                 attempt_id=attempt_id,
                 run_reference=run_reference,
@@ -505,7 +600,7 @@ class CaseStructuringService:
                 route=route,
                 request_fingerprints=request_fingerprints,
                 generation=generation,
-                failure_code=INVALID_CASE_DRAFT,
+                failure_code=profile.invalid_output_code,
                 failure_stage=FAILURE_SEMANTIC_VALIDATION,
                 failure_path="$.model_metadata",
                 failure_detail=detail,
@@ -520,25 +615,40 @@ class CaseStructuringService:
             "adapter": self.client.adapter_id,
             "provider": self.client.provider_id,
             "model": route.name,
-            "schema_version": CONTRACT_VERSION,
-            "prompt_template_id": PROMPT_TEMPLATE_ID,
-            "prompt_template_version": PROMPT_TEMPLATE_VERSION,
+            "schema_version": profile.contract_version,
+            "prompt_template_id": profile.prompt_template_id,
+            "prompt_template_version": profile.prompt_template_version,
             "run_reference": run_reference,
             "generated_at": utc_now(),
-            "routing_role": route.routing_role,
+            "routing_role": (
+                profile.metadata_routing_role or route.routing_role
+            ),
         }
+        if profile.contract_version == V4_CONTRACT_VERSION:
+            draft["model_metadata"]["structured_generation_mechanism"] = (
+                self.client.structured_generation_capability.mechanism
+            )
         try:
             # #76 contract: this remains the first and authoritative application
-            # validation call. Classification below occurs only after rejection.
-            validate_case_draft(case_input, draft)
+            # validation call. Explicit version dispatch prevents silent v3/v4
+            # relabeling while the normal entry path migrates to v4.
+            validate_structured_intake(case_input, draft)
         except CaseContractError as exc:
             failure_stage = FAILURE_SEMANTIC_VALIDATION
             try:
-                validate_schema_object(
-                    draft,
-                    "CaseDraft",
-                    INVALID_CASE_DRAFT,
-                )
+                if profile.contract_version == V3_CONTRACT_VERSION:
+                    validate_schema_object(
+                        draft,
+                        "CaseDraft",
+                        INVALID_CASE_DRAFT,
+                    )
+                else:
+                    validate_schema_object(
+                        draft,
+                        "IntakeDraft",
+                        INVALID_INTAKE_DRAFT,
+                        schema_path=V4_SCHEMA_PATH,
+                    )
             except CaseContractError:
                 failure_stage = FAILURE_SCHEMA_VALIDATION
             failure_path, _ = split_validation_detail(exc.detail)
@@ -565,6 +675,7 @@ class CaseStructuringService:
         *,
         request_fingerprints: dict[str, str] | None = None,
     ) -> StructuringOutcome:
+        profile = _structuring_contract_profile(case_input)
         self._require_generation_compatibility()
         attempts = 0
         last_invalid: Exception | None = None
@@ -589,7 +700,7 @@ class CaseStructuringService:
             except LLMClientError as exc:
                 if exc.code in (CASE_CONTEXT_LIMIT, CASE_OUTPUT_LIMIT):
                     raise
-                if exc.code == INVALID_CASE_DRAFT:
+                if exc.code in {INVALID_CASE_DRAFT, INVALID_INTAKE_DRAFT}:
                     last_invalid = exc
                     continue
                 provider_error = exc
@@ -623,7 +734,7 @@ class CaseStructuringService:
             if isinstance(last_invalid, CaseContractError):
                 raise last_invalid
             raise LLMClientError(
-                INVALID_CASE_DRAFT,
+                profile.invalid_output_code,
                 getattr(last_invalid, "detail", str(last_invalid)),
                 retryable=False,
             )
