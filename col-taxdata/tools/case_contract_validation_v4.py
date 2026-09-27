@@ -138,33 +138,23 @@ def _validate_canonical_source_statement(fragment: dict[str, Any]) -> None:
             "document_ref",
             "authority_ref",
             "evidence_refs",
+            "provision_ref",
+            "provision_type",
+            "designation",
         },
-        optional={"provision_ref", "provision_type", "designation"},
     )
-    if data["statement_scope"] not in {
-        "canonical_provision",
-        "canonical_document_segment",
-    }:
-        raise ValueError("unsupported canonical source statement_scope")
+    if data["statement_scope"] != "canonical_provision":
+        raise ValueError(
+            "canonical_source_statement v1 is restricted to canonical provisions"
+        )
     _rule_ref(data["document_ref"], "document")
     authority_ref = _rule_ref(data["authority_ref"], "authority")
     evidence_refs = _rule_refs(data["evidence_refs"], "evidence")
-
-    provision_fields = {"provision_ref", "provision_type", "designation"}
-    if data["statement_scope"] == "canonical_provision":
-        if not provision_fields.issubset(data):
-            raise ValueError(
-                "canonical_provision statement requires provision metadata"
-            )
-        _rule_ref(data["provision_ref"], "provision")
-        if not isinstance(data["provision_type"], str) or not data["provision_type"]:
-            raise ValueError("provision_type must be non-empty")
-        if not isinstance(data["designation"], str) or not data["designation"]:
-            raise ValueError("designation must be non-empty")
-    elif provision_fields.intersection(data):
-        raise ValueError(
-            "canonical_document_segment cannot carry provision metadata"
-        )
+    _rule_ref(data["provision_ref"], "provision")
+    if not isinstance(data["provision_type"], str) or not data["provision_type"]:
+        raise ValueError("provision_type must be non-empty")
+    if not isinstance(data["designation"], str) or not data["designation"]:
+        raise ValueError("designation must be non-empty")
 
     if fragment["derivation"] != {
         "method": "extractive_normalization",
