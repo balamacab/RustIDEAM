@@ -22,6 +22,7 @@ from legal_authority_classification import (
 
 
 ANCHOR_VERSION = "canonical-legal-span-v1"
+CANONICAL_EVIDENCE_SPAN_REF_VERSION = "1"
 RULE_DERIVATION_VERSION = "1"
 RULE_SCHEMA_VERSION = "1"
 CANONICAL_SOURCE_STATEMENT_RULE = "canonical_source_statement"
@@ -509,7 +510,13 @@ def _canonical_evidence_span(
         "kind": "evidence_span",
         "contract_version": CONTRACT_VERSION,
         "evidence_ref": evidence_ref,
-        "span_ref": _stable_ref("span", *anchor),
+        "span_ref": _stable_ref(
+            "span",
+            "canonical_evidence",
+            CANONICAL_EVIDENCE_SPAN_REF_VERSION,
+            evidence_id,
+            *anchor,
+        ),
         "authority_ref": authority_ref,
         "document_ref": f"document:{row['document_id']}",
         "exact_text": row["exact_quote"],
@@ -899,6 +906,7 @@ def build_legal_research_bundle(
             sorted(calculations),
             sorted(unresolved),
             ANCHOR_VERSION,
+            CANONICAL_EVIDENCE_SPAN_REF_VERSION,
             RULE_DERIVATION_VERSION,
         ),
         "status": _status(
