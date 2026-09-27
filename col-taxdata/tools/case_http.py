@@ -14,6 +14,7 @@ import sys
 from typing import Any, Callable
 
 from case_attempt_evidence import RejectedStructuringEvidenceStore
+from case_intake_factory import build_case_intake_composition
 from case_application import (
     AnalysisOutcome,
     CaseAnalysisIntegrityError,
@@ -39,10 +40,7 @@ from llm_client import (
     CASE_STRUCTURING_UNAVAILABLE,
     ContextLimitError,
     LLMClientError,
-    OpenAICompatibleLLMClient,
     OutputLimitError,
-    CaseStructuringService,
-    load_platform_config,
 )
 
 
@@ -500,16 +498,14 @@ def build_runtime_application(
     dry_run: bool,
 ) -> tuple[CaseHTTPApplication, str, str]:
     """Construct server-side runtime configuration once for all HTTP requests."""
-    config = load_platform_config(config_path)
-    client = OpenAICompatibleLLMClient(config)
     evidence_store = RejectedStructuringEvidenceStore(
         case_root / "_audit" / "rejected-structuring-attempts"
     )
-    structurer = CaseStructuringService(
-        config,
-        client,
+    composition = build_case_intake_composition(
+        config_path,
         evidence_store=evidence_store,
     )
+    structurer = composition.structurer
 
     def analyzer(
         case_input: dict[str, Any],
@@ -531,8 +527,8 @@ def build_runtime_application(
             analyzer,
             forward_request_fingerprints=True,
         ),
-        config.provider,
-        config.primary.name,
+        composition.provider,
+        composition.primary_model,
     )
 
 
