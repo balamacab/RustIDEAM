@@ -7,8 +7,9 @@ from pathlib import Path
 import sys
 
 from case_application import (
+    AnalysisOutcome,
     CaseAnalysisIntegrityError,
-    CaseResearchNotImplementedError,
+    ResearchAnalysisOutcome,
     analyze_case,
 )
 from case_attempt_evidence import RejectedStructuringEvidenceStore
@@ -28,13 +29,6 @@ DEFAULT_CONFIG = ROOT / "config" / "llm" / "local-platform.yaml"
 
 
 def _error_payload(exc: Exception) -> dict[str, object]:
-    if isinstance(exc, CaseResearchNotImplementedError):
-        return {
-            "error": exc.code,
-            "detail": exc.detail,
-            "transition_state": "intake_accepted_research_pending",
-            "intake_draft": exc.intake_draft,
-        }
     if isinstance(exc, (ContextLimitError, OutputLimitError)):
         return {
             "error": exc.code,
@@ -61,8 +55,8 @@ def _error_payload(exc: Exception) -> dict[str, object]:
 def main() -> int:
     parser = argparse.ArgumentParser(
         description=(
-            "Structure a natural-language legal/tax case through the v4 "
-            "intake-only boundary. Platform research is added by #137."
+            "Structure a natural-language legal/tax case and run the v4 "
+            "platform-owned evidence-first research stage."
         )
     )
     parser.add_argument("--input", required=True, help="UTF-8 natural-language case file")
@@ -75,16 +69,16 @@ def main() -> int:
         "--dry-run",
         action="store_true",
         help=(
-            "Compatibility option. The #136 v4 intake-only transition performs "
-            "no registration/materialization; later research stages may reuse it."
+            "Compatibility option. v4 research is intrinsically read-only and "
+            "performs no CASE claim registration/materialization."
         ),
     )
     parser.add_argument(
         "--debug-provenance",
         action="store_true",
         help=(
-            "Compatibility option. The #136 v4 intake-only transition emits no "
-            "canonical CaseEvidence debug provenance."
+            "Compatibility option for the historical v3 path. v4 research "
+            "already returns explicit internal query/hit provenance candidates."
         ),
     )
     args = parser.parse_args()
@@ -123,7 +117,6 @@ def main() -> int:
         LLMClientError,
         RetrievalIntegrityError,
         CaseAnalysisIntegrityError,
-        CaseResearchNotImplementedError,
         OSError,
         ValueError,
     ) as exc:
@@ -133,21 +126,39 @@ def main() -> int:
         )
         return 2
 
-    payload: dict[str, object] = {
-        "case_ref": outcome.case_ref,
-        "case_result": outcome.result,
-        "persistence": {
-            "mode": outcome.persistence_mode,
-            "case_reused": outcome.registration["case_reused"],
-            "claims_inserted": outcome.registration["claims_inserted"],
-            "claims_reused": outcome.registration["claims_reused"],
-            "evidence_inserted": outcome.registration["evidence_inserted"],
-            "materializations_updated": outcome.materialization["updated_count"],
-            "bundle_valid": outcome.validation["valid"],
-        },
-    }
-    if args.debug_provenance:
-        payload["debug"] = {"internal_case_id": outcome.case_id}
+    if isinstance(outcome, ResearchAnalysisOutcome):
+        payload: dict[str, object] = {
+            "case_ref": outcome.case_ref,
+            "intake_draft": outcome.intake_draft,
+            "research_plan": outcome.research_plan,
+            "research_result": outcome.research_result,
+            "research_evidence_candidates": list(outcome.evidence_candidates),
+            "canonical_authorities": list(outcome.authorities),
+            "normative_relationships": list(outcome.relationships),
+            "unresolved": list(outcome.unresolved),
+            "persistence": {
+                "mode": outcome.persistence_mode,
+                "claims_persisted": 0,
+                "research_state_persisted": False,
+            },
+        }
+    else:
+        assert isinstance(outcome, AnalysisOutcome)
+        payload = {
+            "case_ref": outcome.case_ref,
+            "case_result": outcome.result,
+            "persistence": {
+                "mode": outcome.persistence_mode,
+                "case_reused": outcome.registration["case_reused"],
+                "claims_inserted": outcome.registration["claims_inserted"],
+                "claims_reused": outcome.registration["claims_reused"],
+                "evidence_inserted": outcome.registration["evidence_inserted"],
+                "materializations_updated": outcome.materialization["updated_count"],
+                "bundle_valid": outcome.validation["valid"],
+            },
+        }
+        if args.debug_provenance:
+            payload["debug"] = {"internal_case_id": outcome.case_id}
 
     print(json.dumps(payload, ensure_ascii=False, indent=2))
     return 0
