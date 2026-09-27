@@ -491,9 +491,9 @@ def _candidate_from_hit(
 ) -> dict[str, Any]:
     item: dict[str, Any] = {
         "kind": "research_evidence_candidate",
-        "task_ref": task["task_ref"],
-        "question_ref": task["question_ref"],
-        "query_text": task["query_text"],
+        "task_refs": [task["task_ref"]],
+        "question_refs": [task["question_ref"]],
+        "query_texts": [task["query_text"]],
         "extracted_segment_id": hit.extracted_segment_id,
         "extraction_id": hit.extraction_id,
         "sequence_no": hit.sequence_no,
@@ -587,7 +587,7 @@ class PlatformResearchService:
         }
         queries_by_question: dict[str, int] = {}
         trace: list[dict[str, Any]] = []
-        candidates: dict[tuple[str, str], dict[str, Any]] = {}
+        candidates: dict[str, dict[str, Any]] = {}
         authorities: dict[str, dict[str, Any]] = {}
         relationships: dict[str, dict[str, Any]] = {}
         unresolved: dict[str, dict[str, Any]] = {}
@@ -640,8 +640,20 @@ class PlatformResearchService:
 
             for hit in unique_hits:
                 provision = retrieval.provision_for_segment(hit.extracted_segment_id)
-                candidate = _candidate_from_hit(task, hit, provision)
-                candidates[(task["task_ref"], hit.extracted_segment_id)] = candidate
+                candidate = candidates.get(hit.extracted_segment_id)
+                if candidate is None:
+                    candidate = _candidate_from_hit(task, hit, provision)
+                    candidates[hit.extracted_segment_id] = candidate
+                else:
+                    candidate["task_refs"] = sorted(
+                        set(candidate["task_refs"]) | {task["task_ref"]}
+                    )
+                    candidate["question_refs"] = sorted(
+                        set(candidate["question_refs"]) | {task["question_ref"]}
+                    )
+                    candidate["query_texts"] = sorted(
+                        set(candidate["query_texts"]) | {task["query_text"]}
+                    )
 
                 if hit.document_id is None:
                     item = _unresolved(
@@ -670,11 +682,6 @@ class PlatformResearchService:
                 authorities[authority_ref] = deepcopy(authority)
                 step_authorities.add(authority_ref)
                 question_authorities.setdefault(question_ref, set()).add(authority_ref)
-
-                for source in classified["sources"]:
-                    # OfficialSource objects are intentionally not duplicated in
-                    # ResearchResult; #138/#140 materialize them into the bundle.
-                    del source
 
                 for relation in classified["relationships"]:
                     relationships[str(relation["relationship_ref"])] = deepcopy(relation)
