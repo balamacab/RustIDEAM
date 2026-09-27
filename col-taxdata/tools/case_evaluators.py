@@ -130,14 +130,14 @@ def _uvt_values_in_quote(quote: str) -> set[Decimal]:
     values: set[Decimal] = set()
     for match in re.finditer(
         r"(?<![A-Za-z0-9])"
-        r"(?P<value>[0-9]{1,3}(?:[.\\s][0-9]{3})+|[0-9]+(?:[.,][0-9]+)?)"
-        r"\\s*UVT\\b",
+        r"(?P<value>[0-9]{1,3}(?:[.\s][0-9]{3})+|[0-9]+(?:[.,][0-9]+)?)"
+        r"\s*UVT\b",
         quote,
         re.IGNORECASE,
     ):
         compact = match.group("value").replace(" ", "")
         try:
-            if re.fullmatch(r"[0-9]{1,3}(?:\\.[0-9]{3})+", compact):
+            if re.fullmatch(r"[0-9]{1,3}(?:\.[0-9]{3})+", compact):
                 values.add(Decimal(compact.replace(".", "")))
             elif re.fullmatch(r"[0-9]{1,3}(?:,[0-9]{3})+", compact):
                 values.add(Decimal(compact.replace(",", "")))
