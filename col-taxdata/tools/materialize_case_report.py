@@ -140,7 +140,7 @@ def render_report(
     unresolved = load_unresolved(case_dir)
 
     lines: list[str] = []
-    lines.append(f"# {case_id} — Informe canónico")
+    lines.append(f"# {case_id} — Informe histórico v3 (compatibilidad)")
     lines.append("")
     lines.append("## Estado del expediente")
     lines.append("")
@@ -162,7 +162,17 @@ def render_report(
     lines.append(f"- Pendientes fácticos: {len(unresolved)}")
     lines.append("")
 
-    lines.append("## Conclusiones jurídicas registradas")
+    # This reader exposes historical v3 claim state. Label ownership explicitly
+    # so candidate/model-era text cannot be mistaken for v4 canonical authority.
+    lines.append("## Claims jurídicos históricos v3 (compatibilidad)")
+    lines.append("")
+    lines.append(
+        "> Propiedad: `historical_v3_claim_state`. Esta sección conserva el "
+        "modelo de persistencia v3 para compatibilidad y auditoría. Sus claims "
+        "mantienen el estado registrado; no son CanonicalAuthority, "
+        "EvidenceSpan, RuleFragment ni DeterministicEvaluation v4, y un claim "
+        "`candidate` o no soportado no constituye autoridad jurídica canónica."
+    )
     lines.append("")
     for (
         claim_id,
@@ -178,7 +188,7 @@ def render_report(
         lines.append(object_literal or "")
         lines.append("")
         lines.append(
-            f"Estado: **{status}** · "
+            f"Propiedad: `historical_v3_claim_state` · Estado: **{status}** · "
             f"Tipo: `{claim_type}` · "
             f"Evidencias directas: {len(evidence)} · "
             f"Revisión humana requerida: "

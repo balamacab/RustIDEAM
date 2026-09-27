@@ -1,4 +1,4 @@
-# CASE-0001 — Informe canónico
+# CASE-0001 — Informe histórico v3 (compatibilidad)
 
 ## Estado del expediente
 
@@ -11,13 +11,15 @@
 - Fuentes canónicas: 7
 - Pendientes fácticos: 8
 
-## Conclusiones jurídicas registradas
+## Claims jurídicos históricos v3 (compatibilidad)
+
+> Propiedad: `historical_v3_claim_state`. Esta sección conserva el modelo de persistencia v3 para compatibilidad y auditoría. Sus claims mantienen el estado registrado; no son CanonicalAuthority, EvidenceSpan, RuleFragment ni DeterministicEvaluation v4, y un claim `candidate` o no soportado no constituye autoridad jurídica canónica.
 
 ### CLM-0001
 
 Estar en proceso de liquidación no equivale a estar liquidada para efectos de cancelar el RUT.
 
-Estado: **validated** · Tipo: `case_legal_conclusion` · Evidencias directas: 3 · Revisión humana requerida: no
+Propiedad: `historical_v3_claim_state` · Estado: **validated** · Tipo: `case_legal_conclusion` · Evidencias directas: 3 · Revisión humana requerida: no
 Confianza de extracción registrada: 1
 
 | Evidencia | Fuente | Segmento | SHA-256 |
@@ -69,7 +71,7 @@ Confianza de extracción registrada: 1
 
 Una persona jurídica contribuyente del impuesto sobre la renta que no esté exceptuada de declarar por el artículo 592 del Estatuto Tributario y se liquide durante 2026 debe presentar declaración de renta por la fracción de año cuyo período fiscal concluye conforme al artículo 595 del Estatuto Tributario.
 
-Estado: **validated** · Tipo: `case_legal_conclusion` · Evidencias directas: 4 · Revisión humana requerida: no
+Propiedad: `historical_v3_claim_state` · Estado: **validated** · Tipo: `case_legal_conclusion` · Evidencias directas: 4 · Revisión humana requerida: no
 Confianza de extracción registrada: 1
 
 | Evidencia | Fuente | Segmento | SHA-256 |
@@ -135,7 +137,7 @@ Confianza de extracción registrada: 1
 
 La declaración por fracción de año puede presentarse desde el día siguiente a la liquidación.
 
-Estado: **validated** · Tipo: `case_legal_conclusion` · Evidencias directas: 1 · Revisión humana requerida: no
+Propiedad: `historical_v3_claim_state` · Estado: **validated** · Tipo: `case_legal_conclusion` · Evidencias directas: 1 · Revisión humana requerida: no
 Confianza de extracción registrada: 1
 
 | Evidencia | Fuente | Segmento | SHA-256 |
@@ -159,7 +161,7 @@ Confianza de extracción registrada: 1
 
 Para cancelar el RUT a solicitud de parte, el RUT debe estar activo y actualizado y la numeración de facturación no utilizada debe estar inhabilitada.
 
-Estado: **validated** · Tipo: `case_legal_conclusion` · Evidencias directas: 2 · Revisión humana requerida: no
+Propiedad: `historical_v3_claim_state` · Estado: **validated** · Tipo: `case_legal_conclusion` · Evidencias directas: 2 · Revisión humana requerida: no
 Confianza de extracción registrada: 1
 
 | Evidencia | Fuente | Segmento | SHA-256 |
@@ -197,7 +199,7 @@ Confianza de extracción registrada: 1
 
 DIAN verifica inexistencia de deudas exigibles y de procesos administrativos o jurisdiccionales en curso antes de cancelar el RUT.
 
-Estado: **validated** · Tipo: `case_legal_conclusion` · Evidencias directas: 2 · Revisión humana requerida: no
+Propiedad: `historical_v3_claim_state` · Estado: **validated** · Tipo: `case_legal_conclusion` · Evidencias directas: 2 · Revisión humana requerida: no
 Confianza de extracción registrada: 1
 
 | Evidencia | Fuente | Segmento | SHA-256 |
@@ -235,7 +237,7 @@ Confianza de extracción registrada: 1
 
 Los obligados al RUB deben tener presentado el reporte de beneficiarios finales para la verificación de cancelación.
 
-Estado: **validated** · Tipo: `case_legal_conclusion` · Evidencias directas: 1 · Revisión humana requerida: no
+Propiedad: `historical_v3_claim_state` · Estado: **validated** · Tipo: `case_legal_conclusion` · Evidencias directas: 1 · Revisión humana requerida: no
 Confianza de extracción registrada: 1
 
 | Evidencia | Fuente | Segmento | SHA-256 |
@@ -259,7 +261,7 @@ Confianza de extracción registrada: 1
 
 La Resolución 227 de 2025 excluye de la información exógena regulada por ella a quienes durante el año gravable de reporte adelanten el trámite de cancelación del RUT.
 
-Estado: **validated** · Tipo: `case_legal_conclusion` · Evidencias directas: 1 · Revisión humana requerida: no
+Propiedad: `historical_v3_claim_state` · Estado: **validated** · Tipo: `case_legal_conclusion` · Evidencias directas: 1 · Revisión humana requerida: no
 Confianza de extracción registrada: 1
 
 | Evidencia | Fuente | Segmento | SHA-256 |
@@ -283,7 +285,7 @@ Confianza de extracción registrada: 1
 
 El representante legal debe informar a DIAN la causal de disolución dentro de diez días conforme al artículo 847 del Estatuto Tributario.
 
-Estado: **validated** · Tipo: `case_legal_conclusion` · Evidencias directas: 1 · Revisión humana requerida: no
+Propiedad: `historical_v3_claim_state` · Estado: **validated** · Tipo: `case_legal_conclusion` · Evidencias directas: 1 · Revisión humana requerida: no
 Confianza de extracción registrada: 1
 
 | Evidencia | Fuente | Segmento | SHA-256 |
