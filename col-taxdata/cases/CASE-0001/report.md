@@ -1,4 +1,4 @@
-# CASE-0001 — Informe canónico
+# CASE-0001 — Informe histórico v3 (compatibilidad)
 
 ## Estado del expediente
 
