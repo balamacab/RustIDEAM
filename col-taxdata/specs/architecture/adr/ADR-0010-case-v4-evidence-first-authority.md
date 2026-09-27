@@ -305,6 +305,16 @@ Forbidden dependency directions include:
 
 #143 and #145 consume only #144 at runtime. Neither adapter reads SQLite or backend filesystem state directly.
 
+## Relationship to ADR-0005
+
+ADR-0005 remains the general rule that LLM output is not canonical legal authority. ADR-0010 **narrows its broad candidate-generation allowance for the active CASE v4 internal inference path**:
+
+- an internal v4 intake model does not emit proposed legal CandidateClaim/conclusion objects at all;
+- historical v3 candidate semantics remain historical v3 semantics;
+- external consumer LLMs may still propose interpretations/synthesis, but only outside canonical col-taxdata state.
+
+This is an explicit CASE-specific refinement, not a silent reinterpretation or rewrite of ADR-0005.
+
 ## Compatibility and migration plan
 
 Implementation order is deliberately staged so v3 remains interpretable while v4 becomes active:
