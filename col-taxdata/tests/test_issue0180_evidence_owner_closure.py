@@ -12,13 +12,12 @@ sys.path.insert(0, str(ROOT / "tools"))
 
 from case_evidence_graph import build_legal_research_bundle
 from case_research import PlatformResearchService
-from test_issue0138_citable_evidence_graph import (
-    ARTICLE_592,
-    NOW,
-    Issue0138CitableEvidenceGraphTests,
-    case_input,
-    intake,
-)
+import test_issue0138_citable_evidence_graph as issue138
+
+ARTICLE_592 = issue138.ARTICLE_592
+NOW = issue138.NOW
+case_input = issue138.case_input
+intake = issue138.intake
 
 
 class Issue0180EvidenceOwnerClosureTests(unittest.TestCase):
@@ -27,10 +26,10 @@ class Issue0180EvidenceOwnerClosureTests(unittest.TestCase):
     # Reuse the small #138 SQLite corpus builder without inheriting its test
     # methods. This keeps #180 fixtures aligned with the established evidence
     # and provenance contract instead of creating a second fixture model.
-    setUp = Issue0138CitableEvidenceGraphTests.setUp
-    tearDown = Issue0138CitableEvidenceGraphTests.tearDown
+    setUp = issue138.Issue0138CitableEvidenceGraphTests.setUp
+    tearDown = issue138.Issue0138CitableEvidenceGraphTests.tearDown
     add_provision_document = (
-        Issue0138CitableEvidenceGraphTests.add_provision_document
+        issue138.Issue0138CitableEvidenceGraphTests.add_provision_document
     )
 
     def add_relationship(
@@ -90,7 +89,14 @@ class Issue0180EvidenceOwnerClosureTests(unittest.TestCase):
         finally:
             con.close()
 
-    def clone_evidence(self, *, source_evidence_id: str, evidence_id: str) -> None:
+    def add_distinct_evidence(
+        self,
+        *,
+        fixture: dict[str, str],
+        evidence_id: str,
+        exact_quote: str,
+    ) -> None:
+        offset = fixture["text"].index(exact_quote)
         con = sqlite3.connect(self.db)
         try:
             con.execute(
@@ -104,14 +110,20 @@ class Issue0180EvidenceOwnerClosureTests(unittest.TestCase):
                 )
                 SELECT
                     ?, claim_id, manifestation_id, segment_id,
-                    page_number, char_start, char_end, exact_quote,
+                    page_number, ?, ?, ?,
                     source_url, source_sha256, retrieved_at,
                     extraction_method, extractor_version, confidence,
                     review_status, extracted_segment_id
                 FROM evidence
                 WHERE evidence_id = ?
                 """,
-                (evidence_id, source_evidence_id),
+                (
+                    evidence_id,
+                    offset,
+                    offset + len(exact_quote),
+                    exact_quote,
+                    fixture["evidence_id"],
+                ),
             )
             con.commit()
         finally:
@@ -208,9 +220,10 @@ class Issue0180EvidenceOwnerClosureTests(unittest.TestCase):
     def test_multiple_refs_share_one_supporting_owner_without_duplicate_authority(self):
         _primary, supporting = self.add_primary_and_supporting_documents()
         extra_id = "EVD-support-extra"
-        self.clone_evidence(
-            source_evidence_id=supporting["evidence_id"],
+        self.add_distinct_evidence(
+            fixture=supporting,
             evidence_id=extra_id,
+            exact_quote="Texto independiente",
         )
         for evidence_id in (supporting["evidence_id"], extra_id):
             self.link_identity_evidence(
@@ -443,60 +456,28 @@ class Issue0180EvidenceOwnerClosureTests(unittest.TestCase):
             )
         )
 
-    def test_natural_person_path_reproduces_endpoint_transitive_evidence_regression(self):
-        primary = self.add_provision_document(
-            token="filing",
-            document_id="DOC-filing",
-            document_type="DECRETO",
-            number="624",
-            year=1989,
-            filename="decreto_0624_1989.htm",
-            text=ARTICLE_592,
-            designation="Artículo 592",
-        )
-        endpoint = self.add_provision_document(
-            token="filing-endpoint",
-            document_id="DOC-filing-endpoint",
-            document_type="LEY",
-            number="2010",
-            year=2019,
-            filename="ley_2010_2019.htm",
-            text="Autoridad endpoint no recuperada por similitud.",
-            designation="Artículo 1",
-        )
-        hidden = self.add_provision_document(
-            token="filing-hidden",
-            document_id="DOC-filing-hidden",
-            document_type="RESOLUCION",
-            number="3",
-            year=2020,
-            filename="resolucion_0003_2020.htm",
-            text="Autoridad de relación de segundo grado.",
-            designation="Artículo 1",
-        )
-        self.add_relationship(
-            relationship_id="REL-filing-endpoint",
-            source_document_id=primary["document_id"],
-            target_document_id=endpoint["document_id"],
-            evidence_id=primary["evidence_id"],
-        )
-        self.add_relationship(
-            relationship_id="REL-hidden",
-            source_document_id=endpoint["document_id"],
-            target_document_id=hidden["document_id"],
-            evidence_id=hidden["evidence_id"],
+    def test_natural_person_path_reproduces_absent_owner_regression(self):
+        _primary, supporting = self.add_primary_and_supporting_documents()
+        self.link_identity_evidence(
+            identifier_token="primary",
+            evidence_id=supporting["evidence_id"],
         )
 
         research = self.research()
+        self.assertNotIn(
+            "authority:DOC-support",
+            research.result["authority_refs"],
+        )
         bundle = self.build(research)
 
-        self.assertIn("authority:DOC-filing-endpoint", {
-            item["authority_ref"] for item in bundle["authorities"]
-        })
-        self.assertNotIn("authority:DOC-filing-hidden", {
-            item["authority_ref"] for item in bundle["authorities"]
-        })
-        self.assertTrue(bundle["evidence_spans"])
+        self.assertIn(
+            "authority:DOC-support",
+            {item["authority_ref"] for item in bundle["authorities"]},
+        )
+        self.assertIn(
+            f"evidence:{supporting['evidence_id']}",
+            {item["evidence_ref"] for item in bundle["evidence_spans"]},
+        )
 
     def test_basic_and_multi_question_paths_remain_materializable(self):
         self.add_provision_document(
