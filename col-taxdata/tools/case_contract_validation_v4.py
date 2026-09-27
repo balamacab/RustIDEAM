@@ -200,7 +200,19 @@ def intake_draft_generation_schema(
     """
     validate_case_input(case_input)
     root = load_contract_schema(SCHEMA_PATH)
-    definitions = deepcopy(root["$defs"])
+    # Give the intake model only the vocabulary it is authorized to produce.
+    # Platform research/evidence/rule definitions remain absent even as unused
+    # $defs so they cannot become prompt-visible pseudo-authority.
+    allowed_definitions = (
+        "IntakeDraft",
+        "IntakeFact",
+        "CaseQuestion",
+        "SearchHint",
+    )
+    definitions = {
+        name: deepcopy(root["$defs"][name])
+        for name in allowed_definitions
+    }
     draft = definitions["IntakeDraft"]
 
     for name in (
