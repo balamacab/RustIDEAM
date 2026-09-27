@@ -444,7 +444,28 @@ class Issue0136IntakeOnlyV4Tests(unittest.TestCase):
             platform_research.assert_called_once()
             call = platform_research.call_args.kwargs
             self.assertEqual(call["case_input"], case_input())
-            self.assertEqual(call["intake_draft"], outcome.intake_draft)\n            self.assertIn("model_metadata", call["intake_draft"])
+            self.assertEqual(call["intake_draft"], outcome.intake_draft)
+            expected_intake = complete_intake()
+            for field in (
+                "kind",
+                "contract_version",
+                "intake_ref",
+                "problem_text",
+                "as_of_date",
+                "client_reference",
+                "caller_metadata",
+                "facts",
+                "questions",
+                "search_hints",
+            ):
+                self.assertEqual(
+                    call["intake_draft"][field],
+                    expected_intake[field],
+                )
+            self.assertEqual(
+                call["intake_draft"]["model_metadata"]["routing_role"],
+                "intake_structuring",
+            )
             self.assertFalse(db.exists())
             self.assertFalse(case_root.exists())
 
