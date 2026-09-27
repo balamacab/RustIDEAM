@@ -549,6 +549,7 @@ class Issue0137EvidenceFirstResearchTests(unittest.TestCase):
             "related_question_refs": ["question:filing"],
         }
         service = PlatformResearchService(self.db)
+        before_sha = hashlib.sha256(self.db.read_bytes()).hexdigest()
         first = service.research(
             case_input=case_input(),
             intake_draft=intake(hints=[hint]),
@@ -559,7 +560,15 @@ class Issue0137EvidenceFirstResearchTests(unittest.TestCase):
             intake_draft=intake(hints=[hint]),
             generated_at=NOW,
         )
+        after_sha = hashlib.sha256(self.db.read_bytes()).hexdigest()
+        con = sqlite3.connect(self.db)
+        try:
+            claim_count = con.execute("SELECT COUNT(*) FROM claims").fetchone()[0]
+        finally:
+            con.close()
 
+        self.assertEqual(before_sha, after_sha)
+        self.assertEqual(claim_count, 0)
         self.assertEqual(first.plan, second.plan)
         self.assertEqual(first.result, second.result)
         self.assertEqual(first.evidence_candidates, second.evidence_candidates)
