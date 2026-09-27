@@ -1,0 +1,199 @@
+{
+  "api_version": "1.0.0",
+  "request_fingerprints": {
+    "raw_request_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "case_input_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  },
+  "bundle": {
+    "kind": "legal_research_bundle",
+    "contract_version": "4.0.0",
+    "bundle_ref": "bundle:issue144-blocked",
+    "status": "blocked",
+    "case_input": {
+      "kind": "case_input",
+      "contract_version": "4.0.0",
+      "problem_text": "El cliente consulta qué norma controla el tratamiento jurídico de dos fechas posibles: 1 y 15 de septiembre de 2026.",
+      "as_of_date": "2026-09-27",
+      "client_reference": "matter-144",
+      "caller_metadata": {
+        "channel": "contract-fixture",
+        "attempt": 1
+      }
+    },
+    "intake_draft": {
+      "kind": "intake_draft",
+      "contract_version": "4.0.0",
+      "intake_ref": "intake:issue144",
+      "problem_text": "El cliente consulta qué norma controla el tratamiento jurídico de dos fechas posibles: 1 y 15 de septiembre de 2026.",
+      "as_of_date": "2026-09-27",
+      "client_reference": "matter-144",
+      "caller_metadata": {
+        "channel": "contract-fixture",
+        "attempt": 1
+      },
+      "facts": [
+        {
+          "kind": "intake_fact",
+          "contract_version": "4.0.0",
+          "fact_ref": "fact:dates",
+          "label": "Fechas posibles",
+          "value": "1 y 15 de septiembre de 2026",
+          "state": "user_provided",
+          "source_quote": "El cliente consulta qué norma controla el tratamiento jurídico de dos fechas posibles: 1 y 15 de septiembre de 2026.",
+          "requires_confirmation": false
+        },
+        {
+          "kind": "intake_fact",
+          "contract_version": "4.0.0",
+          "fact_ref": "fact:controlling-date",
+          "label": "Fecha jurídicamente aplicable",
+          "state": "ambiguous",
+          "requires_confirmation": true,
+          "needed_information": "Determinar con evidencia jurídica cuál fecha controla."
+        }
+      ],
+      "questions": [
+        {
+          "kind": "case_question",
+          "contract_version": "4.0.0",
+          "question_ref": "question:date-effect",
+          "text": "¿Cuál fecha produce el efecto jurídico relevante?",
+          "category": "legal",
+          "status": "open",
+          "depends_on_fact_refs": [
+            "fact:dates"
+          ]
+        }
+      ],
+      "search_hints": [
+        {
+          "kind": "search_hint",
+          "contract_version": "4.0.0",
+          "hint_ref": "hint:temporal",
+          "terms": [
+            "vigencia",
+            "fecha aplicable"
+          ],
+          "origin": "internal_intake_model",
+          "related_question_refs": [
+            "question:date-effect"
+          ]
+        }
+      ],
+      "model_metadata": {
+        "adapter": "contract-fixture",
+        "provider": "fixture-provider",
+        "model": "fixture-model",
+        "schema_version": "4.0.0",
+        "prompt_template_id": "case-intake-v4",
+        "prompt_template_version": "1",
+        "run_reference": "run:issue144",
+        "generated_at": "2026-09-27T08:00:00Z",
+        "routing_role": "intake_structuring",
+        "structured_generation_mechanism": "fixture"
+      }
+    },
+    "research_plan": {
+      "kind": "research_plan",
+      "contract_version": "4.0.0",
+      "plan_ref": "plan:issue144",
+      "intake_ref": "intake:issue144",
+      "as_of_date": "2026-09-27",
+      "tasks": [
+        {
+          "kind": "research_task",
+          "contract_version": "4.0.0",
+          "task_ref": "task:date-effect",
+          "question_ref": "question:date-effect",
+          "origin": "platform_required",
+          "purpose": "primary_research",
+          "query_text": "vigencia efecto jurídico fecha",
+          "generated_from_fact_refs": [
+            "fact:dates"
+          ],
+          "hint_refs": [
+            "hint:temporal"
+          ],
+          "depth": 0
+        }
+      ],
+      "bounds": {
+        "max_rounds": 2,
+        "max_queries_per_question": 3,
+        "max_hits_per_query": 10,
+        "max_reference_depth": 1,
+        "max_total_authorities": 20
+      },
+      "stop_conditions": [
+        "questions_satisfied",
+        "bounds_exhausted"
+      ],
+      "planner_version": "planner-fixture-1",
+      "generated_at": "2026-09-27T08:01:00Z"
+    },
+    "research_result": {
+      "kind": "research_result",
+      "contract_version": "4.0.0",
+      "result_ref": "research:issue144",
+      "plan_ref": "plan:issue144",
+      "status": "blocked",
+      "trace": [
+        {
+          "kind": "research_trace_step",
+          "contract_version": "4.0.0",
+          "trace_ref": "trace:date-effect",
+          "task_ref": "task:date-effect",
+          "round": 1,
+          "query_text": "vigencia efecto jurídico fecha",
+          "outcome": "blocked",
+          "hit_count": 0,
+          "authority_refs": [],
+          "unresolved_refs": [
+            "unresolved:date"
+          ],
+          "stop_reason": "blocked_by_missing_facts"
+        }
+      ],
+      "authority_refs": [],
+      "unresolved_refs": [
+        "unresolved:date"
+      ],
+      "research_context": {
+        "corpus_snapshot_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+        "schema_migration_fingerprint": "schema-fixture-1",
+        "retrieval_config_sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+        "planner_version": "planner-fixture-1",
+        "retrieval_version": "retrieval-fixture-1",
+        "as_of_date": "2026-09-27",
+        "unavailable_fields": []
+      },
+      "generated_at": "2026-09-27T08:02:00Z"
+    },
+    "sources": [],
+    "authorities": [],
+    "evidence_spans": [],
+    "normative_relationships": [],
+    "rule_fragments": [],
+    "deterministic_evaluations": [],
+    "calculation_traces": [],
+    "unresolved": [
+      {
+        "kind": "unresolved_item",
+        "contract_version": "4.0.0",
+        "unresolved_ref": "unresolved:date",
+        "stage": "intake",
+        "category": "ambiguous_fact",
+        "description": "The controlling date remains ambiguous and must not be guessed.",
+        "related_fact_refs": [
+          "fact:controlling-date"
+        ],
+        "related_question_refs": [
+          "question:date-effect"
+        ],
+        "needed_information": "Confirm which legally relevant event occurred on each candidate date.",
+        "next_action": "ask_client"
+      }
+    ],
+    "generated_at": "2026-09-27T08:03:00Z"
+  }
+}

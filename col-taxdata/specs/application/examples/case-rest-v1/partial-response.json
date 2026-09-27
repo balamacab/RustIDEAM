@@ -1,0 +1,275 @@
+{
+  "api_version": "1.0.0",
+  "request_fingerprints": {
+    "raw_request_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "case_input_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  },
+  "bundle": {
+    "kind": "legal_research_bundle",
+    "contract_version": "4.0.0",
+    "bundle_ref": "bundle:issue144",
+    "status": "partial",
+    "case_input": {
+      "kind": "case_input",
+      "contract_version": "4.0.0",
+      "problem_text": "El cliente consulta qué norma controla el tratamiento jurídico de dos fechas posibles: 1 y 15 de septiembre de 2026.",
+      "as_of_date": "2026-09-27",
+      "client_reference": "matter-144",
+      "caller_metadata": {
+        "channel": "contract-fixture",
+        "attempt": 1
+      }
+    },
+    "intake_draft": {
+      "kind": "intake_draft",
+      "contract_version": "4.0.0",
+      "intake_ref": "intake:issue144",
+      "problem_text": "El cliente consulta qué norma controla el tratamiento jurídico de dos fechas posibles: 1 y 15 de septiembre de 2026.",
+      "as_of_date": "2026-09-27",
+      "client_reference": "matter-144",
+      "caller_metadata": {
+        "channel": "contract-fixture",
+        "attempt": 1
+      },
+      "facts": [
+        {
+          "kind": "intake_fact",
+          "contract_version": "4.0.0",
+          "fact_ref": "fact:dates",
+          "label": "Fechas posibles",
+          "value": "1 y 15 de septiembre de 2026",
+          "state": "user_provided",
+          "source_quote": "El cliente consulta qué norma controla el tratamiento jurídico de dos fechas posibles: 1 y 15 de septiembre de 2026.",
+          "requires_confirmation": false
+        },
+        {
+          "kind": "intake_fact",
+          "contract_version": "4.0.0",
+          "fact_ref": "fact:controlling-date",
+          "label": "Fecha jurídicamente aplicable",
+          "state": "ambiguous",
+          "requires_confirmation": true,
+          "needed_information": "Determinar con evidencia jurídica cuál fecha controla."
+        }
+      ],
+      "questions": [
+        {
+          "kind": "case_question",
+          "contract_version": "4.0.0",
+          "question_ref": "question:date-effect",
+          "text": "¿Cuál fecha produce el efecto jurídico relevante?",
+          "category": "legal",
+          "status": "open",
+          "depends_on_fact_refs": [
+            "fact:dates"
+          ]
+        }
+      ],
+      "search_hints": [
+        {
+          "kind": "search_hint",
+          "contract_version": "4.0.0",
+          "hint_ref": "hint:temporal",
+          "terms": [
+            "vigencia",
+            "fecha aplicable"
+          ],
+          "origin": "internal_intake_model",
+          "related_question_refs": [
+            "question:date-effect"
+          ]
+        }
+      ],
+      "model_metadata": {
+        "adapter": "contract-fixture",
+        "provider": "fixture-provider",
+        "model": "fixture-model",
+        "schema_version": "4.0.0",
+        "prompt_template_id": "case-intake-v4",
+        "prompt_template_version": "1",
+        "run_reference": "run:issue144",
+        "generated_at": "2026-09-27T08:00:00Z",
+        "routing_role": "intake_structuring",
+        "structured_generation_mechanism": "fixture"
+      }
+    },
+    "research_plan": {
+      "kind": "research_plan",
+      "contract_version": "4.0.0",
+      "plan_ref": "plan:issue144",
+      "intake_ref": "intake:issue144",
+      "as_of_date": "2026-09-27",
+      "tasks": [
+        {
+          "kind": "research_task",
+          "contract_version": "4.0.0",
+          "task_ref": "task:date-effect",
+          "question_ref": "question:date-effect",
+          "origin": "platform_required",
+          "purpose": "primary_research",
+          "query_text": "vigencia efecto jurídico fecha",
+          "generated_from_fact_refs": [
+            "fact:dates"
+          ],
+          "hint_refs": [
+            "hint:temporal"
+          ],
+          "depth": 0
+        }
+      ],
+      "bounds": {
+        "max_rounds": 2,
+        "max_queries_per_question": 3,
+        "max_hits_per_query": 10,
+        "max_reference_depth": 1,
+        "max_total_authorities": 20
+      },
+      "stop_conditions": [
+        "questions_satisfied",
+        "bounds_exhausted"
+      ],
+      "planner_version": "planner-fixture-1",
+      "generated_at": "2026-09-27T08:01:00Z"
+    },
+    "research_result": {
+      "kind": "research_result",
+      "contract_version": "4.0.0",
+      "result_ref": "research:issue144",
+      "plan_ref": "plan:issue144",
+      "status": "partial",
+      "trace": [
+        {
+          "kind": "research_trace_step",
+          "contract_version": "4.0.0",
+          "trace_ref": "trace:date-effect",
+          "task_ref": "task:date-effect",
+          "round": 1,
+          "query_text": "vigencia efecto jurídico fecha",
+          "outcome": "hits",
+          "hit_count": 1,
+          "authority_refs": [
+            "authority:law"
+          ],
+          "unresolved_refs": [
+            "unresolved:interpretive"
+          ],
+          "stop_reason": "questions_satisfied"
+        }
+      ],
+      "authority_refs": [
+        "authority:law"
+      ],
+      "unresolved_refs": [
+        "unresolved:interpretive"
+      ],
+      "research_context": {
+        "corpus_snapshot_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+        "schema_migration_fingerprint": "schema-fixture-1",
+        "retrieval_config_sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+        "planner_version": "planner-fixture-1",
+        "retrieval_version": "retrieval-fixture-1",
+        "as_of_date": "2026-09-27",
+        "unavailable_fields": []
+      },
+      "generated_at": "2026-09-27T08:02:00Z"
+    },
+    "sources": [
+      {
+        "kind": "official_source",
+        "contract_version": "4.0.0",
+        "source_ref": "source:fixture",
+        "authority": "Official fixture source",
+        "source_uri": "https://example.invalid/official/authority",
+        "source_kind": "official_publication",
+        "title": "Official source fixture"
+      }
+    ],
+    "authorities": [
+      {
+        "kind": "canonical_authority",
+        "contract_version": "4.0.0",
+        "authority_ref": "authority:law",
+        "document_ref": "document:law",
+        "provision_refs": [
+          "provision:article-1"
+        ],
+        "display_name": "Documento jurídico de prueba",
+        "document_type": "LEY",
+        "issuer": "CONGRESO",
+        "jurisdiction_scope": "CO",
+        "source_family": "NORMATIVE_ACT",
+        "legal_function": "normative",
+        "classification_state": "resolved",
+        "temporal_state": {
+          "as_of_date": "2026-09-27",
+          "resolution_state": "resolved",
+          "effective": true,
+          "basis_evidence_refs": [
+            "evidence:article-1"
+          ]
+        },
+        "evidence_refs": [
+          "evidence:article-1"
+        ],
+        "relationship_refs": [],
+        "source_refs": [
+          "source:fixture"
+        ],
+        "publication_metadata": {
+          "state": "resolved",
+          "publication_dates": [
+            "2020-01-01"
+          ],
+          "promulgation_dates": [],
+          "publication_reference": "Publicación oficial de prueba",
+          "evidence_refs": [
+            "evidence:article-1"
+          ]
+        }
+      }
+    ],
+    "evidence_spans": [
+      {
+        "kind": "evidence_span",
+        "contract_version": "4.0.0",
+        "evidence_ref": "evidence:article-1",
+        "span_ref": "span:article-1",
+        "authority_ref": "authority:law",
+        "document_ref": "document:law",
+        "provision_ref": "provision:article-1",
+        "exact_text": "Artículo 1. Texto jurídico exacto de prueba.",
+        "source_ref": "source:fixture",
+        "source_sha256": "3333333333333333333333333333333333333333333333333333333333333333",
+        "text_sha256": "4444444444444444444444444444444444444444444444444444444444444444",
+        "provenance_ref": "provenance:article-1",
+        "anchor_version": "1",
+        "retrieved_at": "2026-09-27T08:00:00Z"
+      }
+    ],
+    "normative_relationships": [],
+    "rule_fragments": [],
+    "deterministic_evaluations": [],
+    "calculation_traces": [],
+    "unresolved": [
+      {
+        "kind": "unresolved_item",
+        "contract_version": "4.0.0",
+        "unresolved_ref": "unresolved:interpretive",
+        "stage": "evaluation",
+        "category": "requires_interpretive_synthesis",
+        "description": "Canonical evidence is available, but no deterministic evaluator owns the requested interpretation.",
+        "related_question_refs": [
+          "question:date-effect"
+        ],
+        "related_authority_refs": [
+          "authority:law"
+        ],
+        "related_evidence_refs": [
+          "evidence:article-1"
+        ],
+        "next_action": "external_interpretive_synthesis"
+      }
+    ],
+    "generated_at": "2026-09-27T08:03:00Z"
+  }
+}
