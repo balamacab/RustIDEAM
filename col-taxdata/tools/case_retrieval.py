@@ -256,3 +256,88 @@ class CorpusRetrievalService:
             "designation": row[3],
             "title": row[4],
         }
+
+
+    def resolved_references_for_segment(
+        self,
+        extracted_segment_id: str,
+    ) -> list[dict[str, Any]]:
+        """Return only explicitly resolved canonical references from one hit.
+
+        Candidate/ambiguous reference mentions are deliberately excluded: #137
+        may expand through supported canonical resolution, never through a guess.
+        """
+        rows = self.con.execute(
+            """
+            SELECT DISTINCT
+                rm.normalized_reference,
+                rr.target_document_id,
+                rr.target_provision_id
+            FROM reference_mentions rm
+            JOIN reference_resolutions rr
+              ON rr.reference_mention_id = rm.reference_mention_id
+             AND rr.status = 'resolved'
+             AND rr.requires_human_review = 0
+            WHERE rm.extracted_segment_id = ?
+              AND rr.target_document_id IS NOT NULL
+            ORDER BY
+                rm.normalized_reference,
+                rr.target_document_id,
+                rr.target_provision_id
+            """,
+            (extracted_segment_id,),
+        ).fetchall()
+
+        result: list[dict[str, Any]] = []
+        for row in rows:
+            query_text = row[0]
+            if row[2] is not None:
+                provision = self.con.execute(
+                    """
+                    SELECT designation
+                    FROM provisions
+                    WHERE provision_id = ?
+                      AND document_id = ?
+                    """,
+                    (row[2], row[1]),
+                ).fetchone()
+                if provision is not None and provision[0]:
+                    query_text = f"{query_text} {provision[0]}"
+            result.append(
+                {
+                    "query_text": query_text,
+                    "target_document_id": row[1],
+                    "target_provision_id": row[2],
+                }
+            )
+        return result
+
+    def query_for_document(self, document_id: str) -> str | None:
+        """Return human-readable canonical vocabulary for reference expansion.
+
+        The document ID is used only as an internal lookup key. It is never
+        emitted into the FTS query, which prevents canonical identity from
+        becoming a magic search token.
+        """
+        row = self.con.execute(
+            """
+            SELECT
+                d.document_type,
+                d.title,
+                (
+                    SELECT di.identifier_value
+                    FROM document_identifiers di
+                    WHERE di.document_id = d.document_id
+                      AND di.is_primary = 1
+                    ORDER BY di.identifier_id
+                    LIMIT 1
+                )
+            FROM documents d
+            WHERE d.document_id = ?
+            """,
+            (document_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        parts = [value for value in (row[0], row[2], row[1]) if value]
+        return " ".join(str(value) for value in parts) or None
