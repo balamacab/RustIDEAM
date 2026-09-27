@@ -1,0 +1,11 @@
+services:
+  case-console:
+    build:
+      context: .
+    image: col-taxdata-web-console:local
+    container_name: col-taxdata-web-console
+    environment:
+      CASE_API_UPSTREAM: ${CASE_API_UPSTREAM:?Set CASE_API_UPSTREAM to the CASE REST origin}
+    ports:
+      - "${CASE_CONSOLE_PORT:-8080}:8080"
+    restart: unless-stopped
