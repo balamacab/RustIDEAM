@@ -162,6 +162,8 @@ def render_report(
     lines.append(f"- Pendientes fácticos: {len(unresolved)}")
     lines.append("")
 
+    # This reader exposes historical v3 claim state. Label ownership explicitly
+    # so candidate/model-era text cannot be mistaken for v4 canonical authority.
     lines.append("## Claims jurídicos históricos v3 (compatibilidad)")
     lines.append("")
     lines.append(
