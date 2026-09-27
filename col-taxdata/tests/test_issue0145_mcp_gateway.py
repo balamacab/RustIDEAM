@@ -320,6 +320,45 @@ class Issue0145RestBoundaryTests(unittest.TestCase):
             error.message,
         )
 
+    def test_integrity_and_internal_rest_codes_remain_distinct_at_mcp_boundary(self):
+        cases = (
+            (
+                "CASE_API_INTEGRITY_FAILURE",
+                "MCP_CASE_UPSTREAM_INTEGRITY_FAILURE",
+            ),
+            (
+                "CASE_API_INTERNAL_ERROR",
+                "MCP_CASE_UPSTREAM_INTERNAL_ERROR",
+            ),
+        )
+
+        for upstream_code, expected_mcp_code in cases:
+            with self.subTest(upstream_code=upstream_code):
+                def factory(raw: bytes, code=upstream_code):
+                    return 500, {
+                        "api_version": REST_API_VERSION,
+                        "error": {
+                            "code": code,
+                            "message": "private upstream detail must not cross MCP",
+                            "retryable": False,
+                        },
+                        "request_fingerprints": {
+                            "raw_request_sha256": hashlib.sha256(raw).hexdigest()
+                        },
+                    }
+
+                with RunningMockREST(factory) as base_url:
+                    client = CaseRestClient(GatewayConfig(base_url=base_url))
+                    with self.assertRaises(GatewayError) as raised:
+                        client.research_case(**request_kwargs())
+
+                error = raised.exception
+                self.assertEqual(error.code, expected_mcp_code)
+                self.assertEqual(error.upstream_code, upstream_code)
+                self.assertEqual(error.http_status, 500)
+                self.assertFalse(error.retryable)
+                self.assertNotIn("private upstream detail", error.message)
+
     def test_fingerprint_rebinding_is_rejected(self):
         base_factory = success_factory("complete-response.json")
 
