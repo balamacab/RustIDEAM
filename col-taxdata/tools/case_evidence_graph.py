@@ -12,6 +12,7 @@ from case_contract_validation_v4 import (
     validate_contract_object,
     validate_legal_research_bundle,
 )
+from case_evaluators import evaluate_supported_rules
 from case_research import ResearchExecution
 from legal_authority_classification import (
     AuthorityClassificationError,
@@ -731,14 +732,19 @@ def _reference_rules(
 def _status(
     research_status: str,
     research_unresolved: set[str],
-    graph_unresolved: set[str],
+    graph_unresolved: dict[str, dict[str, Any]],
 ) -> str:
     if research_status == "blocked":
         return "blocked"
     if research_status == "partial":
         return "partial"
-    if graph_unresolved - research_unresolved:
-        return "partial"
+
+    # An external-synthesis handoff is an intentional completed platform
+    # boundary, not failed research. Other newly introduced uncertainty still
+    # makes the bundle partial.
+    for ref in set(graph_unresolved) - research_unresolved:
+        if graph_unresolved[ref]["category"] != "requires_interpretive_synthesis":
+            return "partial"
     return "complete"
 
 
@@ -750,10 +756,12 @@ def build_legal_research_bundle(
     db_path: Path,
     generated_at: str | None = None,
 ) -> dict[str, Any]:
-    """Build the deterministic read-only #138 EvidenceSpan/RuleFragment graph.
+    """Build the deterministic read-only v4 evidence/rule/evaluation graph.
 
-    Model-authored case/intake text is copied only into its contract-owned
-    bundle objects; it is never used as RuleFragment source material.
+    Model-authored case/intake prose is copied only into contract-owned bundle
+    objects. Rule semantics come from canonical evidence; #139 evaluators accept
+    only explicitly supported structured facts and rules and never use model
+    legal prose as authority.
     """
     db_path = Path(db_path)
     authorities = {
@@ -846,12 +854,33 @@ def build_legal_research_bundle(
     finally:
         con.close()
 
+    evaluation_outcome = evaluate_supported_rules(
+        case_input=case_input,
+        intake_draft=intake_draft,
+        authorities=authorities.values(),
+        evidence_spans=spans.values(),
+        rule_fragments=rules.values(),
+        generated_at=generated_at or research.result["generated_at"],
+    )
+    evaluations = {
+        item["evaluation_ref"]: deepcopy(item)
+        for item in evaluation_outcome.evaluations
+    }
+    calculations = {
+        item["calculation_ref"]: deepcopy(item)
+        for item in evaluation_outcome.calculations
+    }
+    for item in evaluation_outcome.unresolved:
+        unresolved[item["unresolved_ref"]] = deepcopy(item)
+
     for collection in (
         sources.values(),
         authorities.values(),
         spans.values(),
         relationships.values(),
         rules.values(),
+        evaluations.values(),
+        calculations.values(),
         unresolved.values(),
     ):
         for item in collection:
@@ -868,6 +897,8 @@ def build_legal_research_bundle(
             sorted(spans),
             sorted(relationships),
             sorted(rules),
+            sorted(evaluations),
+            sorted(calculations),
             sorted(unresolved),
             ANCHOR_VERSION,
             RULE_DERIVATION_VERSION,
@@ -875,7 +906,7 @@ def build_legal_research_bundle(
         "status": _status(
             research.result["status"],
             set(research.result["unresolved_refs"]),
-            set(unresolved),
+            unresolved,
         ),
         "case_input": deepcopy(case_input),
         "intake_draft": deepcopy(intake_draft),
@@ -894,8 +925,12 @@ def build_legal_research_bundle(
         "rule_fragments": [
             deepcopy(rules[key]) for key in sorted(rules)
         ],
-        "deterministic_evaluations": [],
-        "calculation_traces": [],
+        "deterministic_evaluations": [
+            deepcopy(evaluations[key]) for key in sorted(evaluations)
+        ],
+        "calculation_traces": [
+            deepcopy(calculations[key]) for key in sorted(calculations)
+        ],
         "unresolved": [
             deepcopy(unresolved[key]) for key in sorted(unresolved)
         ],
