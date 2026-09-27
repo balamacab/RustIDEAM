@@ -132,6 +132,15 @@ items:
     depends_on:
       - DEF-0011
 
+  - id: DEF-0015
+    type: defect
+    priority: P1
+    status: specified
+    area: case-research-authority
+    spec: specs/defects/DEF-0015-model-authored-legal-conclusions-drive-case-research.md
+    github_issue: 131
+    depends_on: []
+
   - id: GAP-0001
     type: coverage-gap
     priority: P2
