@@ -28,6 +28,10 @@ from case_retrieval import (
     RetrievalHit,
     RetrievalIntegrityError,
 )
+from case_evidence_graph import (
+    EvidenceGraphIntegrityError,
+    build_legal_research_bundle,
+)
 from case_research import (
     PlatformResearchService,
     ResearchIntegrityError,
@@ -116,6 +120,7 @@ class ResearchAnalysisOutcome:
     authorities: tuple[dict[str, Any], ...]
     relationships: tuple[dict[str, Any], ...]
     unresolved: tuple[dict[str, Any], ...]
+    bundle: dict[str, Any]
     persistence_mode: str = "read-only"
 
 
@@ -652,8 +657,8 @@ def analyze_case(
 
     Explicit v3 inputs retain the historical candidate-claim/persistence path.
     v4 performs deterministic, read-only platform research from IntakeDraft
-    facts/questions and returns ResearchPlan + ResearchResult without creating
-    or persisting a platform legal claim.
+    facts/questions and returns the citable EvidenceSpan/RuleFragment graph as
+    a LegalResearchBundle without creating or persisting a platform legal claim.
     """
     contract_version = validate_dispatched_case_input(case_input)
     structuring = structurer.structure(
@@ -671,9 +676,21 @@ def analyze_case(
                 case_input=case_input,
                 intake_draft=structuring.intake,
             )
-        except (sqlite3.Error, ResearchPlanningError, ResearchIntegrityError) as exc:
+            bundle = build_legal_research_bundle(
+                case_input=case_input,
+                intake_draft=structuring.intake,
+                research=research,
+                db_path=db_path,
+            )
+        except (
+            sqlite3.Error,
+            ResearchPlanningError,
+            ResearchIntegrityError,
+            EvidenceGraphIntegrityError,
+            CaseContractError,
+        ) as exc:
             raise CaseAnalysisIntegrityError(
-                f"v4 corpus research failed safely: {exc}"
+                f"v4 corpus research/evidence graph failed safely: {exc}"
             ) from exc
 
         case_ref = _app_ref(
@@ -689,6 +706,7 @@ def analyze_case(
             authorities=research.authorities,
             relationships=research.relationships,
             unresolved=research.unresolved,
+            bundle=bundle,
         )
     if contract_version != V3_CONTRACT_VERSION:
         raise AssertionError(
