@@ -102,6 +102,7 @@ jobs:
     if: always()
     permissions:
       checks: write
+      statuses: write
       contents: read
     runs-on: ubuntu-latest
     steps:
@@ -128,6 +129,11 @@ jobs:
             -f conclusion="$CONCLUSION" \
             -f output[title]="col-taxdata autonomous validation: $CONCLUSION" \
             -f output[summary]="Trusted default-branch workflow validated candidate $HEAD_SHA"
+          gh api -X POST "repos/$GITHUB_REPOSITORY/statuses/$HEAD_SHA" \
+            -f state="$CONCLUSION" \
+            -f context='CI Gate' \
+            -f description="Trusted col-taxdata validation: $CONCLUSION" \
+            -f target_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
           test "$CONCLUSION" = "success"
 
   complete-dispatched-lifecycle:
