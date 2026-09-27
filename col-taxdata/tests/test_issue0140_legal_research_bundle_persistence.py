@@ -21,6 +21,7 @@ from case_bundle_persistence_v4 import (
 )
 from case_contract_validation import CaseContractError
 from case_contract_validation_v4 import validate_legal_research_bundle
+from materialize_case_report import render_report
 
 
 NOW = "2026-09-27T12:00:00+00:00"
@@ -491,6 +492,87 @@ class Issue0140LegalResearchBundlePersistenceTests(unittest.TestCase):
         validate_legal_research_bundle(
             json.loads(path.read_text(encoding="utf-8"))
         )
+
+    def test_legacy_candidate_report_is_explicitly_v3_and_noncanonical(self):
+        case_id = "CASE-LEGACY-140"
+        claim_id = "CLM-LEGACY-140"
+        con = sqlite3.connect(self.db)
+        try:
+            con.execute(
+                """
+                INSERT INTO cases(
+                    case_id, title, query_text, as_of_date, status,
+                    created_at, updated_at
+                )
+                VALUES (?, ?, ?, ?, 'open', ?, ?)
+                """,
+                (
+                    case_id,
+                    "Legacy compatibility fixture",
+                    "Legacy candidate must remain visibly non-canonical.",
+                    "2026-09-27",
+                    NOW,
+                    NOW,
+                ),
+            )
+            con.execute(
+                """
+                INSERT INTO claims(
+                    claim_id, subject_type, subject_id, predicate,
+                    object_type, object_id, object_literal, claim_type,
+                    status, extraction_method, confidence_extraction,
+                    requires_human_review, created_at
+                )
+                VALUES (
+                    ?, 'case', ?, 'legal_conclusion',
+                    'literal', NULL, ?,
+                    'case_legal_conclusion', 'candidate',
+                    'legacy_model_fixture', 0.5, 1, ?
+                )
+                """,
+                (
+                    claim_id,
+                    case_id,
+                    "MODELO LEGACY: conclusión jurídica no soportada.",
+                    NOW,
+                ),
+            )
+            con.execute(
+                """
+                INSERT INTO case_items(
+                    case_id, item_type, item_id, relevance, added_at
+                )
+                VALUES (?, 'claim', ?, 'legacy-fixture', ?)
+                """,
+                (case_id, claim_id, NOW),
+            )
+            con.commit()
+
+            report = render_report(
+                con=con,
+                case_id=case_id,
+                case_dir=self.case_root / case_id,
+            )
+        finally:
+            con.close()
+
+        self.assertIn(
+            "# CASE-LEGACY-140 — Informe histórico v3 (compatibilidad)",
+            report,
+        )
+        self.assertIn(
+            "## Claims jurídicos históricos v3 (compatibilidad)",
+            report,
+        )
+        self.assertIn(
+            "Propiedad: `historical_v3_claim_state` · Estado: **candidate**",
+            report,
+        )
+        self.assertIn(
+            "un claim `candidate` o no soportado no constituye autoridad jurídica canónica",
+            report,
+        )
+        self.assertNotIn("## Conclusiones jurídicas registradas", report)
 
     def test_external_consumer_inference_cannot_enter_canonical_persistence(self):
         bundle = deepcopy(load_example("complete-response.json"))
