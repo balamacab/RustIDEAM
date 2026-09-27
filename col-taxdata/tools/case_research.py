@@ -57,6 +57,20 @@ _RETRIEVAL_CONFIG = {
     "reference_policy": "resolved-explicit-only",
 }
 
+# Conflict is never inferred from two authorities merely coexisting. Only an
+# already-validated canonical relationship whose type explicitly denotes
+# incompatibility may produce a conflicting_authority research state.
+_EXPLICIT_CONFLICT_RELATION_TYPES = frozenset(
+    {
+        "conflict",
+        "conflicts",
+        "conflicts_with",
+        "contradicts",
+        "inconsistent_with",
+        "incompatible_with",
+    }
+)
+
 
 class ResearchPlanningError(RuntimeError):
     """The platform cannot create a contract-valid deterministic research plan."""
@@ -440,6 +454,7 @@ def _unresolved(
     question_ref: str | None = None,
     fact_ref: str | None = None,
     authority_ref: str | None = None,
+    authority_refs: Iterable[str] = (),
     next_action: str,
     material: object,
 ) -> dict[str, Any]:
@@ -456,9 +471,52 @@ def _unresolved(
         item["related_question_refs"] = [question_ref]
     if fact_ref is not None:
         item["related_fact_refs"] = [fact_ref]
+    related_authorities = set(authority_refs)
     if authority_ref is not None:
-        item["related_authority_refs"] = [authority_ref]
+        related_authorities.add(authority_ref)
+    if related_authorities:
+        item["related_authority_refs"] = sorted(related_authorities)
     return item
+
+
+def _explicit_conflict_unresolved_items(
+    relationships: Iterable[dict[str, Any]],
+    available_authority_refs: Iterable[str],
+) -> list[dict[str, Any]]:
+    """Surface only conflicts already asserted by canonical relationship data."""
+    available = set(available_authority_refs)
+    output: list[dict[str, Any]] = []
+    for relation in relationships:
+        relation_type = re.sub(
+            r"[^a-z0-9]+",
+            "_",
+            _fold_text(str(relation["relationship_type"])),
+        ).strip("_")
+        if relation_type not in _EXPLICIT_CONFLICT_RELATION_TYPES:
+            continue
+        source_ref = str(relation["source_authority_ref"])
+        target_ref = str(relation["target_authority_ref"])
+        if source_ref not in available or target_ref not in available:
+            continue
+        output.append(
+            _unresolved(
+                category="conflicting_authority",
+                description=(
+                    "Canonical corpus relationships explicitly mark the retrieved "
+                    "authorities as conflicting; research does not choose between "
+                    "them without a separately implemented legal resolver."
+                ),
+                authority_refs=[source_ref, target_ref],
+                next_action="external_interpretive_synthesis",
+                material=(
+                    relation["relationship_ref"],
+                    relation_type,
+                    source_ref,
+                    target_ref,
+                ),
+            )
+        )
+    return output
 
 
 def _intake_blockers(intake_draft: dict[str, Any]) -> list[dict[str, Any]]:
@@ -806,6 +864,14 @@ class PlatformResearchService:
                 break
 
         validate_research_plan(intake_draft, plan)
+
+        _merge_unresolved(
+            unresolved,
+            _explicit_conflict_unresolved_items(
+                relationships.values(),
+                authorities.keys(),
+            ),
+        )
 
         open_legal_questions = {
             question["question_ref"]
