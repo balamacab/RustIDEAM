@@ -8,11 +8,13 @@ import sys
 
 from case_application import (
     CaseAnalysisIntegrityError,
+    CaseResearchNotImplementedError,
     analyze_case,
 )
 from case_attempt_evidence import RejectedStructuringEvidenceStore
 from case_intake_factory import build_case_intake_composition
-from case_contract_validation import CaseContractError, CONTRACT_VERSION
+from case_contract_dispatch import V4_CONTRACT_VERSION
+from case_contract_validation import CaseContractError
 from case_retrieval import RetrievalIntegrityError
 from llm_client import (
     ContextLimitError,
@@ -26,6 +28,13 @@ DEFAULT_CONFIG = ROOT / "config" / "llm" / "local-platform.yaml"
 
 
 def _error_payload(exc: Exception) -> dict[str, object]:
+    if isinstance(exc, CaseResearchNotImplementedError):
+        return {
+            "error": exc.code,
+            "detail": exc.detail,
+            "transition_state": "intake_accepted_research_pending",
+            "intake_draft": exc.intake_draft,
+        }
     if isinstance(exc, (ContextLimitError, OutputLimitError)):
         return {
             "error": exc.code,
@@ -52,8 +61,8 @@ def _error_payload(exc: Exception) -> dict[str, object]:
 def main() -> int:
     parser = argparse.ArgumentParser(
         description=(
-            "Analyze a natural-language legal/tax case through the v3 case "
-            "application service without requiring internal corpus IDs."
+            "Structure a natural-language legal/tax case through the v4 "
+            "intake-only boundary. Platform research is added by #137."
         )
     )
     parser.add_argument("--input", required=True, help="UTF-8 natural-language case file")
@@ -80,7 +89,7 @@ def main() -> int:
     problem_text = Path(args.input).read_text(encoding="utf-8")
     case_input: dict[str, object] = {
         "kind": "case_input",
-        "contract_version": CONTRACT_VERSION,
+        "contract_version": V4_CONTRACT_VERSION,
         "problem_text": problem_text,
     }
     if args.as_of_date is not None:
@@ -111,6 +120,7 @@ def main() -> int:
         LLMClientError,
         RetrievalIntegrityError,
         CaseAnalysisIntegrityError,
+        CaseResearchNotImplementedError,
         OSError,
         ValueError,
     ) as exc:
