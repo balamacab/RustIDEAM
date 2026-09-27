@@ -361,6 +361,8 @@ def intake_draft_generation_schema(
     allowed_definitions = (
         "IntakeDraft",
         "IntakeFact",
+        "FactMeasurement",
+        "DecimalString",
         "CaseQuestion",
         "SearchHint",
     )
@@ -422,6 +424,16 @@ def intake_draft_generation_schema(
             required = [
                 item for item in required
                 if item != "needed_information"
+            ]
+
+        if not source_quote:
+            # Missing/ambiguous facts may carry a semantic_key describing what
+            # is needed, but they cannot carry a numeric measurement that the
+            # client did not actually provide.
+            properties.pop("measurement", None)
+            required = [
+                item for item in required
+                if item != "measurement"
             ]
 
         return {
@@ -559,6 +571,22 @@ def validate_intake_draft(
     del hints
 
     for index, fact in enumerate(draft["facts"]):
+        if "measurement" in fact and "semantic_key" not in fact:
+            _fail(
+                INVALID_INTAKE_DRAFT,
+                f"$.facts[{index}].measurement",
+                "structured measurement requires a semantic_key",
+            )
+        if (
+            fact["state"] in {"missing", "ambiguous"}
+            and "measurement" in fact
+        ):
+            _fail(
+                INVALID_INTAKE_DRAFT,
+                f"$.facts[{index}].measurement",
+                "missing/ambiguous facts cannot carry a numeric measurement",
+            )
+
         if _missing_fact_conflicts_with_explicit_text(
             fact,
             case_input["problem_text"],

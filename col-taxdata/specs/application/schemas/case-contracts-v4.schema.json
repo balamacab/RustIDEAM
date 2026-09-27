@@ -87,6 +87,51 @@
         }
       }
     },
+    "FactMeasurement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "decimal_value",
+        "unit"
+      ],
+      "properties": {
+        "decimal_value": {
+          "$ref": "#/$defs/DecimalString"
+        },
+        "unit": {
+          "type": "string",
+          "minLength": 1
+        },
+        "currency": {
+          "type": "string",
+          "pattern": "^[A-Z]{3}$"
+        },
+        "uvt_year": {
+          "type": "integer",
+          "minimum": 1900,
+          "maximum": 9999
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "unit": {
+                "const": "UVT"
+              }
+            },
+            "required": [
+              "unit"
+            ]
+          },
+          "then": {
+            "required": [
+              "uvt_year"
+            ]
+          }
+        }
+      ]
+    },
     "IntakeFact": {
       "type": "object",
       "additionalProperties": false,
@@ -120,6 +165,13 @@
             "boolean",
             "null"
           ]
+        },
+        "semantic_key": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_.-]{2,127}$"
+        },
+        "measurement": {
+          "$ref": "#/$defs/FactMeasurement"
         },
         "state": {
           "enum": [

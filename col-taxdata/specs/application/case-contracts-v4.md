@@ -224,9 +224,12 @@ Rules:
 - `llm_normalized` requires an exact source quote and `requires_confirmation=true`;
 - `missing` / `ambiguous` require `needed_information` and `requires_confirmation=true`;
 - normalization must not change legal/factual substance;
-- a missing/ambiguous fact is not guessed.
+- a missing/ambiguous fact is not guessed;
+- a fact may carry an optional `semantic_key` plus structured decimal `measurement` for explicitly implemented deterministic evaluators;
+- a `measurement` requires a `semantic_key`; missing/ambiguous facts cannot carry a measurement;
+- `unit = "UVT"` measurements require an explicit `uvt_year`; currency measurements may carry an ISO-4217 `currency` code.
 
-`source_quote` is an intake-fidelity bridge inherited from #91. It is not an EvidenceSpan and not canonical legal evidence. Future client-input span identity remains #122.
+`source_quote` is an intake-fidelity bridge inherited from #91. It is not an EvidenceSpan and not canonical legal evidence. Future client-input span identity remains #122. Evaluators must still verify any model-structured numeric input against this exact client text before treating it as a confirmed calculation input.
 
 ### 6.2 CaseQuestion
 
@@ -558,7 +561,26 @@ It carries:
 
 Evaluators consume accepted facts plus supported rules/evidence. They never consume model legal prose as authority.
 
-If the required legal conclusion needs interpretation beyond an implemented evaluator, the platform does not create a fake evaluation. It emits `UnresolvedItem.category = "requires_interpretive_synthesis"`.
+### 14.1 Implemented bounded evaluator — natural-person non-filer thresholds
+
+Issue #139 activates evaluator `colombia.natural_person.non_filer_thresholds` version `1` as the first representative deterministic evaluator.
+
+Its boundary is deliberately narrow:
+
+- it recognizes only `canonical_source_statement/v1` rules backed by exact canonical EvidenceSpan text;
+- threshold values and comparison operators are extracted deterministically from the supported provision text rather than hardcoded as an expected answer;
+- the implemented rule family requires one unambiguous gross-income threshold and one gross-patrimony threshold expressed in UVT;
+- confirmed inputs use semantic keys `col.tax.natural_person.gross_income` and `col.tax.natural_person.gross_patrimony`;
+- only `user_provided`, non-confirmation-pending facts may drive the result, and their structured decimal value/topic must be verifiable from the exact `source_quote`;
+- both UVT inputs must declare the same `uvt_year`;
+- the canonical authority/rule must be resolved and effective for the requested `as_of_date`;
+- multiple independently matching threshold rules, mixed UVT years, missing/unconfirmed facts, or unresolved temporal state block the deterministic evaluation;
+- the result code `non_filer_threshold_conditions_met` reports only whether the explicitly parsed threshold conditions are satisfied. It is not a universal conclusion that a person is or is not legally required to file;
+- each numeric comparison produces a `CalculationTrace` for `threshold - observed` using exact decimal arithmetic and `rounding.mode = "NONE"`.
+
+The evaluator does not inspect the word `webcam` (or any other activity label) in the controlling provision. Activity-specific or other interpretive consequences remain evidence for external synthesis unless a separately registered evaluator is implemented.
+
+If the required legal conclusion needs interpretation beyond an implemented evaluator, the platform does not create a fake evaluation. It emits `UnresolvedItem.category = "requires_interpretive_synthesis"`. This handoff may coexist with bundle status `complete` because it represents a completed platform boundary rather than failed research.
 
 ## 15. CalculationTrace
 
@@ -785,7 +807,7 @@ The contract fixes ownership so later issues do not re-decide it:
 5. #137 — ResearchPlan/ResearchResult evidence-first retrieval + research fingerprint.
 6. #146 — legal-authority metadata/classification after #134; no numeric rank.
 7. #138 — EvidenceSpan + RuleFragment graph from canonical research.
-8. #139 — deterministic evaluators/calculations.
+8. #139 — bounded deterministic evaluator/calculation layer active in-memory; the first registered evaluator covers source-backed natural-person non-filer threshold conditions.
 9. #140 — canonical bundle persistence/materialization and legacy authority quarantine.
 10. #141 — architecture/authority guardrails.
 11. #144 — stable REST/OpenAPI contract.
