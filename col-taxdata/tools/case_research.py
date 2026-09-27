@@ -208,7 +208,10 @@ def _platform_query(
     fact_refs, fact_text = _confirmed_fact_texts(intake_draft, question)
     seed_parts = [question["text"], *fact_text]
     vocabulary = _deterministic_vocabulary(" ".join(seed_parts))
-    query = " ".join(_dedupe_phrases([*seed_parts, *vocabulary]))
+    # Retrieval currently caps the number of FTS terms. Put platform taxonomy
+    # first so long client/domain wording cannot crowd the neutral legal terms
+    # out of the actual query.
+    query = " ".join(_dedupe_phrases([*vocabulary, *seed_parts]))
     if not query.strip():
         raise ResearchPlanningError(
             f"open legal question has no deterministic query material: {question['question_ref']}"
