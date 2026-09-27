@@ -272,7 +272,14 @@ class Issue0136IntakeOnlyV4Tests(unittest.TestCase):
         schema = intake_draft_generation_schema(case_input())
         self.assertEqual(
             set(schema["$defs"]),
-            {"IntakeDraft", "IntakeFact", "CaseQuestion", "SearchHint"},
+            {
+                "IntakeDraft",
+                "IntakeFact",
+                "FactMeasurement",
+                "DecimalString",
+                "CaseQuestion",
+                "SearchHint",
+            },
         )
         root = schema["$defs"]["IntakeDraft"]
         properties = root["properties"]
