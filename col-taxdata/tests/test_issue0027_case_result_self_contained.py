@@ -240,12 +240,14 @@ class Issue0027CaseResultSelfContainedContractTests(unittest.TestCase):
         self.assertEqual(result["properties"]["contract_version"]["const"], "3.0.0")
         self.assertEqual(self.v3["$defs"]["StructuringModelMetadata"]["properties"]["schema_version"]["const"], "3.0.0")
 
-    def test_v3_is_current_and_issue16_is_directed_to_v3(self):
+    def test_v3_remains_historical_compatibility_after_v4_intake_switch(self):
         readme = README_PATH.read_text(encoding="utf-8")
         contract = V3_CONTRACT_PATH.read_text(encoding="utf-8")
         self.assertIn("case-contracts-v3.md", readme)
-        self.assertIn("current contract for new implementations", readme)
+        self.assertIn("v4 **intake-only** contract", readme)
+        self.assertIn("frozen historical compatibility contract", readme)
         self.assertIn("v2.0.0", readme)
+        # The frozen v3 contract still documents the historical #16 producer.
         self.assertIn("issue #16 MUST use v3.0.0", contract)
 
     def test_complete_result_validates_without_external_draft(self):
