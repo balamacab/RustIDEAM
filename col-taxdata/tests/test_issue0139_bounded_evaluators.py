@@ -367,6 +367,13 @@ class Issue0139BoundedEvaluatorTests(unittest.TestCase):
         self.assertEqual(outcome.evaluations[0]["status"], "blocked")
         self.assertEqual(outcome.calculations, ())
 
+    def test_tax_year_number_is_not_misread_as_uvt_measurement(self):
+        draft = intake()
+        draft["facts"][0]["measurement"]["decimal_value"] = "2025"
+        outcome = evaluate(draft)
+        self.assertEqual(outcome.evaluations[0]["status"], "blocked")
+        self.assertEqual(outcome.calculations, ())
+
     def test_uvt_year_mismatch_blocks_mixed_unit_semantics(self):
         outcome = evaluate(
             intake(income_year=2024, patrimony_year=2025),
