@@ -2,13 +2,13 @@
 
 ## Status and authority
 
-Status: **Accepted architectural/application contract; intake, platform research/retrieval, citable evidence/rule graph and read-only bundle construction implemented; deterministic evaluation and persistence stages pending**
+Status: **Accepted architectural/application contract; intake, platform research/retrieval, citable evidence/rule graph, bounded deterministic evaluation, and ownership-aware bundle persistence/materialization implemented**
 
 Contract package version: **4.0.0**
 
 Driver: GitHub issue #132 under epic #130, after DEF-0015 / issue #131.
 
-This specification defines the evidence-first CASE application boundary. Issues #134-#136 implement the v4 contract primitives, semantic intake port, and active intake generation/validation path. Issue #137 implements platform-owned `ResearchPlan` generation plus bounded, read-only evidence-first canonical-corpus retrieval and `ResearchResult` tracing. Issue #138 implements exact legal-corpus `EvidenceSpan` derivation, the first registered deterministic `RuleFragment` families, and read-only `LegalResearchBundle` graph construction. Deterministic evaluators/calculations remain staged for #139 and durable bundle persistence/materialization remains staged for #140. The active v4 path never falls back to v3 candidate-claim synthesis, and historical v3 remains an explicit compatibility contract only.
+This specification defines the evidence-first CASE application boundary. Issues #134-#136 implement the v4 contract primitives, semantic intake port, and active intake generation/validation path. Issue #137 implements platform-owned `ResearchPlan` generation plus bounded, read-only evidence-first canonical-corpus retrieval and `ResearchResult` tracing. Issue #138 implements exact legal-corpus `EvidenceSpan` derivation, the first registered deterministic `RuleFragment` families, and `LegalResearchBundle` graph construction. Issue #139 implements bounded deterministic evaluators/calculations. Issue #140 adds append-only ownership-aware SQLite persistence plus deterministic standalone JSON materialization without routing v4 through historical `claims`. The active v4 path never falls back to v3 candidate-claim synthesis, and historical v3 remains an explicit compatibility contract only.
 
 The companion machine-readable schema is `schemas/case-contracts-v4.schema.json`. The schema is normative for serialized shape. This document is normative for ownership, trust, dependency direction, lifecycle, cross-object semantics, compatibility and canonical-authority rules.
 
@@ -821,16 +821,20 @@ Issue #132 itself changes no runtime persistence and requires no migration.
 
 Later implementation must prefer additive/versioned state.
 
-If new storage is required:
+Issue #140 implements that boundary with append-only migration `016_case_v4_bundle_persistence.sql`. It stores bundle identity/research-context hashes separately from typed artifact snapshots, and every artifact records explicit owner and authority role. `IntakeDraft` remains `internal_intake_model / intake_only`; only platform-owned canonical support and deterministic result artifacts can occupy their corresponding authority roles. Historical v3 `cases`, `claims`, `case_items` and checked-in v3 materializations are not rewritten or relabeled.
 
-- add a new append-only migration;
+The persisted artifact graph is sufficient to reconstruct and revalidate the complete LegalResearchBundle without corpus-database or filesystem knowledge. Standalone JSON materialization is a deterministic derivative of the reconstructed bundle. Preview mode executes the same persistence/materialization decision logic without writing database rows or files.
+
+Persistence requirements remain:
+
+- add only append-only migrations;
 - never edit applied migrations;
 - do not rewrite v3 historical rows/artifacts;
 - retain raw SHA-256/provenance;
 - expose explicit object/version ownership;
 - dry-run/preview isolated state before any authorized production mutation.
 
-No production corpus replay is required merely to define or validate this contract.
+No production corpus replay is required by #140.
 
 ## 24. Non-goals
 
