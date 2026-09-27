@@ -169,6 +169,10 @@ Absence of explicit authorization means no such mutation.
 
 Validation issues that require blind/frozen inputs must not be consumed by prerequisite implementation or environment-preparation work.
 
+When the controller needs real-host evidence, GitHub remains the primary repository surface and the preferred runtime path is the private **Morichal** plugin / SSH MCP connection to `morichalserver`. The development checkout is `/home/user/RustIDEAM/col-taxdata` under repository root `/home/user/RustIDEAM`. The separate `/home/user/col-taxdata` path is not the development Git worktree and may only be treated according to the live runtime/data evidence being inspected.
+
+Remote access never grants production mutation authority by itself. Prefer read-only, batched validation. Remote Desktop Commander is fallback-only when Morichal is unavailable or lacks a required capability. Historical audits that record older/runtime paths remain historical evidence and must not be rewritten for present convenience.
+
 ## 9. Handoff and controller memory
 
 Controller continuity uses the compact CM1 memory contract in
