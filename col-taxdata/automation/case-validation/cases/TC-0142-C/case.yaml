@@ -1,0 +1,36 @@
+schema_version: 1
+kind: case_definition
+case_id: TC-0142-C
+created_at: "2026-09-28T00:10:09Z"
+created_by: controller-monitor
+origin: imported_historical_validation
+source_refs:
+  - "github:issue/142"
+  - "github:pull/179"
+  - "git:agent/issue-142-e2e-validation@c3e44ea0a4294f6fe1a67eec9f0248c111b749e0:col-taxdata/validation/issue-0142/phase1-recovery-98495-report.md"
+  - "git:agent/issue-142-e2e-validation@c3e44ea0a4294f6fe1a67eec9f0248c111b749e0:col-taxdata/validation/issue-0142/control-plan.json#cases.C"
+title: "Complex Colombia-Spain multi-question regression"
+complexity: high
+domains:
+  - "vat"
+  - "withholding-tax"
+  - "international-tax"
+  - "tax-treaty"
+  - "permanent-establishment"
+problem_text: |-
+  Una SAS colombiana contrató con una sociedad residente fiscal en España una solución empresarial compuesta por acceso SaaS, implementación remota, soporte técnico, capacitación y un conector instalable en servidores del cliente en Colombia. El contrato anual de 2026 vale USD 96.000: USD 58.000 por SaaS, USD 15.000 por implementación, USD 9.000 por soporte, USD 8.000 por capacitación y USD 6.000 por el conector ejecutable. El proveedor español conserva la propiedad intelectual, no entrega código fuente y prohíbe sublicenciar o comercializar el software.
+  
+  La plataforma principal opera en infraestructura fuera de Colombia y la usan principalmente empleados ubicados en Colombia. La implementación fue realizada en forma remota desde España, salvo una visita de dos ingenieros durante ocho días a Bogotá para pruebas finales. De 32 horas de capacitación, 12 fueron presenciales durante esa visita y 20 se impartieron por videoconferencia desde España. Una filial colombiana del mismo grupo atiende consultas básicas y remite los casos complejos al equipo español; el contrato afirma que esa filial no puede celebrar contratos, fijar precios ni recibir pagos por cuenta del proveedor, pero la SAS cliente no ha verificado cómo opera en la práctica.
+  
+  La sociedad española entregó certificado de residencia fiscal para 2026 y una declaración de que es beneficiaria efectiva de los pagos y no tiene establecimiento permanente en Colombia. La SAS pagó una primera factura de USD 48.000 en enero de 2026 y una segunda factura de USD 48.000 en septiembre de 2026.
+  
+  A 27 de septiembre de 2026 la SAS pregunta: (1) cómo debe analizar el IVA colombiano para cada componente; (2) si procede retención en la fuente a título de renta y de qué depende; (3) qué efecto puede tener el convenio para evitar la doble imposición entre Colombia y España; (4) si la filial colombiana o la visita de los ingenieros puede afectar el análisis de establecimiento permanente; y (5) qué hechos o documentos faltantes deben permanecer expresamente sin resolver antes de adoptar una posición.
+problem_text_sha256: "05941a02065e0596cd2fcb8deec05034469f4b244920eb131a0e9d8fe015e0b9"
+control_sha256: "80d15c4c6ce25f088f20d78d13574cf5fa96ac1baba468d341120742fe82c928"
+as_of_date: "2026-09-27"
+acceptance:
+  required_surfaces:
+    - mcp
+    - rest
+  control_packet_ref: "git:agent/issue-142-e2e-validation@c3e44ea0a4294f6fe1a67eec9f0248c111b749e0:col-taxdata/validation/issue-0142/control-plan.json#cases.C.control"
+supersedes_case_id: null
