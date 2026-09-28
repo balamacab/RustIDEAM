@@ -14,7 +14,7 @@ Create or reuse `agent/issue-<number>-<slug>` from the accepted current `main`. 
 
 ## Pull request
 
-Open or update one PR targeting `main`. Include the selected issue using GitHub closing syntax, base SHA, scope summary, validation evidence, concurrency metadata, semantic domains, and likely touched paths. Keep the issue open until merge.
+Open or update one PR targeting `main`. Record the owning issue in the machine-readable PR metadata. For normal `completion_mode=convergence`, include exactly one GitHub closing target (`Fixes`, `Closes`, or `Resolves`). If the selected issue has an explicit mandatory post-merge/runtime/provider/fresh-acceptance gate, use `completion_mode=post_merge_acceptance`, include `issue_number` in metadata, and do **not** use GitHub closing syntax; this deliberately keeps the issue open through merge/convergence until acceptance passes. Always include base SHA, scope summary, validation evidence, concurrency metadata, semantic domains, and likely touched paths.
 
 ## Validation and recovery
 
@@ -24,7 +24,7 @@ Textual conflict resolution must preserve unrelated merged work. A real architec
 
 ## Integration and completion
 
-Machine-verifiable required checks determine merge eligibility; normal work requires zero human approvals. Merge through the repository lifecycle, not a direct push. Completion is `merged + required convergence validation`, not merely `implementation complete` or `PR ready`.
+Machine-verifiable required checks determine merge eligibility; normal work requires zero human approvals. Merge through the repository lifecycle, not a direct push. `PR_OPEN`, `CI_VALIDATING`, `READY_FOR_MERGE`, `MERGED`, and pending convergence are non-terminal. Normal completion is `merged + required convergence validation`; `completion_mode=post_merge_acceptance` additionally requires the selected issue explicit post-merge acceptance contract to pass. The Developer keeps ownership of the same issue through these non-terminal states and does not select another issue merely because GitHub Actions is still running. Use GitHub-native check/workflow state for bounded waiting and revalidation. If the execution environment ends before a terminal state, persist the non-terminal state and resume the same claim on the next activation; timeout is not release or completion.
 
 Production/runtime mutation is separate from repository integration and requires explicit authorization, preview/recovery controls, and the project's production-safety invariants.
 
