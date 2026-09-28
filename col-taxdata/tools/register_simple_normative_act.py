@@ -12,15 +12,9 @@ import sqlite3
 import unicodedata
 import uuid
 
-from document_family_identity import (
-    SegmentIdentityInput,
-    assess_supported_family_identity,
-)
 from source_identity import (
-    FUNCION_PUBLICA_NORMATIVE_ACT,
     assess_generic_normative_identity,
     canonical_identifier_values,
-    classify_source_url,
     equivalent_existing_canonical_key,
     persist_assessment,
 )
@@ -237,38 +231,29 @@ def register_simple_act(
         if heading is None:
             raise RuntimeError("document heading not found")
 
-        source_family = classify_source_url(source_url).family
-        identity_signal = None
-        if source_family == FUNCION_PUBLICA_NORMATIVE_ACT:
-            identity_rows = con.execute(
-                """
-                SELECT sequence_no, segment_type, text
-                FROM extracted_segments
-                WHERE extraction_id = ?
-                ORDER BY sequence_no
-                """,
-                (extraction_id,),
-            ).fetchall()
-            identity_segments = [
-                SegmentIdentityInput(int(sequence_no), segment_type, text)
-                for sequence_no, segment_type, text in identity_rows
-            ]
-            family_result = assess_supported_family_identity(
-                source_url,
-                identity_segments,
-            )
-            if family_result is None:
-                raise RuntimeError(
-                    "Función Pública source family parser is unavailable"
-                )
-            assessment = family_result.assessment
-            identity_signal = family_result.identity
-        else:
-            assessment = assess_generic_normative_identity(
-                source_url,
-                heading[3],
-            )
-            identity_signal = assessment.content
+        assessment = assess_generic_normative_identity(source_url, heading[3])
+
+        if (
+            assessment.accepted
+            and expected_canonical_key is not None
+            and assessment.content is not None
+            and assessment.content.canonical_key != expected_canonical_key
+        ):
+            # A demand-driven adapter may know which canonical target it
+            # requested, but that request is not evidence. Refuse a mismatched
+            # page before persisting any identity decision.
+            return {
+                "parser_name": PARSER_NAME,
+                "parser_version": PARSER_VERSION,
+                "status": "unresolved",
+                "reason_code": "EXPECTED_CANONICAL_KEY_MISMATCH",
+                "source_family": assessment.source.family,
+                "manifestation_id": manifestation_id,
+                "extraction_id": extraction_id,
+                "document_id": existing_document_id,
+                "expected_canonical_key": expected_canonical_key,
+                "observed_canonical_key": assessment.content.canonical_key,
+            }
 
         with con:
             review_id = persist_assessment(
@@ -296,34 +281,13 @@ def register_simple_act(
                     "document_id": None,
                 }
 
-        assert identity_signal is not None
-        doc_type = identity_signal.document_type
-        number = identity_signal.number
-        year = identity_signal.year
-        issuer_key = identity_signal.issuer_key
-        canonical_key = identity_signal.canonical_key
+        assert assessment.content is not None
+        doc_type = assessment.content.document_type
+        number = assessment.content.number
+        year = assessment.content.year
+        issuer_key = assessment.content.issuer_key
+        canonical_key = assessment.content.canonical_key
         assert doc_type and number and year and canonical_key
-
-        if (
-            expected_canonical_key is not None
-            and canonical_key != expected_canonical_key
-        ):
-            # The external adapter's requested key is an acquisition constraint,
-            # not new evidence about the archived page. Fail without mutating
-            # an existing canonical binding or manufacturing a source conflict.
-            return {
-                "parser_name": PARSER_NAME,
-                "parser_version": PARSER_VERSION,
-                "status": "unresolved",
-                "reason_code": "EXPECTED_CANONICAL_KEY_MISMATCH",
-                "source_family": assessment.source.family,
-                "manifestation_id": manifestation_id,
-                "extraction_id": extraction_id,
-                "document_id": existing_document_id,
-                "expected_canonical_key": expected_canonical_key,
-                "observed_canonical_key": canonical_key,
-            }
-
         document_id = deterministic_id("DOC", canonical_key)
 
         if (
@@ -333,7 +297,7 @@ def register_simple_act(
             equivalent_key = equivalent_existing_canonical_key(
                 con,
                 document_id=existing_document_id,
-                signal=identity_signal,
+                signal=assessment.content,
             )
             if equivalent_key is not None:
                 document_id = existing_document_id
@@ -342,7 +306,7 @@ def register_simple_act(
                 conflict = assessment.__class__(
                     "unresolved",
                     assessment.source,
-                    identity_signal,
+                    assessment.content,
                     "SOURCE_IDENTITY_CONFLICT",
                 )
                 with con:
@@ -454,7 +418,7 @@ def register_simple_act(
             )
 
             for identifier_value, is_primary in canonical_identifier_values(
-                identity_signal
+                assessment.content
             ):
                 identifier_id = deterministic_id(
                     "ID",
@@ -672,8 +636,8 @@ def main() -> int:
     parser.add_argument(
         "--expected-canonical-key",
         help=(
-            "Optional fail-closed identity constraint used by external "
-            "official-source adapters."
+            "Optional fail-closed identity constraint used by an approved "
+            "official-source acquisition adapter."
         ),
     )
     args = parser.parse_args()
