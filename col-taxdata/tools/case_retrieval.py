@@ -1,16 +1,51 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import hashlib
 import re
 import sqlite3
 from typing import Any
+import unicodedata
 
 
-_WORD_RE = re.compile(r"[^\W_]{3,}", re.UNICODE)
-# Batch size affects query round-trips only; search keeps scanning until the
+_WORD_RE = re.compile(r"[^\W_]+", re.UNICODE)
+# Batch size affects query round-trips only; each stage keeps scanning until its
 # requested number of unique exact-text groups is filled or FTS is exhausted.
 _FTS_SCAN_BATCH_SIZE = 64
+
+_MAX_QUERY_TERMS = 18
+_MAX_QUERY_TOKENS = 64
+_MAX_CONCEPT_WINDOWS = 12
+_MAX_CONCEPT_GAP_TOKENS = 3
+_STAGE_POOL_MULTIPLIER = 2
+
+# These are syntax/filler words, not legal concepts. They are excluded only
+# from thematic relevance construction; exact canonical lookup is unaffected.
+_GENERIC_QUERY_TERMS = frozenset(
+    {
+        "a", "al", "ante", "aplica", "aplicable", "aplicacion", "and",
+        "como", "con", "contra", "cual", "cuales", "cuando", "de", "del",
+        "desde", "donde", "efecto", "el", "ella", "en", "entre", "es",
+        "esta", "este", "hay", "la", "las", "lo", "los", "near", "no",
+        "not", "o", "or", "para", "por", "puede", "que", "se", "segun",
+        "si", "sin", "sobre", "su", "sus", "tener", "tiene", "un", "una",
+        "y",
+    }
+)
+
+# Small deterministic equivalence families improve recall without allowing a
+# model to invent query semantics. Accent folding and conservative
+# singular/plural variants are added separately.
+_LEXICAL_ALIASES: dict[str, tuple[str, ...]] = {
+    "extemporanea": ("extemporaneidad", "tardia", "tardio"),
+    "extemporaneidad": ("extemporanea", "tardia", "tardio"),
+    "tardia": ("extemporanea", "extemporaneidad"),
+    "tardio": ("extemporanea", "extemporaneidad"),
+    "canon": ("regalia",),
+    "canones": ("regalia", "regalias"),
+    "regalia": ("canon",),
+    "regalias": ("canon", "canones"),
+}
 
 
 class RetrievalIntegrityError(RuntimeError):
@@ -42,6 +77,8 @@ class RetrievalHit:
     # every equivalent evidence row without allowing them to consume top-N.
     duplicate_count: int = 1
     alternate_segment_ids: tuple[str, ...] = ()
+    retrieval_strategy: str | None = None
+    retrieval_reason: str | None = None
 
 
 @dataclass(frozen=True)
@@ -53,6 +90,61 @@ class CanonicalTargetLookup:
     strategy: str
     status: str
     hits: tuple[RetrievalHit, ...] = ()
+
+
+@dataclass(frozen=True)
+class ThematicQueryStage:
+    """One generated, injection-safe thematic FTS stage."""
+
+    strategy: str
+    fts_query: str
+    match_terms: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class ThematicStageExecution:
+    """Observable internal execution metadata for one thematic retrieval stage."""
+
+    strategy: str
+    reason: str
+    fts_query: str
+    candidate_count: int
+    newly_admitted_count: int
+
+
+@dataclass(frozen=True)
+class ThematicSearchResult:
+    """Bounded thematic hits plus the deterministic stages actually executed."""
+
+    hits: tuple[RetrievalHit, ...]
+    stages: tuple[ThematicStageExecution, ...]
+
+
+@dataclass(frozen=True)
+class _ThematicQueryPlan:
+    stages: tuple[ThematicQueryStage, ...]
+    terms: tuple[str, ...]
+    concepts: tuple[tuple[str, str], ...]
+    numeric_terms: tuple[str, ...]
+
+
+def thematic_retrieval_config() -> dict[str, Any]:
+    """Return stable JSON-compatible inputs to the retrieval fingerprint."""
+    return {
+        "strategy": "phrase_then_controlled_variants_then_broad_fallback",
+        "max_query_terms": _MAX_QUERY_TERMS,
+        "max_query_tokens": _MAX_QUERY_TOKENS,
+        "max_concept_windows": _MAX_CONCEPT_WINDOWS,
+        "max_concept_gap_tokens": _MAX_CONCEPT_GAP_TOKENS,
+        "stage_pool_multiplier": _STAGE_POOL_MULTIPLIER,
+        "generic_query_terms": sorted(_GENERIC_QUERY_TERMS),
+        "lexical_aliases": {
+            key: list(values)
+            for key, values in sorted(_LEXICAL_ALIASES.items())
+        },
+        "diversity": "distinct-document-first-then-ranked-backfill",
+        "tie_break": "concepts,terms,numerics,stage,bm25,provenance",
+    }
 
 
 def normalize_text(value: str) -> str:
@@ -79,26 +171,202 @@ def exact_unambiguous_substring_offset(
     return first
 
 
-def _query_terms(value: str, *, maximum: int = 18) -> list[str]:
+def _fold_text(value: str) -> str:
+    normalized = unicodedata.normalize("NFKD", value.casefold())
+    return "".join(ch for ch in normalized if not unicodedata.combining(ch))
+
+
+def _query_tokens(value: str, *, maximum: int = _MAX_QUERY_TOKENS) -> list[str]:
+    tokens: list[str] = []
+    for match in _WORD_RE.finditer(_fold_text(value)):
+        token = match.group(0)
+        if not token:
+            continue
+        tokens.append(token)
+        if len(tokens) >= maximum:
+            break
+    return tokens
+
+
+def _query_terms(value: str, *, maximum: int = _MAX_QUERY_TERMS) -> list[str]:
+    """Return unique safe terms, preserving short numeric identifiers."""
     terms: list[str] = []
     seen: set[str] = set()
-    for match in _WORD_RE.finditer(value.casefold()):
-        term = match.group(0)
-        if term in seen:
+    for token in _query_tokens(value, maximum=max(maximum * 4, _MAX_QUERY_TOKENS)):
+        if not token.isdigit() and len(token) < 3:
             continue
-        seen.add(term)
-        terms.append(term)
+        if token in seen:
+            continue
+        seen.add(token)
+        terms.append(token)
         if len(terms) >= maximum:
             break
     return terms
 
 
+def _is_significant_query_term(term: str) -> bool:
+    if term.isdigit():
+        return True
+    return len(term) >= 3 and term not in _GENERIC_QUERY_TERMS
+
+
+def _quote_fts_phrase(tokens: tuple[str, ...] | list[str]) -> str:
+    # Tokens come exclusively from _WORD_RE, but quote defensively so caller
+    # text can never inject FTS operators or syntax.
+    phrase = " ".join(token.replace('"', '""') for token in tokens)
+    return f'"{phrase}"'
+
+
+def _lexical_variants(term: str) -> tuple[str, ...]:
+    """Return conservative deterministic variants for one significant term."""
+    if term.isdigit():
+        return (term,)
+
+    variants: set[str] = {term}
+    pending = [term]
+    while pending:
+        current = pending.pop()
+        for alias in _LEXICAL_ALIASES.get(current, ()):
+            if alias not in variants:
+                variants.add(alias)
+                pending.append(alias)
+
+    for current in tuple(variants):
+        if len(current) < 4:
+            continue
+        if current.endswith("es") and len(current) > 4:
+            variants.add(current[:-2])
+        elif current.endswith("s") and len(current) > 4:
+            variants.add(current[:-1])
+        elif current[-1] in "aeiou":
+            variants.add(current + "s")
+        else:
+            variants.add(current + "es")
+
+    return tuple([term, *sorted(variants - {term})])
+
+
+def _variant_group(term: str) -> str:
+    variants = _lexical_variants(term)
+    clauses = [_quote_fts_phrase((variant,)) for variant in variants]
+    if len(clauses) == 1:
+        return clauses[0]
+    return "(" + " OR ".join(clauses) + ")"
+
+
+def _concept_windows(tokens: list[str]) -> list[tuple[tuple[str, ...], tuple[str, str]]]:
+    """Preserve bounded adjacent concepts, allowing only filler between them."""
+    significant_positions = [
+        index for index, token in enumerate(tokens)
+        if _is_significant_query_term(token)
+    ]
+    windows: list[tuple[tuple[str, ...], tuple[str, str]]] = []
+    seen: set[tuple[str, ...]] = set()
+
+    for left_pos, right_pos in zip(significant_positions, significant_positions[1:]):
+        gap = right_pos - left_pos - 1
+        if gap > _MAX_CONCEPT_GAP_TOKENS:
+            continue
+        raw = tuple(tokens[left_pos : right_pos + 1])
+        if raw in seen:
+            continue
+        seen.add(raw)
+        windows.append((raw, (tokens[left_pos], tokens[right_pos])))
+        if len(windows) >= _MAX_CONCEPT_WINDOWS:
+            break
+    return windows
+
+
+def build_thematic_query_plan(value: str) -> _ThematicQueryPlan:
+    """Build deterministic phrase/variant/broad stages from plain query text."""
+    tokens = _query_tokens(value)
+    terms: list[str] = []
+    seen_terms: set[str] = set()
+    for token in tokens:
+        if not _is_significant_query_term(token) or token in seen_terms:
+            continue
+        seen_terms.add(token)
+        terms.append(token)
+        if len(terms) >= _MAX_QUERY_TERMS:
+            break
+
+    windows = _concept_windows(tokens)
+    stages: list[ThematicQueryStage] = []
+
+    if windows:
+        phrase_clauses = [_quote_fts_phrase(raw) for raw, _ in windows]
+        phrase_terms = tuple(
+            dict.fromkeys(
+                token
+                for raw, _ in windows
+                for token in raw
+                if _is_significant_query_term(token)
+            )
+        )
+        stages.append(
+            ThematicQueryStage(
+                strategy="concept_phrase",
+                fts_query=" OR ".join(phrase_clauses),
+                match_terms=phrase_terms,
+            )
+        )
+
+        lexical_clauses: list[str] = []
+        lexical_match_terms: list[str] = []
+        for _, (left, right) in windows:
+            lexical_clauses.append(
+                f"({_variant_group(left)} AND {_variant_group(right)})"
+            )
+            lexical_match_terms.extend(_lexical_variants(left))
+            lexical_match_terms.extend(_lexical_variants(right))
+        stages.append(
+            ThematicQueryStage(
+                strategy="controlled_lexical_variants",
+                fts_query=" OR ".join(dict.fromkeys(lexical_clauses)),
+                match_terms=tuple(dict.fromkeys(lexical_match_terms)),
+            )
+        )
+
+    if terms:
+        broad_clauses: list[str] = []
+        broad_match_terms: list[str] = []
+        for term in terms:
+            variants = _lexical_variants(term)
+            broad_clauses.extend(_quote_fts_phrase((variant,)) for variant in variants)
+            broad_match_terms.extend(variants)
+        stages.append(
+            ThematicQueryStage(
+                strategy="broad_lexical_fallback",
+                fts_query=" OR ".join(dict.fromkeys(broad_clauses)),
+                match_terms=tuple(dict.fromkeys(broad_match_terms)),
+            )
+        )
+
+    # Avoid executing semantically identical generated queries twice.
+    unique_stages: list[ThematicQueryStage] = []
+    seen_queries: set[str] = set()
+    for stage in stages:
+        if not stage.fts_query or stage.fts_query in seen_queries:
+            continue
+        seen_queries.add(stage.fts_query)
+        unique_stages.append(stage)
+
+    concepts = tuple(pair for _, pair in windows)
+    numeric_terms = tuple(term for term in terms if term.isdigit())
+    return _ThematicQueryPlan(
+        stages=tuple(unique_stages),
+        terms=tuple(terms),
+        concepts=concepts,
+        numeric_terms=numeric_terms,
+    )
+
+
 def _fts_query(value: str) -> tuple[str, list[str]]:
+    """Compatibility helper for the broad sanitized lexical expression."""
     terms = _query_terms(value)
     if not terms:
         return "", []
-    escaped = [term.replace('"', '""') for term in terms]
-    return " OR ".join(f'"{term}"' for term in escaped), terms
+    return " OR ".join(_quote_fts_phrase((term,)) for term in terms), terms
 
 
 class CorpusRetrievalService:
@@ -283,15 +551,14 @@ class CorpusRetrievalService:
             alternate_segment_ids=alternate_segment_ids,
         )
 
-    def search(self, query: str, *, limit: int = 20) -> list[RetrievalHit]:
-        """Return top-N exact-text-diversified hits without deleting evidence.
-
-        Raw FTS ranking remains authoritative. Once one valid representative of
-        an (extraction_id, text_sha256) group occupies a normal result slot,
-        later equivalents are skipped and cannot exhaust the requested window.
-        """
-        fts_query, terms = _fts_query(query)
-        if not fts_query or limit <= 0:
+    def _search_generated_stage(
+        self,
+        stage: ThematicQueryStage,
+        *,
+        limit: int,
+    ) -> list[RetrievalHit]:
+        """Execute one generated FTS stage with exact-text diversification."""
+        if not stage.fts_query or limit <= 0:
             return []
 
         hits: list[RetrievalHit] = []
@@ -301,7 +568,7 @@ class CorpusRetrievalService:
 
         while len(hits) < limit:
             ranked_rows = self._ranked_rows(
-                fts_query,
+                stage.fts_query,
                 limit=batch_size,
                 offset=offset,
             )
@@ -313,10 +580,12 @@ class CorpusRetrievalService:
                 if row is None:
                     continue
 
-                # A contentless FTS rowid is only a candidate locator. If a
-                # future replay causes rowid drift, never bind unrelated text.
-                normalized = normalize_text(row[3])
-                if not any(term in normalized for term in terms):
+                # A contentless FTS rowid is only a candidate locator. Generated
+                # query terms must still be observable in the authoritative row.
+                row_tokens = set(_query_tokens(str(row[3]), maximum=512))
+                if stage.match_terms and not any(
+                    term in row_tokens for term in stage.match_terms
+                ):
                     continue
 
                 equivalence_key = (str(row[1]), str(row[4]))
@@ -334,6 +603,170 @@ class CorpusRetrievalService:
             offset += len(ranked_rows)
 
         return hits
+
+    @staticmethod
+    def _thematic_relevance_key(
+        hit: RetrievalHit,
+        *,
+        plan: _ThematicQueryPlan,
+        stage_index: int,
+    ) -> tuple[Any, ...]:
+        text_tokens = set(_query_tokens(hit.text, maximum=512))
+
+        def term_matches(term: str) -> bool:
+            return any(variant in text_tokens for variant in _lexical_variants(term))
+
+        concept_matches = sum(
+            1
+            for left, right in plan.concepts
+            if term_matches(left) and term_matches(right)
+        )
+        term_matches_count = sum(1 for term in plan.terms if term_matches(term))
+        numeric_matches = sum(1 for term in plan.numeric_terms if term in text_tokens)
+        return (
+            -concept_matches,
+            -term_matches_count,
+            -numeric_matches,
+            stage_index,
+            hit.rank,
+            hit.document_id or "",
+            hit.extraction_id,
+            hit.sequence_no,
+            hit.extracted_segment_id,
+        )
+
+    @staticmethod
+    def _diversify_ranked_hits(
+        ranked: list[RetrievalHit],
+        *,
+        limit: int,
+    ) -> list[RetrievalHit]:
+        """Prefer distinct documents once, then backfill in relevance order."""
+        if limit <= 0:
+            return []
+
+        selected: list[RetrievalHit] = []
+        seen_segments: set[str] = set()
+        seen_documents: set[str] = set()
+
+        for hit in ranked:
+            document_key = hit.document_id or f"extraction:{hit.extraction_id}"
+            if document_key in seen_documents:
+                continue
+            selected.append(hit)
+            seen_segments.add(hit.extracted_segment_id)
+            seen_documents.add(document_key)
+            if len(selected) >= limit:
+                return selected
+
+        for hit in ranked:
+            if hit.extracted_segment_id in seen_segments:
+                continue
+            selected.append(hit)
+            seen_segments.add(hit.extracted_segment_id)
+            if len(selected) >= limit:
+                break
+        return selected
+
+    def search_detailed(
+        self,
+        query: str,
+        *,
+        limit: int = 20,
+    ) -> ThematicSearchResult:
+        """Run deterministic staged thematic retrieval.
+
+        Phrase-aware concepts are attempted first, controlled lexical variants
+        backfill paraphrased wording, and the broad OR stage is used only when
+        focused stages cannot fill the bounded result window. All FTS syntax is
+        generated from sanitized tokens.
+        """
+        if limit <= 0:
+            return ThematicSearchResult((), ())
+
+        plan = build_thematic_query_plan(query)
+        if not plan.stages:
+            return ThematicSearchResult((), ())
+
+        pool_limit = max(limit * _STAGE_POOL_MULTIPLIER, limit)
+        collected: dict[tuple[str, str], tuple[RetrievalHit, int]] = {}
+        executions: list[ThematicStageExecution] = []
+
+        for stage_index, stage in enumerate(plan.stages):
+            if len(
+                self._diversify_ranked_hits(
+                    [
+                        item[0]
+                        for item in sorted(
+                            collected.values(),
+                            key=lambda pair: self._thematic_relevance_key(
+                                pair[0],
+                                plan=plan,
+                                stage_index=pair[1],
+                            ),
+                        )
+                    ],
+                    limit=limit,
+                )
+            ) >= limit:
+                break
+
+            if stage.strategy == "concept_phrase":
+                reason = "focused_multiword_concepts"
+            elif stage.strategy == "controlled_lexical_variants":
+                reason = (
+                    "concept_phrase_stage_underfilled"
+                    if executions
+                    else "no_phrase_stage_available"
+                )
+            else:
+                reason = (
+                    "focused_stages_underfilled"
+                    if executions
+                    else "no_multiword_concepts"
+                )
+
+            stage_hits = self._search_generated_stage(stage, limit=pool_limit)
+            admitted = 0
+            for hit in stage_hits:
+                key = (hit.extraction_id, hit.text_sha256)
+                if key in collected:
+                    continue
+                collected[key] = (
+                    replace(
+                        hit,
+                        retrieval_strategy=stage.strategy,
+                        retrieval_reason=reason,
+                    ),
+                    stage_index,
+                )
+                admitted += 1
+
+            executions.append(
+                ThematicStageExecution(
+                    strategy=stage.strategy,
+                    reason=reason,
+                    fts_query=stage.fts_query,
+                    candidate_count=len(stage_hits),
+                    newly_admitted_count=admitted,
+                )
+            )
+
+        ordered_pairs = sorted(
+            collected.values(),
+            key=lambda pair: self._thematic_relevance_key(
+                pair[0],
+                plan=plan,
+                stage_index=pair[1],
+            ),
+        )
+        ordered = [pair[0] for pair in ordered_pairs]
+        selected = self._diversify_ranked_hits(ordered, limit=limit)
+        return ThematicSearchResult(tuple(selected), tuple(executions))
+
+    def search(self, query: str, *, limit: int = 20) -> list[RetrievalHit]:
+        """Return bounded, diversified thematic hits without mutating evidence."""
+        return list(self.search_detailed(query, limit=limit).hits)
 
     def search_candidate(
         self,
