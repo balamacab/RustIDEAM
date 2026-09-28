@@ -293,10 +293,10 @@ The five workers should normally be scheduled at different minute offsets so ear
 Recommended hourly offsets in `America/Bogota`:
 
 - DEV-1: `:20`
-- DEV-2: `:22`
-- DEV-3: `:24`
-- DEV-4: `:26`
-- DEV-5: `:28`
+- DEV-2: `:25`
+- DEV-3: `:30`
+- DEV-4: `:35`
+- DEV-5: `:40`
 
 The stagger is a race-reduction mechanism, not the ownership mechanism.
 
