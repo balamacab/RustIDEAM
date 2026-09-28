@@ -162,6 +162,29 @@ class Issue0239UVTSemanticConsistencyTests(unittest.TestCase):
         self.assertEqual(fact["source_quote"], INCOME_QUOTE)
         self.assertEqual(fact["measurement"], INCOME_MEASUREMENT)
 
+    def test_ambiguous_multi_uvt_quote_is_not_recovered_or_guessed(self):
+        problem = (
+            "Los ingresos brutos fueron 1.100 UVT en 2025 o 1.200 UVT en 2025."
+        )
+        generated = draft(
+            problem,
+            [
+                user_uvt_fact(
+                    fact_ref="fact:gross-income",
+                    label="Ingresos brutos en UVT",
+                    semantic_key=GROSS_INCOME_KEY,
+                    measurement=INCOME_MEASUREMENT,
+                    source_quote=problem,
+                )
+            ],
+        )
+
+        with self.assertRaises(CaseContractError) as raised:
+            structure(case_input(problem), generated)
+
+        self.assertEqual(raised.exception.code, INVALID_INTAKE_DRAFT)
+        self.assertIn("not uniquely supported", raised.exception.detail)
+
     def test_unsupported_user_semantic_concept_is_not_synthesized_or_rewritten(self):
         problem = "El contrato anual de 2026 vale USD 96.000."
         generated = draft(
