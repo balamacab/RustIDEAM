@@ -521,9 +521,25 @@ def _descriptor_family(fact: dict[str, Any]) -> str | None:
         )
     )
 
-    if re.search(r"\bingres\w*\s+brut\w*", text) and re.search(r"\buvt\b", text):
+    # Provider descriptors may name the already-explicit tax year without
+    # repeating the measurement unit.  The descriptor is only a selector:
+    # promotion still requires one unique client-owned span that literally
+    # carries the supported UVT family and measurement.
+    if (
+        re.search(r"\bingres\w*\s+brut\w*", text)
+        and (
+            re.search(r"\buvt\b", text)
+            or _EXPLICIT_YEAR_RE.search(text)
+        )
+    ):
         return "gross_income_uvt"
-    if re.search(r"\bpatrimon\w*\s+brut\w*", text) and re.search(r"\buvt\b", text):
+    if (
+        re.search(r"\bpatrimon\w*\s+brut\w*", text)
+        and (
+            re.search(r"\buvt\b", text)
+            or _EXPLICIT_YEAR_RE.search(text)
+        )
+    ):
         return "gross_patrimony_uvt"
     if re.search(r"\bresiden\w*\s+fiscal\w*", text) and re.search(r"\bcolomb\w*", text):
         return "fiscal_residence_colombia"
@@ -546,7 +562,10 @@ def _descriptor_family(fact: dict[str, Any]) -> str | None:
         return "canadian_customer"
     if (
         re.search(r"\bcolombia\b", text)
-        and re.search(r"\b(?:ausen\w*|presen\w*)", text)
+        and (
+            re.search(r"\b(?:ausen\w*|presen\w*)", text)
+            or re.search(r"\bno\s+tiene\b", text)
+        )
         and re.search(
             r"\b(?:domicil\w*|sucurs\w*|establec\w*|emplead\w*|activ\w*)",
             text,
