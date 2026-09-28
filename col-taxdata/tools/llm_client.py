@@ -40,6 +40,7 @@ from case_contract_validation import (
 from case_contract_validation_v4 import (
     INVALID_INTAKE_DRAFT,
     SCHEMA_PATH as V4_SCHEMA_PATH,
+    normalize_intake_draft,
 )
 
 
@@ -657,6 +658,19 @@ class CaseStructuringService:
                 # masquerading behind the historical symbol.
                 validate_case_draft(case_input, draft)
             else:
+                # #210 is a narrow Controller-authorized preprocessing boundary,
+                # not a generic structured-output repair path.  The raw model
+                # object must first satisfy the authoritative serialized v4
+                # shape; only then may exact client-owned evidence upgrade one
+                # already-selected unresolved fact.  Full semantic validation
+                # remains mandatory after normalization.
+                validate_schema_object(
+                    draft,
+                    "IntakeDraft",
+                    INVALID_INTAKE_DRAFT,
+                    schema_path=V4_SCHEMA_PATH,
+                )
+                draft = normalize_intake_draft(case_input, draft)
                 validate_structured_intake(case_input, draft)
         except CaseContractError as exc:
             failure_stage = FAILURE_SEMANTIC_VALIDATION
