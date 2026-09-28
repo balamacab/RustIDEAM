@@ -227,3 +227,25 @@ What evidence will allow it to close?
 ```
 
 If a missing answer materially affects correctness, resolve it before launching work.
+
+## 12. Scheduled case-validation swarm
+
+Long-running iterative legal-case validation may be executed through scheduled stateless workers rather than persistent conversational agents.
+
+The authoritative operating contract is
+[`scheduled-case-validation-swarm.md`](scheduled-case-validation-swarm.md).
+
+The controller MUST preserve the following boundaries when such workers are active:
+
+- GitHub live remains authoritative for issues, branches, pull requests, CI, merge and convergence;
+- repository-backed case-pool state coordinates case lifecycle and scheduling but cannot override GitHub;
+- the Case Tester freezes the candidate set at the beginning of each sweep, then revalidates each candidate immediately before execution;
+- each executed case captures its own exact execution snapshot, so different cases in one sweep may legitimately run against different protected-`main` SHAs;
+- historical case-run outcomes are immutable;
+- the Tester does not implement product fixes;
+- each Developer worker handles at most one issue per invocation;
+- multiple Developer workers may execute concurrently only when dependency and semantic-domain ownership allow it;
+- Controller intervention remains exceptional and is required when ownership, dependency, runtime authorization or coordination-state conflicts cannot be resolved deterministically.
+
+A scheduled worker's conversational context is disposable and must never be required to reconstruct current project state.
+
