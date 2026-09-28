@@ -51,12 +51,14 @@ Optional:
 
 - `MCP_PORT` (default `8000`);
 - `MCP_PATH` (default `/mcp`);
-- `CASE_REST_TIMEOUT_SECONDS` (default `30`);
+- `CASE_REST_TIMEOUT_SECONDS` (default `7260`; valid range `7201` through `86400`);
 - `MCP_MAX_REQUEST_BYTES` (default `1048576`);
 - `MCP_MAX_RESPONSE_BYTES` (default `8388608`);
 - `MCP_BUNDLE_CACHE_ENTRIES` (default `32`).
 
 `CASE_REST_BASE_URL` must be absolute HTTP(S), may not contain embedded credentials, and is fixed for the process lifetime. Tool calls cannot supply or override upstream URLs.
+
+`CASE_REST_TIMEOUT_SECONDS` bounds the synchronous MCP→REST request. The lower bound deliberately exceeds the admitted `7200`-second CASE request budget, and the default adds 60 seconds of outer-transport grace. MCP must therefore not expire a request that is still valid under the supported CASE runtime. Invalid, non-finite, or out-of-range values fail gateway configuration before serving.
 
 The public process also exposes:
 
