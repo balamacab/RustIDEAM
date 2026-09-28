@@ -1,5 +1,7 @@
 # Case-validation control state
 
+> **Tester execution policy:** the scheduled Tester executes from a clean ephemeral snapshot of current protected main and performs full-platform E2E validation before any GitHub bookkeeping. Open issues/branches/PRs, CI/convergence state, Developer/Generator ownership and prior sweep integration do not block execution. The Tester starts/composes the existing CASE v4 + REST v1 + Web + MCP stack with isolated writable state, runs active non-RETIRED cases through their required outer public surfaces, records outcomes, tears down, and only then persists repository evidence. Historical sections below that imply pre-execution Tester PR/CI/overlap admission are superseded for execution.
+
 This directory is the durable coordination surface for the scheduled stateless case-validation swarm.
 
 It is **not** a replacement for GitHub live state. GitHub remains authoritative for issue, branch, pull-request, CI, merge and convergence state. Records here own only test-case identity/lifecycle, Tester sweep membership and immutable run evidence.
