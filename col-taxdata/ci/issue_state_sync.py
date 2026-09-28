@@ -39,6 +39,7 @@ NON_BLOCKED_STATES = {
     "SEMANTIC_REVALIDATION_REQUIRED",
 }
 VISIBLE_STATES = NON_BLOCKED_STATES | {BLOCKED_STATE}
+TRUSTED_AUTHOR_ASSOCIATIONS = {"OWNER", "MEMBER", "COLLABORATOR"}
 
 
 class ApiError(RuntimeError):
@@ -220,6 +221,15 @@ def cmd_event(args: argparse.Namespace) -> int:
     issue_number = int(issue.get("number") or 0)
     if issue_number <= 0:
         raise SystemExit("issue_comment event lacks a positive issue number")
+
+    association = str(comment.get("author_association") or "")
+    if association not in TRUSTED_AUTHOR_ASSOCIATIONS:
+        print(json.dumps({
+            "ignored": True,
+            "reason": "untrusted comment author association",
+            "author_association": association,
+        }))
+        return 0
 
     if marker_payload(str(comment.get("body") or "")) is None:
         print(json.dumps({"ignored": True, "reason": "trigger comment has no valid lifecycle marker"}))
