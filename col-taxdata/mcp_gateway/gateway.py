@@ -26,7 +26,9 @@ CASE_CONTRACT_VERSION = "4.0.0"
 GATEWAY_CONTRACT_VERSION = "1.0.0"
 REST_CASE_PATH = "/v1/cases"
 
-DEFAULT_TIMEOUT_SECONDS = 30.0
+DEFAULT_TIMEOUT_SECONDS = 7260.0
+MIN_TIMEOUT_SECONDS = 7201.0
+MAX_TIMEOUT_SECONDS = 86400.0
 DEFAULT_MAX_REQUEST_BYTES = 1024 * 1024
 DEFAULT_MAX_RESPONSE_BYTES = 8 * 1024 * 1024
 DEFAULT_CACHE_ENTRIES = 32
@@ -138,8 +140,17 @@ class GatewayConfig:
             raise GatewayConfigError(
                 "CASE_REST_BASE_URL must not contain a query or fragment"
             )
-        if self.timeout_seconds <= 0:
-            raise GatewayConfigError("timeout_seconds must be positive")
+        if (
+            not isinstance(self.timeout_seconds, (int, float))
+            or isinstance(self.timeout_seconds, bool)
+            or self.timeout_seconds != self.timeout_seconds
+        ):
+            raise GatewayConfigError("timeout_seconds must be a finite numeric value")
+        if not MIN_TIMEOUT_SECONDS <= self.timeout_seconds <= MAX_TIMEOUT_SECONDS:
+            raise GatewayConfigError(
+                "timeout_seconds must be between "
+                f"{MIN_TIMEOUT_SECONDS:g} and {MAX_TIMEOUT_SECONDS:g} seconds"
+            )
         if self.max_request_bytes < 1 or self.max_response_bytes < 1:
             raise GatewayConfigError("payload byte limits must be positive")
         if self.cache_entries < 1:

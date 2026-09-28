@@ -538,7 +538,6 @@ class Issue0145RealCaseRestAdapterTests(unittest.TestCase):
             service = GatewayService.from_config(
                 GatewayConfig(
                     base_url=f"http://127.0.0.1:{server.server_port}",
-                    timeout_seconds=3,
                 )
             )
             result = service.research_case(**request_kwargs())
