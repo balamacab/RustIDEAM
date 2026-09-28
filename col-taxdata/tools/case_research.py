@@ -26,7 +26,7 @@ from legal_authority_classification import (
 
 
 PLANNER_VERSION = "2"
-RETRIEVAL_VERSION = "3"
+RETRIEVAL_VERSION = "4"
 
 DEFAULT_BOUNDS: dict[str, int] = {
     "max_rounds": 3,
@@ -65,7 +65,7 @@ _RETRIEVAL_CONFIG = {
     "treaty_topic_policy": "bounded-platform-required-topic-queries",
     "hint_policy": "secondary-only",
     "dedupe": "within-extraction exact text_sha256 before top-N; task_ref+extracted_segment_id; authority_ref",
-    "reference_policy": "resolved-explicit-only",
+    "reference_policy": "validated-canonical-target-lookup-no-thematic-fallback",
 }
 
 # Conflict is never inferred from two authorities merely coexisting. Only an
@@ -281,11 +281,11 @@ def _task(
     depth: int,
     generated_from_fact_refs: Iterable[str] = (),
     hint_refs: Iterable[str] = (),
+    identity_material: object | None = None,
 ) -> dict[str, Any]:
     facts = sorted(set(generated_from_fact_refs))
     hints = sorted(set(hint_refs))
-    task_ref = _stable_ref(
-        "task",
+    task_identity: list[object] = [
         question_ref,
         origin,
         purpose,
@@ -294,7 +294,13 @@ def _task(
         facts,
         hints,
         PLANNER_VERSION,
-    )
+    ]
+    # Closed v4 ResearchTask wire fields remain unchanged. Exact canonical
+    # target identity only namespaces the internal task_ref so distinct issuers
+    # or provisions with identical display text cannot collide.
+    if identity_material is not None:
+        task_identity.append(identity_material)
+    task_ref = _stable_ref("task", *task_identity)
     item: dict[str, Any] = {
         "kind": "research_task",
         "contract_version": CONTRACT_VERSION,
@@ -617,6 +623,8 @@ def _candidate_from_hit(
     task: dict[str, Any],
     hit: RetrievalHit,
     provision: dict[str, Any] | None,
+    *,
+    reference_target: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     item: dict[str, Any] = {
         "kind": "research_evidence_candidate",
@@ -642,6 +650,19 @@ def _candidate_from_hit(
         item["authority_ref"] = f"authority:{hit.document_id}"
     if provision is not None:
         item["provision_ref"] = f"provision:{provision['provision_id']}"
+    if reference_target is not None:
+        path: dict[str, Any] = {
+            "task_ref": task["task_ref"],
+            "strategy": reference_target["strategy"],
+            "target_document_ref": (
+                f"document:{reference_target['target_document_id']}"
+            ),
+        }
+        if reference_target.get("target_provision_id") is not None:
+            path["target_provision_ref"] = (
+                f"provision:{reference_target['target_provision_id']}"
+            )
+        item["reference_paths"] = [path]
     return item
 
 
@@ -711,10 +732,12 @@ class PlatformResearchService:
         generated_at: str | None,
     ) -> ResearchExecution:
         del case_input
-        queue = list(plan["tasks"])
-        scheduled = {
-            (task["question_ref"], _fold_text(task["query_text"]))
-            for task in queue
+        queue: list[tuple[dict[str, Any], dict[str, Any] | None]] = [
+            (task, None) for task in plan["tasks"]
+        ]
+        scheduled: set[tuple[str, ...]] = {
+            ("thematic", task["question_ref"], _fold_text(task["query_text"]))
+            for task, _ in queue
         }
         queries_by_question: dict[str, int] = {}
         trace: list[dict[str, Any]] = []
@@ -728,7 +751,7 @@ class PlatformResearchService:
         bounds_exhausted = False
 
         while queue:
-            task = queue.pop(0)
+            task, reference_target = queue.pop(0)
             question_ref = task["question_ref"]
             count = queries_by_question.get(question_ref, 0)
             if count >= plan["bounds"]["max_queries_per_question"]:
@@ -739,10 +762,25 @@ class PlatformResearchService:
                 continue
             queries_by_question[question_ref] = count + 1
 
-            hits = retrieval.search(
-                task["query_text"],
-                limit=plan["bounds"]["max_hits_per_query"],
-            )
+            target_lookup_status: str | None = None
+            if reference_target is None:
+                hits = retrieval.search(
+                    task["query_text"],
+                    limit=plan["bounds"]["max_hits_per_query"],
+                )
+            else:
+                lookup = retrieval.lookup_canonical_target(
+                    reference_target["target_document_id"],
+                    target_provision_id=reference_target.get("target_provision_id"),
+                    limit=plan["bounds"]["max_hits_per_query"],
+                )
+                target_lookup_status = lookup.status
+                reference_target = {
+                    **reference_target,
+                    "strategy": lookup.strategy,
+                }
+                hits = list(lookup.hits)
+
             unique_hits: list[RetrievalHit] = []
             seen_segments: set[str] = set()
             for hit in hits:
@@ -753,19 +791,37 @@ class PlatformResearchService:
 
             step_authorities: set[str] = set()
             step_unresolved: set[str] = set()
-            expansion_queries: list[str] = []
+            expansion_requests: list[dict[str, Any]] = []
 
             if not unique_hits:
-                item = _unresolved(
-                    category="no_relevant_corpus_evidence",
-                    description=(
-                        "No relevant canonical corpus segment was retrieved for "
-                        "this bounded research query."
-                    ),
-                    question_ref=question_ref,
-                    next_action="expand_research",
-                    material=(task["task_ref"], task["query_text"]),
-                )
+                if reference_target is None:
+                    item = _unresolved(
+                        category="no_relevant_corpus_evidence",
+                        description=(
+                            "No relevant canonical corpus segment was retrieved for "
+                            "this bounded research query."
+                        ),
+                        question_ref=question_ref,
+                        next_action="expand_research",
+                        material=(task["task_ref"], task["query_text"]),
+                    )
+                else:
+                    item = _unresolved(
+                        category="unresolved_identity",
+                        description=(
+                            "Resolved-reference expansion could not materialize the "
+                            "exact canonical target without broadening to thematic FTS "
+                            f"(lookup_state={target_lookup_status})."
+                        ),
+                        question_ref=question_ref,
+                        next_action="human_review",
+                        material=(
+                            task["task_ref"],
+                            reference_target["target_document_id"],
+                            reference_target.get("target_provision_id"),
+                            target_lookup_status,
+                        ),
+                    )
                 unresolved[item["unresolved_ref"]] = item
                 step_unresolved.add(item["unresolved_ref"])
 
@@ -773,7 +829,12 @@ class PlatformResearchService:
                 provision = retrieval.provision_for_segment(hit.extracted_segment_id)
                 candidate = candidates.get(hit.extracted_segment_id)
                 if candidate is None:
-                    candidate = _candidate_from_hit(task, hit, provision)
+                    candidate = _candidate_from_hit(
+                        task,
+                        hit,
+                        provision,
+                        reference_target=reference_target,
+                    )
                     candidates[hit.extracted_segment_id] = candidate
                 else:
                     candidate["task_refs"] = sorted(
@@ -785,6 +846,22 @@ class PlatformResearchService:
                     candidate["query_texts"] = sorted(
                         set(candidate["query_texts"]) | {task["query_text"]}
                     )
+                    if reference_target is not None:
+                        path: dict[str, Any] = {
+                            "task_ref": task["task_ref"],
+                            "strategy": reference_target["strategy"],
+                            "target_document_ref": (
+                                f"document:{reference_target['target_document_id']}"
+                            ),
+                        }
+                        if reference_target.get("target_provision_id") is not None:
+                            path["target_provision_ref"] = (
+                                f"provision:{reference_target['target_provision_id']}"
+                            )
+                        paths = candidate.setdefault("reference_paths", [])
+                        if path not in paths:
+                            paths.append(path)
+                            paths.sort(key=_compact_json)
 
                 if hit.document_id is None:
                     item = _unresolved(
@@ -854,33 +931,102 @@ class PlatformResearchService:
                         other_document_id = other_ref.split(":", 1)[1]
                         label = retrieval.query_for_document(other_document_id)
                         if label:
-                            expansion_queries.append(label)
+                            expansion_requests.append(
+                                {
+                                    "query_text": label,
+                                    "target_document_id": other_document_id,
+                                    "target_provision_id": None,
+                                    "source": "canonical_relationship",
+                                }
+                            )
+                        else:
+                            item = _unresolved(
+                                category="unresolved_identity",
+                                description=(
+                                    "Canonical relationship endpoint cannot be "
+                                    "materialized as an existing document target."
+                                ),
+                                question_ref=question_ref,
+                                next_action="human_review",
+                                material=(
+                                    task["task_ref"],
+                                    relation["relationship_ref"],
+                                    other_document_id,
+                                ),
+                            )
+                            unresolved[item["unresolved_ref"]] = item
+                            step_unresolved.add(item["unresolved_ref"])
 
                 _merge_unresolved(unresolved, classified["unresolved"])
                 step_unresolved.update(
                     item["unresolved_ref"] for item in classified["unresolved"]
                 )
 
-                for reference in retrieval.resolved_references_for_segment(
+                for reference in retrieval.reference_resolution_states_for_segment(
                     hit.extracted_segment_id
                 ):
-                    expansion_queries.append(reference["query_text"])
+                    if reference["resolution_state"] != "resolved":
+                        item = _unresolved(
+                            category="unresolved_identity",
+                            description=(
+                                "Reference mention is not eligible for canonical "
+                                "expansion because its resolution is not uniquely "
+                                "resolved and review-free "
+                                f"(state={reference['resolution_state']})."
+                            ),
+                            question_ref=question_ref,
+                            next_action="human_review",
+                            material=(
+                                task["task_ref"],
+                                reference["reference_mention_id"],
+                                reference["resolution_state"],
+                            ),
+                        )
+                        unresolved[item["unresolved_ref"]] = item
+                        step_unresolved.add(item["unresolved_ref"])
+                        continue
+                    expansion_requests.append(
+                        {
+                            "query_text": reference["query_text"],
+                            "target_document_id": reference["target_document_id"],
+                            "target_provision_id": reference["target_provision_id"],
+                            "source": "resolved_reference",
+                        }
+                    )
 
             can_expand = (
                 task["depth"] < plan["bounds"]["max_reference_depth"]
                 and task["depth"] + 1 < plan["bounds"]["max_rounds"]
             )
             if can_expand:
-                for query_text in _dedupe_phrases(expansion_queries):
+                seen_targets: set[tuple[str, str | None]] = set()
+                for request in expansion_requests:
+                    target_key = (
+                        str(request["target_document_id"]),
+                        request.get("target_provision_id"),
+                    )
+                    if target_key in seen_targets:
+                        continue
+                    seen_targets.add(target_key)
+
                     if len(authorities) >= plan["bounds"]["max_total_authorities"]:
                         bounds_exhausted = True
                         break
-                    key = (question_ref, _fold_text(query_text))
+                    key = (
+                        "canonical_target",
+                        question_ref,
+                        target_key[0],
+                        target_key[1] or "",
+                    )
                     if key in scheduled:
                         continue
                     if (
                         queries_by_question.get(question_ref, 0)
-                        + sum(1 for queued in queue if queued["question_ref"] == question_ref)
+                        + sum(
+                            1
+                            for queued_task, _ in queue
+                            if queued_task["question_ref"] == question_ref
+                        )
                         >= plan["bounds"]["max_queries_per_question"]
                     ):
                         bounds_exhausted = True
@@ -889,13 +1035,14 @@ class PlatformResearchService:
                         question_ref=question_ref,
                         origin="reference_expansion",
                         purpose="reference_expansion",
-                        query_text=query_text,
+                        query_text=request["query_text"],
                         depth=task["depth"] + 1,
+                        identity_material=target_key,
                     )
                     plan["tasks"].append(expanded)
-                    queue.append(expanded)
+                    queue.append((expanded, request))
                     scheduled.add(key)
-            elif expansion_queries:
+            elif expansion_requests:
                 bounds_exhausted = True
 
             trace.append(
