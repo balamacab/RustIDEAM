@@ -145,3 +145,24 @@ The sweep PR must close only that validation-only issue and must carry normal `c
 
 The validation-only issue exists so the required trusted `CI Gate` and autonomous merge/convergence workflow can operate without weakening repository branch/PR policy.
 
+
+### Dedicated Tester harness container
+
+The scheduled Tester MUST execute its harness/preflight work in the project-owned `case-tester` Compose service, not in the normal `taxdata` service.
+
+The normal `taxdata` image intentionally remains dependency-minimal. Tester-only dependencies are exact-version pinned in:
+
+`requirements-case-tester.txt`
+
+The required preflight is:
+
+```bash
+docker compose build case-tester
+docker compose run --rm case-tester \
+  python3 tools/case_tester_preflight.py
+```
+
+A successful preflight prints one JSON object with `status=PASS`, CASE contract `4.0.0`, REST API `1.0.0`, endpoint `/v1/cases`, and exact installed/declared versions for `yaml`/PyYAML, `jsonschema`, and `requests`.
+
+If the command fails, the activation stops before discovery exactly as required by the Tester contract. Do not fall back to `docker compose run --rm taxdata`, do not install packages ad hoc, and do not weaken or bypass the preflight.
+
