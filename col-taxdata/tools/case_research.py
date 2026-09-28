@@ -26,7 +26,7 @@ from legal_authority_classification import (
 
 
 PLANNER_VERSION = "2"
-RETRIEVAL_VERSION = "2"
+RETRIEVAL_VERSION = "3"
 
 DEFAULT_BOUNDS: dict[str, int] = {
     "max_rounds": 3,
@@ -64,7 +64,7 @@ _RETRIEVAL_CONFIG = {
     "query_policy": "question+confirmed-facts+deterministic-tax/treaty-vocabulary",
     "treaty_topic_policy": "bounded-platform-required-topic-queries",
     "hint_policy": "secondary-only",
-    "dedupe": "task_ref+extracted_segment_id; authority_ref",
+    "dedupe": "within-extraction exact text_sha256 before top-N; task_ref+extracted_segment_id; authority_ref",
     "reference_policy": "resolved-explicit-only",
 }
 
@@ -634,6 +634,8 @@ def _candidate_from_hit(
         "source_url": hit.source_url,
         "retrieved_at": hit.retrieved_at,
         "rank": hit.rank,
+        "duplicate_count": hit.duplicate_count,
+        "alternate_segment_ids": list(hit.alternate_segment_ids),
     }
     if hit.document_id is not None:
         item["document_ref"] = f"document:{hit.document_id}"

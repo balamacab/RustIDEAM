@@ -8,6 +8,9 @@ from typing import Any
 
 
 _WORD_RE = re.compile(r"[^\W_]{3,}", re.UNICODE)
+# Batch size affects query round-trips only; search keeps scanning until the
+# requested number of unique exact-text groups is filled or FTS is exhausted.
+_FTS_SCAN_BATCH_SIZE = 64
 
 
 class RetrievalIntegrityError(RuntimeError):
@@ -35,6 +38,10 @@ class RetrievalHit:
     document_issuer: str | None
     document_year: int | None
     rank: float
+    # Cardinality includes the representative itself. Alternate IDs preserve
+    # every equivalent evidence row without allowing them to consume top-N.
+    duplicate_count: int = 1
+    alternate_segment_ids: tuple[str, ...] = ()
 
 
 def normalize_text(value: str) -> str:
@@ -95,116 +102,224 @@ class CorpusRetrievalService:
     def __init__(self, con: sqlite3.Connection):
         self.con = con
 
-    def search(self, query: str, *, limit: int = 20) -> list[RetrievalHit]:
-        fts_query, terms = _fts_query(query)
-        if not fts_query:
-            return []
-
-        ranked_rows = self.con.execute(
+    def _ranked_rows(
+        self,
+        fts_query: str,
+        *,
+        limit: int,
+        offset: int,
+    ) -> list[tuple[int, float]]:
+        """Return one deterministic page of raw FTS candidates."""
+        rows = self.con.execute(
             """
             SELECT rowid, bm25(extracted_segments_fts) AS rank
             FROM extracted_segments_fts
             WHERE extracted_segments_fts MATCH ?
             ORDER BY rank, rowid
-            LIMIT ?
+            LIMIT ? OFFSET ?
             """,
-            (fts_query, limit),
+            (fts_query, limit, offset),
+        ).fetchall()
+        return [(int(row[0]), float(row[1])) for row in rows]
+
+    def _candidate_row(self, rowid: int) -> Any | None:
+        """Resolve one FTS locator back to authoritative segment provenance."""
+        return self.con.execute(
+            """
+            SELECT
+                es.extracted_segment_id,
+                es.extraction_id,
+                es.sequence_no,
+                es.text,
+                es.text_sha256,
+                m.manifestation_id,
+                m.sha256,
+                m.retrieved_at,
+                s.source_id,
+                s.source_url,
+                s.authority,
+                s.source_kind,
+                d.document_id,
+                d.document_type,
+                d.title,
+                (
+                    SELECT di.identifier_value
+                    FROM document_identifiers di
+                    WHERE di.document_id = d.document_id
+                      AND di.is_primary = 1
+                    ORDER BY di.identifier_id
+                    LIMIT 1
+                ) AS document_number,
+                (
+                    SELECT di.issuer
+                    FROM document_identifiers di
+                    WHERE di.document_id = d.document_id
+                      AND di.is_primary = 1
+                    ORDER BY di.identifier_id
+                    LIMIT 1
+                ) AS document_issuer,
+                CASE
+                    WHEN d.issued_date GLOB '[0-9][0-9][0-9][0-9]-*'
+                    THEN CAST(substr(d.issued_date, 1, 4) AS INTEGER)
+                    ELSE NULL
+                END AS document_year
+            FROM extracted_segments es
+            JOIN text_extractions te
+              ON te.extraction_id = es.extraction_id
+             AND te.status = 'success'
+            JOIN manifestations m
+              ON m.manifestation_id = te.manifestation_id
+            JOIN sources s
+              ON s.source_id = m.source_id
+            LEFT JOIN documents d
+              ON d.document_id = m.document_id
+            WHERE es.rowid = ?
+            """,
+            (rowid,),
+        ).fetchone()
+
+    @staticmethod
+    def _verify_segment_fingerprint(
+        extracted_segment_id: str,
+        text: str,
+        expected_hash: str,
+    ) -> None:
+        actual_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()
+        if actual_hash != expected_hash:
+            raise RetrievalIntegrityError(
+                "extracted segment text fingerprint mismatch: "
+                f"{extracted_segment_id} expected={expected_hash} actual={actual_hash}"
+            )
+
+    def _duplicate_provenance(
+        self,
+        *,
+        extraction_id: str,
+        text_sha256: str,
+        representative_id: str,
+        representative_text: str,
+    ) -> tuple[int, tuple[str, ...]]:
+        """Return verified deterministic provenance for one exact-text group.
+
+        Equivalence is deliberately scoped to one extraction. Identical wording
+        from another extraction/document remains an independent retrieval hit.
+        """
+        rows = self.con.execute(
+            """
+            SELECT extracted_segment_id, sequence_no, text, text_sha256
+            FROM extracted_segments
+            WHERE extraction_id = ?
+              AND text_sha256 = ?
+            ORDER BY sequence_no, extracted_segment_id
+            """,
+            (extraction_id, text_sha256),
         ).fetchall()
 
-        hits: list[RetrievalHit] = []
-        for rowid, rank in ranked_rows:
-            row = self.con.execute(
-                """
-                SELECT
-                    es.extracted_segment_id,
-                    es.extraction_id,
-                    es.sequence_no,
-                    es.text,
-                    es.text_sha256,
-                    m.manifestation_id,
-                    m.sha256,
-                    m.retrieved_at,
-                    s.source_id,
-                    s.source_url,
-                    s.authority,
-                    s.source_kind,
-                    d.document_id,
-                    d.document_type,
-                    d.title,
-                    (
-                        SELECT di.identifier_value
-                        FROM document_identifiers di
-                        WHERE di.document_id = d.document_id
-                          AND di.is_primary = 1
-                        ORDER BY di.identifier_id
-                        LIMIT 1
-                    ) AS document_number,
-                    (
-                        SELECT di.issuer
-                        FROM document_identifiers di
-                        WHERE di.document_id = d.document_id
-                          AND di.is_primary = 1
-                        ORDER BY di.identifier_id
-                        LIMIT 1
-                    ) AS document_issuer,
-                    CASE
-                        WHEN d.issued_date GLOB '[0-9][0-9][0-9][0-9]-*'
-                        THEN CAST(substr(d.issued_date, 1, 4) AS INTEGER)
-                        ELSE NULL
-                    END AS document_year
-                FROM extracted_segments es
-                JOIN text_extractions te
-                  ON te.extraction_id = es.extraction_id
-                 AND te.status = 'success'
-                JOIN manifestations m
-                  ON m.manifestation_id = te.manifestation_id
-                JOIN sources s
-                  ON s.source_id = m.source_id
-                LEFT JOIN documents d
-                  ON d.document_id = m.document_id
-                WHERE es.rowid = ?
-                """,
-                (rowid,),
-            ).fetchone()
-            if row is None:
-                continue
-
-            # A contentless FTS rowid is only a candidate locator. If a future
-            # replay causes rowid drift, do not bind an unrelated segment.
-            normalized = normalize_text(row[3])
-            if not any(term in normalized for term in terms):
-                continue
-
-            actual_hash = hashlib.sha256(row[3].encode("utf-8")).hexdigest()
-            if actual_hash != row[4]:
+        alternates: list[str] = []
+        representative_found = False
+        for row in rows:
+            segment_id = str(row[0])
+            segment_text = str(row[2])
+            persisted_hash = str(row[3])
+            self._verify_segment_fingerprint(segment_id, segment_text, persisted_hash)
+            if segment_text != representative_text:
                 raise RetrievalIntegrityError(
-                    "extracted segment text fingerprint mismatch: "
-                    f"{row[0]} expected={row[4]} actual={actual_hash}"
+                    "same extraction/text_sha256 group contains non-equivalent text: "
+                    f"{representative_id} vs {segment_id}"
                 )
+            if segment_id == representative_id:
+                representative_found = True
+            else:
+                alternates.append(segment_id)
 
-            hits.append(
-                RetrievalHit(
-                    extracted_segment_id=row[0],
-                    extraction_id=row[1],
-                    sequence_no=int(row[2]),
-                    text=row[3],
-                    text_sha256=row[4],
-                    manifestation_id=row[5],
-                    manifestation_sha256=row[6],
-                    retrieved_at=row[7],
-                    source_id=row[8],
-                    source_url=row[9],
-                    authority=row[10],
-                    source_kind=row[11],
-                    document_id=row[12],
-                    document_type=row[13],
-                    document_title=row[14],
-                    document_number=row[15],
-                    document_issuer=row[16],
-                    document_year=row[17],
-                    rank=float(rank),
-                )
+        if not representative_found:
+            raise RetrievalIntegrityError(
+                "retrieval representative missing from its exact-text provenance group: "
+                f"{representative_id}"
             )
+        return len(rows), tuple(alternates)
+
+    def search(self, query: str, *, limit: int = 20) -> list[RetrievalHit]:
+        """Return top-N exact-text-diversified hits without deleting evidence.
+
+        Raw FTS ranking remains authoritative. Once one valid representative of
+        an (extraction_id, text_sha256) group occupies a normal result slot,
+        later equivalents are skipped and cannot exhaust the requested window.
+        """
+        fts_query, terms = _fts_query(query)
+        if not fts_query or limit <= 0:
+            return []
+
+        hits: list[RetrievalHit] = []
+        seen_equivalents: set[tuple[str, str]] = set()
+        offset = 0
+        batch_size = max(limit, _FTS_SCAN_BATCH_SIZE)
+
+        while len(hits) < limit:
+            ranked_rows = self._ranked_rows(
+                fts_query,
+                limit=batch_size,
+                offset=offset,
+            )
+            if not ranked_rows:
+                break
+
+            for rowid, rank in ranked_rows:
+                row = self._candidate_row(rowid)
+                if row is None:
+                    continue
+
+                # A contentless FTS rowid is only a candidate locator. If a
+                # future replay causes rowid drift, never bind unrelated text.
+                normalized = normalize_text(row[3])
+                if not any(term in normalized for term in terms):
+                    continue
+
+                self._verify_segment_fingerprint(row[0], row[3], row[4])
+                equivalence_key = (str(row[1]), str(row[4]))
+                if equivalence_key in seen_equivalents:
+                    continue
+
+                duplicate_count, alternate_segment_ids = self._duplicate_provenance(
+                    extraction_id=str(row[1]),
+                    text_sha256=str(row[4]),
+                    representative_id=str(row[0]),
+                    representative_text=str(row[3]),
+                )
+                seen_equivalents.add(equivalence_key)
+
+                hits.append(
+                    RetrievalHit(
+                        extracted_segment_id=row[0],
+                        extraction_id=row[1],
+                        sequence_no=int(row[2]),
+                        text=row[3],
+                        text_sha256=row[4],
+                        manifestation_id=row[5],
+                        manifestation_sha256=row[6],
+                        retrieved_at=row[7],
+                        source_id=row[8],
+                        source_url=row[9],
+                        authority=row[10],
+                        source_kind=row[11],
+                        document_id=row[12],
+                        document_type=row[13],
+                        document_title=row[14],
+                        document_number=row[15],
+                        document_issuer=row[16],
+                        document_year=row[17],
+                        rank=rank,
+                        duplicate_count=duplicate_count,
+                        alternate_segment_ids=alternate_segment_ids,
+                    )
+                )
+                if len(hits) >= limit:
+                    break
+
+            if len(hits) >= limit or len(ranked_rows) < batch_size:
+                break
+            offset += len(ranked_rows)
+
         return hits
 
     def search_candidate(
