@@ -1,0 +1,29 @@
+schema_version: 1
+kind: sweep_result
+sweep_id: SW-20260928T040000Z-e2e
+completed_at: "2026-09-28T03:41:00Z"
+candidate_results:
+  - case_id: TC-0142-A
+    disposition: skipped
+    run_id: null
+    skip_reason: "Exact completed E2E evidence exists in SW-20260928T031000Z-e2e for identical main_sha + case definition SHA/fingerprint + required_surfaces."
+  - case_id: TC-0142-B
+    disposition: skipped
+    run_id: null
+    skip_reason: "Exact completed E2E evidence exists in SW-20260928T031000Z-e2e for identical main_sha + case definition SHA/fingerprint + required_surfaces."
+  - case_id: TC-0142-C
+    disposition: skipped
+    run_id: null
+    skip_reason: "Exact completed E2E evidence exists in SW-20260928T031000Z-e2e for identical main_sha + case definition SHA/fingerprint + required_surfaces."
+  - case_id: TC-20260928-H01
+    disposition: skipped
+    run_id: null
+    skip_reason: "Exact completed E2E evidence exists in SW-20260928T031000Z-e2e for identical main_sha + case definition SHA/fingerprint + required_surfaces."
+  - case_id: TC-20260928-M01
+    disposition: skipped
+    run_id: null
+    skip_reason: "Exact completed E2E evidence exists in SW-20260928T031000Z-e2e for identical main_sha + case definition SHA/fingerprint + required_surfaces."
+  - case_id: TC-20260928-S01
+    disposition: skipped
+    run_id: null
+    skip_reason: "Exact completed E2E evidence exists in SW-20260928T031000Z-e2e for identical main_sha + case definition SHA/fingerprint + required_surfaces."

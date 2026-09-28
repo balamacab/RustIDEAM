@@ -1,0 +1,36 @@
+schema_version: 1
+kind: sweep_discovery
+sweep_id: SW-20260928T040000Z-e2e
+discovered_at: "2026-09-28T03:40:00Z"
+discovered_main_sha: "ec50097fb1e42d90f95705c46e35ae2112b447c1"
+candidates:
+  - case_id: TC-0142-A
+    observed_state: BLOCKED
+    observed_generation: 0
+    eligibility_reason: regression_requested
+    blocker_observations: []
+  - case_id: TC-0142-B
+    observed_state: BLOCKED
+    observed_generation: 0
+    eligibility_reason: regression_requested
+    blocker_observations: []
+  - case_id: TC-0142-C
+    observed_state: BLOCKED
+    observed_generation: 0
+    eligibility_reason: regression_requested
+    blocker_observations: []
+  - case_id: TC-20260928-H01
+    observed_state: READY
+    observed_generation: 2
+    eligibility_reason: regression_requested
+    blocker_observations: []
+  - case_id: TC-20260928-M01
+    observed_state: READY
+    observed_generation: 2
+    eligibility_reason: regression_requested
+    blocker_observations: []
+  - case_id: TC-20260928-S01
+    observed_state: READY
+    observed_generation: 2
+    eligibility_reason: regression_requested
+    blocker_observations: []
