@@ -22,6 +22,7 @@ docker build -t col-taxdata-web-console:local .
 docker run --rm \
   --name col-taxdata-web-console \
   -e CASE_API_UPSTREAM=http://case-api.example:8765 \
+  -e CASE_API_READ_TIMEOUT_SECONDS=7260 \
   -p 8080:8080 \
   col-taxdata-web-console:local
 ```
@@ -36,6 +37,14 @@ CASE_API_UPSTREAM=http://case-api.example:8765 docker compose up --build
 `http://` or `https://` origin with an optional numeric port and no path, query
 or fragment. The value is rendered only into nginx configuration; it is never
 delivered to browser JavaScript.
+
+`CASE_API_READ_TIMEOUT_SECONDS` controls how long nginx waits between reads from
+the synchronous CASE REST response. It must be an integer from 7201 through 86400
+seconds. The default is 7260 seconds, which provides 60 seconds of transport grace
+beyond the admitted 7200-second CASE validation runtime. The lower bound is
+deliberate: the Web surface must not be configured to expire before the currently
+supported CASE runtime budget. If that CASE budget changes, update this boundary
+and its regression test together.
 
 Health:
 
