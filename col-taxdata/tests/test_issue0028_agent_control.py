@@ -12,6 +12,10 @@ import agent_control  # noqa: E402
 
 
 class AgentControlTests(unittest.TestCase):
+    def setUp(self):
+        self.visible_state = mock.patch.object(agent_control, "apply_visible_state").start()
+        self.addCleanup(mock.patch.stopall)
+
     def pr(self, state: str = "blocked", head_sha: str | None = None):
         sha = head_sha or ("a" * 40)
         metadata = {
@@ -182,6 +186,9 @@ class AgentControlTests(unittest.TestCase):
         self.assertFalse(result["dispatched"])
         self.assertTrue(result["blocked"])
         create_blocker.assert_called_once()
+        self.visible_state.assert_called_with(
+            "token", "balamacab/RustIDEAM", 28, "BLOCKED"
+        )
 
 
 if __name__ == "__main__":
