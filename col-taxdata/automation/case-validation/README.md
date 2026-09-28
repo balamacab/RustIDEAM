@@ -168,3 +168,29 @@ A successful preflight prints one JSON object with `status=PASS`, CASE contract 
 
 If the command fails, the activation stops before discovery exactly as required by the Tester contract. Do not fall back to `docker compose run --rm taxdata`, do not install packages ad hoc, and do not weaken or bypass the preflight.
 
+## Canonical writable CASE v4 REST bootstrap
+
+Issue #255 makes schema readiness part of the product-owned runtime boundary. After
+the Tester creates an isolated writable SQLite copy, it MUST start CASE v4 REST
+through:
+
+```bash
+python3 tools/case_rest_runtime.py \
+  --db /validation/state/taxdata.sqlite \
+  --case-root /validation/cases \
+  --config config/llm/case-migration-rtx3070-v1.yaml \
+  --host 0.0.0.0 \
+  --port 8765
+```
+
+The runtime uses the same append-only, SHA-256-checked migration engine as
+`tools/init_db.py`, verifies migration
+`016_case_v4_bundle_persistence.sql` and its required v4 tables, and only then
+binds the REST socket. A migration/hash/schema failure is a pre-execution
+startup failure; it MUST NOT consume a scored case.
+
+For copied validation state, migrate only the isolated copy. Do not migrate the
+source/production corpus merely to run Tester validation. The harness MUST NOT
+replace this startup boundary with an ad-hoc REST wrapper that can bind before
+schema readiness is established.
+
