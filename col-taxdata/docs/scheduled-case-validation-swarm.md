@@ -280,27 +280,166 @@ The generator does not execute cases, diagnose product failures, implement defec
 
 ### 3.3 Case Tester
 
-Cardinality: one scheduled worker.
+Cardinality: **one scheduled worker**.
 
-Purpose: maximize horizontal validation/discovery and generate a sufficiently broad defect front for the developer workers.
+Purpose: execute the complete currently eligible validation front, freeze reproducible evidence, and expose independent product defects without allowing concurrent Tester sweeps, duplicate scored runs or retry-until-pass behavior.
 
-Each invocation performs **one sweep over all cases eligible at the beginning of that sweep**.
+Each invocation performs **at most one Tester sweep** and then terminates. It is not an event loop.
 
-There is no fixed limit such as three cases. If seven case issues are eligible at discovery time, the Tester attempts all seven, subject to per-case revalidation immediately before execution.
+#### Invocation preflight and overlap guard
 
-A failure in one case does not stop the sweep.
+Before creating a new sweep, the Tester MUST reconstruct durable coordination state from protected `main` and GitHub live.
 
-For each eligible case, the Tester:
+It MUST inspect:
 
-1. revalidates whether the case is still executable;
-2. captures an execution snapshot;
-3. performs exactly one new case run;
-4. freezes the run outcome/evidence;
-5. creates or reuses the appropriate defect issue(s);
-6. records blockers against the case;
-7. continues to the next case in the discovery snapshot.
+- `TestCasePool.yaml`;
+- every referenced case definition and current `state.yaml`;
+- existing sweep discovery/result records;
+- existing run snapshot/result records needed to understand any `RUNNING` state;
+- GitHub live for blocker issues and any issue-specific convergence/acceptance evidence.
 
-The Tester must never patch product code inside a validation run to make the case pass.
+A new sweep MUST NOT begin when either of these conditions exists:
+
+1. any prior sweep has an immutable `discovery.yaml` but no corresponding final `result.yaml`; or
+2. any case is still `RUNNING`.
+
+Those states mean that a previous Tester execution is active, incomplete or ambiguous. The new invocation must terminate without creating another discovery snapshot, without executing any case and without guessing that the prior work is stale.
+
+Time passage alone is not sufficient evidence to steal or replace an incomplete Tester sweep.
+
+Recovery of an incomplete sweep or orphaned `RUNNING` case belongs to Controller Monitor unless durable evidence makes a specific recovery procedure unambiguous under an explicitly defined recovery contract.
+
+This conservative guard prevents two hourly activations from producing duplicate scored runs against the same case.
+
+#### Discovery eligibility
+
+If no incomplete/active sweep exists, the Tester evaluates every case in the pool.
+
+A case is eligible at discovery when its observed state is:
+
+- `NEW`;
+- `READY`;
+- or `BLOCKED` **and every recorded blocker independently appears converged** after live GitHub revalidation, including any issue-specific runtime/acceptance requirement.
+
+A closed GitHub issue by itself is not sufficient when the issue contract requires merge, protected-main convergence, provider acceptance or another explicit gate.
+
+`RUNNING`, `CLOSED` and `RETIRED` cases are never discovery candidates.
+
+The Tester includes **all** eligible cases. There is no arbitrary maximum such as three cases per sweep. Generator backpressure limits the outstanding inventory; Tester does not impose another case-count cap.
+
+If the eligible set is empty, the invocation is a **NO-OP**:
+
+- create no empty sweep history;
+- mutate no case state merely to record that nothing happened;
+- report zero eligible cases;
+- terminate.
+
+If at least one candidate exists, create one immutable discovery snapshot containing the complete candidate frontier observed at that moment.
+
+For deterministic processing, candidates should be processed by stable `case_id` ordering unless a later explicit contract defines another deterministic order.
+
+The discovery frontier never grows during the invocation. A case becoming eligible after discovery waits for the next scheduled Tester activation.
+
+#### Per-candidate execution
+
+For every case in the immutable discovery snapshot, the Tester MUST process one disposition and MUST continue after failures in other cases.
+
+Immediately before each candidate:
+
+1. re-read its current definition/state;
+2. revalidate GitHub live blockers/dependencies and applicable runtime/safety prerequisites;
+3. decide whether it is still executable;
+4. if it is no longer executable, record a `skipped` disposition with the exact reason and do not create a scored run;
+5. if it remains executable, allocate one unique run ID and claim the case as `RUNNING` using optimistic concurrency;
+6. capture the immutable execution snapshot **before the scored execution**;
+7. execute exactly one valid case path;
+8. freeze the run result/evidence;
+9. transition case lifecycle according to the frozen result;
+10. continue to the next discovery candidate.
+
+A shared prerequisite failure may cause multiple remaining candidates to be recorded as skipped when per-case revalidation proves the same prerequisite is unavailable. The Tester must still account for every candidate in the final sweep result; it must not silently abandon the remaining frontier.
+
+#### One scored attempt
+
+A case receives at most **one executed run per sweep**.
+
+Never:
+
+- retry a provider/model call until it passes;
+- rerun a failed legal case in the same sweep after changing code/configuration;
+- patch product code from the Tester;
+- reinterpret an old FAIL as PASS;
+- relabel a run as testing a newer `main` SHA;
+- consume a second scored attempt merely because the first output was inconvenient.
+
+A preflight rejection that proves a valid product execution never began is recorded as `NOT_EXECUTED` when a run record is required by the applicable failure protocol. It is not silently converted into a scored retry.
+
+#### Result-to-lifecycle policy
+
+After a frozen run result:
+
+**PASS**
+
+- preserve the immutable PASS run;
+- set the case to `CLOSED` when that run satisfies the complete case acceptance contract;
+- clear obsolete blocking-issue references;
+- never delete older FAIL history.
+
+**FAIL — product defect**
+
+- preserve the immutable FAIL run;
+- search GitHub for equivalent existing ownership before opening a new defect;
+- reuse an existing open defect when it owns the same failure;
+- treat a genuine regression of a closed defect according to repository issue-lifecycle rules instead of blindly duplicating it;
+- create a new defect only when the failure has no valid existing owner;
+- set the case to `BLOCKED` by the complete relevant defect set;
+- never implement the defect from the Tester.
+
+**NOT_EXECUTED / pre-product failure**
+
+- preserve the applicable non-execution evidence;
+- do not classify it as product PASS or product FAIL;
+- normally return the case to `READY` when no scored product execution began and no durable blocker exists;
+- if an infrastructure/harness/runtime issue must converge before safe execution is possible, record/reuse that owned issue and keep the case `BLOCKED`;
+- do not retry the case again in the same sweep.
+
+If ownership or classification is ambiguous, preserve the evidence, avoid product mutation and escalate to Controller Monitor rather than guessing.
+
+#### Per-run reproducibility
+
+Every executed run is bound to its own exact execution snapshot. Applicable identities include:
+
+- case identity and definition hash;
+- run ID;
+- exact protected `main` SHA selected for that run;
+- CASE/application contract;
+- harness identity/hash;
+- independent control packet identity/hash;
+- corpus/research-context fingerprint;
+- database/snapshot identity;
+- runtime profile;
+- image/container digest;
+- provider/model identity and admitted model hash;
+- REST/web/MCP contract versions;
+- satisfied blocker/dependency observations;
+- exact relevant configuration identities.
+
+The discovery `main` SHA is audit context only. Protected `main` may legitimately advance between two cases in the same sweep. It may never change the recorded identity of a run that already started.
+
+#### Sweep completion
+
+A sweep is complete only when every discovery candidate has exactly one final disposition:
+
+- `executed` with one run reference; or
+- `skipped` with an explicit reason.
+
+The final immutable sweep result is then persisted.
+
+Repository-backed coordination changes must follow the established optimistic-concurrency and integration workflow. An unmerged working branch is not authoritative current case state merely because the Tester wrote it.
+
+After the sweep is durably recorded, the Tester terminates.
+
+The Tester never continues into Developer work and never waits for blockers to be fixed inside the same invocation.
 
 ### 3.4 Developer workers
 
