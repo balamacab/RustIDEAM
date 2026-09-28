@@ -349,6 +349,26 @@ Expansion stops when:
 
 Exhausting bounds is not permission to guess.
 
+Budget enforcement is admission-based and conservative:
+
+- a canonical authority that is already admitted may accumulate additional
+  evidence from otherwise admissible bounded work without consuming another
+  authority slot;
+- a new canonical authority is checked against `max_total_authorities`
+  **before** its authority or evidence candidate is admitted;
+- support-only graph dependencies materialized by later evidence-owner closure
+  do not consume research-authority slots;
+- merely ending with a count exactly equal to a configured limit is not, by
+  itself, `bounds_exhausted`;
+- when a query, hit, round, reference-depth, or authority bound actually drops
+  required work, the affected question/work remains observable as unresolved,
+  the execution stops with `bounds_exhausted`, and it cannot report
+  `complete` / `questions_satisfied`.
+
+The execution may inspect at most one bounded sentinel result beyond
+`max_hits_per_query` solely to determine whether hit work was truncated; that
+sentinel is never admitted as evidence or authority.
+
 ## 9. ResearchResult
 
 ResearchResult records execution of one ResearchPlan.
@@ -371,6 +391,14 @@ A search result/hit is a relevance signal only.
 A ResearchTraceStep may record query/hit counts and resulting authority refs, but similarity/rank does not create legal authority.
 
 CanonicalAuthority requires the normal canonical identity/provenance/temporal/authority-classification boundaries.
+
+ResearchResult semantic validation additionally enforces the ResearchPlan
+bounds across the trace/result graph: admitted authority count, per-question
+executed-query count, per-step hit count, round/depth consistency, and
+`bounds_exhausted` status/stop-reason coherence. These checks do not turn a
+later `requires_interpretive_synthesis` handoff into failed research; that
+category may still coexist with a complete bundle when the platform has
+finished its owned research/evidence work.
 
 ### 9.2 Minimal ResearchContextFingerprint
 
