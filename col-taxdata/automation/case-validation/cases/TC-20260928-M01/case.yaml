@@ -1,0 +1,27 @@
+schema_version: 1
+kind: case_definition
+case_id: TC-20260928-M01
+created_at: "2026-09-28T01:29:00Z"
+created_by: controller-monitor
+origin: generated
+source_refs:
+  - "github:issue/205"
+  - "controller-recovery:first-scheduled-generator-persistence-failure"
+title: "Venta de maquinaria usada por una SAS"
+complexity: medium
+domains:
+  - "vat"
+  - "income-tax"
+  - "withholding-tax"
+  - "fixed-assets"
+problem_text: |-
+  Una SAS colombiana vende en octubre de 2026 una máquina industrial usada que llevaba cuatro años registrada como propiedad, planta y equipo y que fue utilizada exclusivamente en su actividad productiva. El comprador es otra sociedad colombiana responsable del IVA. El precio de venta es COP 180.000.000 y el costo fiscal y la depreciación acumulada difieren del valor contable. La sociedad vendedora pregunta: (1) si la operación causa IVA; (2) cómo debe analizarse para renta la utilidad o pérdida en la venta del activo; (3) si procede retención en la fuente sobre el pago; y (4) qué soportes y valores deben conservarse para sustentar el tratamiento.
+problem_text_sha256: "358e5dd023ac7f1b79d14ce1d02da0e0e408c107d67e32a57266df0a36b26ed9"
+control_sha256: null
+as_of_date: "2026-09-28"
+acceptance:
+  required_surfaces:
+    - web
+    - rest
+  control_packet_ref: null
+supersedes_case_id: null

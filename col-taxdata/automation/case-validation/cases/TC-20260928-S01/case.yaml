@@ -1,0 +1,24 @@
+schema_version: 1
+kind: case_definition
+case_id: TC-20260928-S01
+created_at: "2026-09-28T01:29:00Z"
+created_by: controller-monitor
+origin: generated
+source_refs:
+  - "github:issue/205"
+  - "controller-recovery:first-scheduled-generator-persistence-failure"
+title: "Retención en la fuente sobre honorarios técnicos"
+complexity: simple
+domains:
+  - "withholding-tax"
+  - "professional-services"
+problem_text: |-
+  Una SAS colombiana contrató en septiembre de 2026 a una persona natural residente en Colombia para elaborar un diagnóstico técnico por COP 8.000.000. No existe relación laboral y el contratista no suministra materiales ni subcontrata personal. La SAS pregunta qué reglas tributarias debe revisar para establecer si debe practicar retención en la fuente sobre el pago, cuál sería la base aplicable y qué hechos adicionales podrían cambiar el tratamiento.
+problem_text_sha256: "d2cc0d0728f4f81ac8d31afa938040e5eb02ec77b351b80ef1e8d19a81328256"
+control_sha256: null
+as_of_date: "2026-09-28"
+acceptance:
+  required_surfaces:
+    - rest
+  control_packet_ref: null
+supersedes_case_id: null
