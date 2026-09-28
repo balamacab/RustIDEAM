@@ -12,7 +12,7 @@ import urllib.request
 from dataclasses import dataclass
 from typing import Any
 
-from policy import PolicyError, closing_issue_number, parse_metadata
+from policy import PolicyError, owning_issue_number, parse_metadata
 
 API = "https://api.github.com"
 RESUME_MARKER = "<!-- col-taxdata-agent-resume:"
@@ -235,7 +235,7 @@ def settle_mergeability_after_success(
 
 def pr_context(pr: dict[str, Any]) -> tuple[int, dict[str, Any], str, str, str]:
     body = str(pr.get("body") or "")
-    issue = closing_issue_number(body)
+    issue = owning_issue_number(body)
     metadata = parse_metadata(body)
     branch = str((pr.get("head") or {}).get("ref") or "")
     head_sha = str((pr.get("head") or {}).get("sha") or "")

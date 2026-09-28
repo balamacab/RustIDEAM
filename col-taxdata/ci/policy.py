@@ -14,6 +14,7 @@ from typing import Any, Iterable
 METADATA_MARKER = "col-taxdata-agent-metadata:"
 BRANCH_RE = re.compile(r"^agent/issue-(?P<issue>[1-9][0-9]*)-(?P<slug>[a-z0-9][a-z0-9-]*)$")
 CLOSING_RE = re.compile(r"(?im)\b(?:fixes|closes|resolves)\s+#([1-9][0-9]*)\b")
+COMPLETION_MODES = {"convergence", "post_merge_acceptance"}
 SCHEMA_RE = re.compile(r"^col-taxdata/schema/[^/]+\.sql$")
 CONTROLLER_SESSION_RE = re.compile(r"^col-taxdata/controller-memory/sessions/[^/]+\.cm$")
 CONTROLLER_ETHOS_PATH = "col-taxdata/controller-memory/ETHOS.cm"
@@ -60,6 +61,15 @@ def parse_metadata(body: str) -> dict[str, Any]:
             raise PolicyError(f"metadata {key} must be a non-empty string list")
     if not isinstance(data["depends_on"], list) or not all(isinstance(v, int) and v > 0 for v in data["depends_on"]):
         raise PolicyError("metadata depends_on must be a list of positive issue numbers")
+    if "issue_number" in data and (not isinstance(data["issue_number"], int) or data["issue_number"] <= 0):
+        raise PolicyError("metadata issue_number must be a positive integer")
+    completion_mode = data.get("completion_mode", "convergence")
+    if completion_mode not in COMPLETION_MODES:
+        raise PolicyError(
+            "metadata completion_mode must be one of: " + ", ".join(sorted(COMPLETION_MODES))
+        )
+    if completion_mode == "post_merge_acceptance" and "issue_number" not in data:
+        raise PolicyError("post_merge_acceptance metadata requires issue_number")
     return data
 
 
@@ -70,12 +80,38 @@ def closing_issue_number(body: str) -> int:
     return next(iter(numbers))
 
 
+def owning_issue_number(body: str) -> int:
+    """Resolve the PR owner without forcing premature GitHub auto-close."""
+    metadata = parse_metadata(body)
+    mode = metadata.get("completion_mode", "convergence")
+    numbers = {int(v) for v in CLOSING_RE.findall(body)}
+    metadata_issue = metadata.get("issue_number")
+
+    if mode == "post_merge_acceptance":
+        if numbers:
+            raise PolicyError(
+                "post_merge_acceptance PR must not contain Fixes/Closes/Resolves; "
+                "the issue must remain open through post-merge acceptance"
+            )
+        return int(metadata_issue)
+
+    if len(numbers) != 1:
+        raise PolicyError(
+            "convergence-complete PR must contain exactly one unique "
+            "Fixes/Closes/Resolves #<issue> target"
+        )
+    issue = next(iter(numbers))
+    if metadata_issue is not None and int(metadata_issue) != issue:
+        raise PolicyError("metadata issue_number does not match PR closing target")
+    return issue
+
+
 def validate_branch(branch: str, issue_number: int) -> None:
     match = BRANCH_RE.fullmatch(branch)
     if not match:
         raise PolicyError("implementation branch must match agent/issue-<number>-<slug>")
     if int(match.group("issue")) != issue_number:
-        raise PolicyError("implementation branch issue number does not match PR closing target")
+        raise PolicyError("implementation branch issue number does not match PR owning issue")
 
 
 def is_col_taxdata_path(path: str) -> bool:
@@ -307,7 +343,7 @@ def cmd_classify(args: argparse.Namespace) -> int:
 def cmd_issue_number(args: argparse.Namespace) -> int:
     pr = load_json(args.pr_json)
     body, _, _ = pr_fields(pr)
-    number = closing_issue_number(body)
+    number = owning_issue_number(body)
     write_output("issue_number", str(number))
     print(number)
     return 0
@@ -335,7 +371,7 @@ def cmd_validate(args: argparse.Namespace) -> int:
         print("col-taxdata policy: not applicable to this PR")
         return 0
 
-    issue_number = closing_issue_number(body)
+    issue_number = owning_issue_number(body)
     validate_branch(branch, issue_number)
     metadata = parse_metadata(body)
     if int(issue.get("number") or 0) != issue_number:
