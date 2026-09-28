@@ -79,6 +79,21 @@ Never:
 
 A later attempt always gets a new run ID and new execution snapshot.
 
+## Imported pre-scheduler validation
+
+Existing validation evidence may be bootstrapped into this control surface without pretending it was produced by a scheduled sweep.
+
+For an imported historical run:
+- `origin: imported_historical_validation` distinguishes it from a normal scheduled attempt;
+- `sweep_id` is `null` because no scheduler discovery snapshot existed;
+- timestamps that are not supported by preserved evidence remain `null` rather than being inferred;
+- the run keeps exact source references and cryptographic identities from the original validation record;
+- a current imported case definition may be linked to the historical run, but it must not be falsely described as a file that existed at execution time;
+- the historical PASS/FAIL remains immutable and never authorizes a retry-until-pass;
+- the Controller Monitor may perform the one-time bootstrap write, after which normal Generator/Tester ownership applies.
+
+The first bootstrap is the existing #142 controlled A/B/C validation campaign. Its imported runs remain historical FAIL evidence while current case state separately records live blocking issues that must be revalidated against GitHub before any future run.
+
 ## Public-repository boundary
 
 Only synthetic/public-safe case descriptions belong here. Do not store secrets, private client payloads, credentials, tokens or confidential case documents.
