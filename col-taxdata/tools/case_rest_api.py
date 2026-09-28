@@ -10,7 +10,11 @@ import re
 import sys
 from typing import Any, Callable
 
-from case_application import CaseAnalysisIntegrityError
+from case_application import (
+    CaseAnalysisIntegrityError,
+    CaseStructuringTimeoutError,
+    CaseStructuringUnavailableError,
+)
 from case_contract_validation import CaseContractError
 from case_contract_validation_v4 import (
     CONTRACT_VERSION as CASE_CONTRACT_VERSION,
@@ -436,6 +440,8 @@ class CaseRESTRequestHandler(BaseHTTPRequestHandler):
         fingerprints: dict[str, str] | None = None,
         bundle_ref: str | None = None,
         error_code: str | None = None,
+        diagnostic_family: str | None = None,
+        diagnostic_code: str | None = None,
     ) -> None:
         event: dict[str, Any] = {
             "event": "case_rest_api_request",
@@ -449,6 +455,14 @@ class CaseRESTRequestHandler(BaseHTTPRequestHandler):
             event["bundle_ref"] = bundle_ref
         if error_code is not None:
             event["error"] = error_code
+        if diagnostic_family is not None or diagnostic_code is not None:
+            # Internal diagnostics use only stable symbolic categories/types.
+            # Exception/provider text is never serialized into public responses
+            # or the structured request audit.
+            event["diagnostic"] = {
+                "family": diagnostic_family,
+                "code": diagnostic_code,
+            }
         print(
             _compact_json(event),
             file=sys.stderr,
@@ -460,6 +474,8 @@ class CaseRESTRequestHandler(BaseHTTPRequestHandler):
         code: str,
         *,
         fingerprints: dict[str, str] | None = None,
+        diagnostic_family: str | None = None,
+        diagnostic_code: str | None = None,
     ) -> None:
         response = _error_response(code, fingerprints=fingerprints)
         validate_error_payload(response.payload)
@@ -468,6 +484,8 @@ class CaseRESTRequestHandler(BaseHTTPRequestHandler):
             status=response.status,
             fingerprints=fingerprints,
             error_code=code,
+            diagnostic_family=diagnostic_family,
+            diagnostic_code=diagnostic_code,
         )
 
     def _read_body(self) -> bytes:
@@ -518,38 +536,74 @@ class CaseRESTRequestHandler(BaseHTTPRequestHandler):
                 prepared.case_input,
                 request_fingerprints=prepared.fingerprints,
             )
-        except (CaseRESTTimeout, TimeoutError):
+        except CaseStructuringTimeoutError as exc:
             self._send_registered_error(
                 CASE_API_TIMEOUT,
                 fingerprints=prepared.fingerprints,
+                diagnostic_family=exc.diagnostic_family,
+                diagnostic_code=exc.diagnostic_code,
             )
             return
-        except CaseRESTUnavailable:
+        except (CaseRESTTimeout, TimeoutError) as exc:
+            self._send_registered_error(
+                CASE_API_TIMEOUT,
+                fingerprints=prepared.fingerprints,
+                diagnostic_family="application_timeout",
+                diagnostic_code=type(exc).__name__,
+            )
+            return
+        except CaseStructuringUnavailableError as exc:
             self._send_registered_error(
                 CASE_API_SERVICE_UNAVAILABLE,
                 fingerprints=prepared.fingerprints,
+                diagnostic_family=exc.diagnostic_family,
+                diagnostic_code=exc.diagnostic_code,
             )
             return
-        except CaseAnalysisIntegrityError:
-            # Explicit application -> transport integrity boundary.  Only the
-            # typed CASE integrity family belongs here; arbitrary RuntimeError
-            # and unexpected programming failures must remain internal errors.
+        except CaseRESTUnavailable as exc:
+            self._send_registered_error(
+                CASE_API_SERVICE_UNAVAILABLE,
+                fingerprints=prepared.fingerprints,
+                diagnostic_family="application_unavailable",
+                diagnostic_code=type(exc).__name__,
+            )
+            return
+        except CaseAnalysisIntegrityError as exc:
+            # Explicit application -> transport integrity boundary. Only typed
+            # CASE integrity failures belong here; arbitrary RuntimeError and
+            # unexpected programming failures remain internal errors.
             self._send_registered_error(
                 CASE_API_INTEGRITY_FAILURE,
                 fingerprints=prepared.fingerprints,
+                diagnostic_family=getattr(
+                    exc,
+                    "diagnostic_family",
+                    "application_integrity",
+                ),
+                diagnostic_code=getattr(
+                    exc,
+                    "diagnostic_code",
+                    type(exc).__name__,
+                ),
             )
             return
-        except CaseRESTIntegrityError:
+        except CaseRESTIntegrityError as exc:
             self._send_registered_error(
                 CASE_API_INTEGRITY_FAILURE,
                 fingerprints=prepared.fingerprints,
+                diagnostic_family="rest_integrity",
+                diagnostic_code=type(exc).__name__,
             )
             return
-        except Exception:
+        except Exception as exc:
             # Never serialize arbitrary exception text across the public boundary.
+            # A symbolic server-side category distinguishes a programming error
+            # from expected intake/provider failures without leaking its detail.
             self._send_registered_error(
                 CASE_API_INTERNAL_ERROR,
                 fingerprints=prepared.fingerprints,
+                diagnostic_family="unexpected_exception",
+                diagnostic_code=type(exc).__name__,
             )
             return
 
