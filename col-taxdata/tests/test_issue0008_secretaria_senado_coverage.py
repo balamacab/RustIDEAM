@@ -21,7 +21,7 @@ from fetch_source import (
     load_allowed_domains,
 )
 from register_simple_normative_act import register_simple_act
-from resolve_references import close_obsolete_reference_reviews
+import resolve_references as resolver
 from source_identity import (
     NORMATIVE_ACT,
     assess_generic_normative_identity,
@@ -308,7 +308,7 @@ class ReviewReconciliationTests(unittest.TestCase):
             ],
         )
 
-        closed = close_obsolete_reference_reviews(
+        closed = resolver.close_obsolete_reference_reviews(
             con,
             mention_id="REF-1",
             now="2026-09-28T00:00:00+00:00",
@@ -324,13 +324,152 @@ class ReviewReconciliationTests(unittest.TestCase):
         self.assertIsNotNone(states["TARGET_DOCUMENT_NOT_FOUND"])
         self.assertIsNone(states["TARGET_PROVISION_NOT_FOUND"])
 
-        closed_again = close_obsolete_reference_reviews(
+        closed_again = resolver.close_obsolete_reference_reviews(
             con,
             mention_id="REF-1",
             now="2026-09-28T00:01:00+00:00",
             current_reason="TARGET_PROVISION_NOT_FOUND",
         )
         self.assertEqual(closed_again, 0)
+
+
+class ResolverIntegrationTests(unittest.TestCase):
+    def test_reconciliation_supersedes_missing_document_review(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "resolver.sqlite"
+            con = sqlite3.connect(db)
+            con.executescript(
+                """
+                CREATE TABLE reference_detection_runs(
+                    detection_run_id TEXT PRIMARY KEY,
+                    extraction_id TEXT NOT NULL,
+                    detector_name TEXT NOT NULL,
+                    detector_version TEXT NOT NULL
+                );
+                CREATE TABLE reference_mentions(
+                    reference_mention_id TEXT PRIMARY KEY,
+                    detection_run_id TEXT NOT NULL,
+                    mention_type TEXT,
+                    target_document_key TEXT,
+                    target_issuer TEXT,
+                    article_designation TEXT,
+                    status TEXT,
+                    requires_human_review INTEGER
+                );
+                CREATE TABLE reference_resolutions(
+                    reference_resolution_id TEXT PRIMARY KEY,
+                    reference_mention_id TEXT NOT NULL,
+                    target_document_id TEXT,
+                    target_provision_id TEXT,
+                    resolution_method TEXT NOT NULL,
+                    confidence REAL,
+                    status TEXT,
+                    requires_human_review INTEGER,
+                    created_at TEXT,
+                    UNIQUE(reference_mention_id, resolution_method)
+                );
+                CREATE TABLE review_queue(
+                    review_id TEXT PRIMARY KEY,
+                    entity_type TEXT NOT NULL,
+                    entity_id TEXT NOT NULL,
+                    reason_code TEXT NOT NULL,
+                    severity TEXT,
+                    created_at TEXT,
+                    resolved_at TEXT,
+                    resolution TEXT,
+                    reviewer TEXT
+                );
+                """
+            )
+            con.execute(
+                """
+                INSERT INTO reference_detection_runs(
+                    detection_run_id, extraction_id,
+                    detector_name, detector_version
+                )
+                VALUES ('RUN-1', 'EXT-1', 'fixture', '1')
+                """
+            )
+            con.execute(
+                """
+                INSERT INTO reference_mentions(
+                    reference_mention_id, detection_run_id,
+                    mention_type, target_document_key,
+                    target_issuer, article_designation,
+                    status, requires_human_review
+                )
+                VALUES (
+                    'REF-1', 'RUN-1', 'document',
+                    'CO:LEY:2080:2021', NULL, '1',
+                    'unresolved', 1
+                )
+                """
+            )
+            con.execute(
+                """
+                INSERT INTO review_queue(
+                    review_id, entity_type, entity_id,
+                    reason_code, severity, created_at
+                )
+                VALUES (
+                    'REV-OLD', 'reference_mention', 'REF-1',
+                    'TARGET_DOCUMENT_NOT_FOUND', 'high',
+                    '2026-09-28T00:00:00+00:00'
+                )
+                """
+            )
+            con.commit()
+            con.close()
+
+            provision_missing = {
+                "status": "unresolved",
+                "target_document_id": "DOC-1",
+                "target_provision_id": None,
+                "confidence": 1.0,
+                "requires_human_review": 1,
+                "reason_code": "TARGET_PROVISION_NOT_FOUND",
+            }
+            with mock.patch.object(
+                resolver,
+                "resolve_one",
+                return_value=provision_missing,
+            ):
+                first = resolver.resolve_references(
+                    detection_run_id="RUN-1",
+                    db_path=db,
+                    relations_only=False,
+                    target_document_key="CO:LEY:2080:2021",
+                )
+                second = resolver.resolve_references(
+                    detection_run_id="RUN-1",
+                    db_path=db,
+                    relations_only=False,
+                    target_document_key="CO:LEY:2080:2021",
+                )
+
+            self.assertEqual(first["review_items_closed"], 1)
+            self.assertEqual(second["review_items_closed"], 0)
+
+            con = sqlite3.connect(db)
+            reviews = con.execute(
+                """
+                SELECT reason_code, resolved_at
+                FROM review_queue
+                WHERE entity_id = 'REF-1'
+                ORDER BY reason_code
+                """
+            ).fetchall()
+            con.close()
+            self.assertEqual(
+                [reason for reason, _ in reviews],
+                [
+                    "TARGET_DOCUMENT_NOT_FOUND",
+                    "TARGET_PROVISION_NOT_FOUND",
+                ],
+            )
+            states = dict(reviews)
+            self.assertIsNotNone(states["TARGET_DOCUMENT_NOT_FOUND"])
+            self.assertIsNone(states["TARGET_PROVISION_NOT_FOUND"])
 
 
 class RegistrarIntegrationTests(unittest.TestCase):
