@@ -117,18 +117,22 @@ def request_kwargs() -> dict:
 
 def call_rest(error: Exception) -> tuple[int, dict, dict]:
     audit = io.StringIO()
-    with RunningIntegratedREST(error) as running:
-        req = urlrequest.Request(
-            running.base_url + DEFAULT_ENDPOINT,
-            data=request_bytes(),
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
-        with mock.patch("case_rest_api.sys.stderr", audit):
+    # Keep stderr patched through server shutdown.  HTTPError becomes visible
+    # as soon as response headers arrive, while the server writes its audit
+    # event only after the response body; leaving the patch earlier races the
+    # handler and can miss the diagnostic event.
+    with mock.patch("case_rest_api.sys.stderr", audit):
+        with RunningIntegratedREST(error) as running:
+            req = urlrequest.Request(
+                running.base_url + DEFAULT_ENDPOINT,
+                data=request_bytes(),
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
             with unittest.TestCase().assertRaises(urlerror.HTTPError) as raised:
                 urlrequest.urlopen(req, timeout=3)
-        response_error = raised.exception
-        payload = json.loads(response_error.read())
+            response_error = raised.exception
+            payload = json.loads(response_error.read())
 
     validate_error_payload(payload)
     audit_payload = json.loads(audit.getvalue().strip())
@@ -136,12 +140,16 @@ def call_rest(error: Exception) -> tuple[int, dict, dict]:
 
 
 def call_mcp(error: Exception) -> GatewayError:
-    with RunningIntegratedREST(error) as running:
-        gateway = GatewayService.from_config(
-            GatewayConfig(base_url=running.base_url)
-        )
-        with unittest.TestCase().assertRaises(GatewayError) as raised:
-            gateway.research_case(**request_kwargs())
+    # The MCP assertion needs the public mapping only; still suppress the
+    # server-side symbolic audit so the full suite remains deterministic/noisy
+    # output does not become test evidence accidentally.
+    with mock.patch("case_rest_api.sys.stderr", io.StringIO()):
+        with RunningIntegratedREST(error) as running:
+            gateway = GatewayService.from_config(
+                GatewayConfig(base_url=running.base_url)
+            )
+            with unittest.TestCase().assertRaises(GatewayError) as raised:
+                gateway.research_case(**request_kwargs())
     return raised.exception
 
 
