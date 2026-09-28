@@ -76,6 +76,7 @@ Start with:
 - [`specs/README.md`](specs/README.md) — specification-driven development workflow.
 - [`specs/manifest.yaml`](specs/manifest.yaml) — tracked defect/gap state.
 - [`docs/case-controlled-failure-protocol.md`](docs/case-controlled-failure-protocol.md) — controlled CASE failure classification, retry/rerun, evidence-lineage and blindness rules.
+- [`docs/scheduled-case-validation-swarm.md`](docs/scheduled-case-validation-swarm.md) — scheduled stateless Generator/Tester/Developer orchestration, per-sweep discovery snapshots and per-case execution snapshots.
 - [`docs/DATA_MODEL.md`](docs/DATA_MODEL.md) — older implementation-oriented data-model notes; architecture specs above are authoritative for cross-cutting semantics.
 
 Documentation roles:
