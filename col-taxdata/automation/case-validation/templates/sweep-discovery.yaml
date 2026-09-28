@@ -1,0 +1,11 @@
+schema_version: 1
+kind: sweep_discovery
+sweep_id: SW-20260928T000000Z-example
+discovered_at: "2026-09-28T00:00:00Z"
+discovered_main_sha: "0000000000000000000000000000000000000000"
+candidates:
+  - case_id: TC-example
+    observed_state: NEW
+    observed_generation: 0
+    eligibility_reason: new
+    blocker_observations: []
