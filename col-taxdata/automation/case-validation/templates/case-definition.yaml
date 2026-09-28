@@ -3,6 +3,8 @@ kind: case_definition
 case_id: TC-example
 created_at: "2026-09-28T00:00:00Z"
 created_by: case-generator
+origin: generated
+source_refs: []
 title: Synthetic example case
 complexity: simple
 domains:
