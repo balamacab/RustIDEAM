@@ -11,7 +11,6 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
-import math
 import os
 import re
 import socket
@@ -144,7 +143,7 @@ class GatewayConfig:
         if (
             not isinstance(self.timeout_seconds, (int, float))
             or isinstance(self.timeout_seconds, bool)
-            or not math.isfinite(self.timeout_seconds)
+            or self.timeout_seconds != self.timeout_seconds
         ):
             raise GatewayConfigError("timeout_seconds must be a finite numeric value")
         if not MIN_TIMEOUT_SECONDS <= self.timeout_seconds <= MAX_TIMEOUT_SECONDS:
