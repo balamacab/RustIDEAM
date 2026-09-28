@@ -1,5 +1,7 @@
 schema_version: 1
 kind: run_snapshot
+origin: scheduled_sweep
+source_refs: []
 run_id: R-20260928T000100Z-example
 sweep_id: SW-20260928T000000Z-example
 case_id: TC-example
