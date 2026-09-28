@@ -320,18 +320,21 @@ Cardinality: five scheduled workers.
 
 Purpose: provide high horizontal implementation throughput over independent defect issues discovered by validation.
 
-Each Developer invocation may select **at most one** eligible defect issue. Once an issue is claimed, that issue remains the sole task through all non-terminal repository lifecycle stages.
+Each Developer invocation may select **at most one** eligible implementation issue. Once an issue is claimed, that issue remains the sole task through all non-terminal repository lifecycle stages.
+
+New-work discovery is driven by `automation/developer-backlog.json`, with GitHub live as the final authority. Tester case blockers may motivate backlog entries but are not themselves the Developer dispatch queue.
 
 A Developer must:
 
 1. read GitHub live;
 2. resume its own active claim before considering new work;
-3. otherwise select one issue whose dependencies are satisfied and whose ownership does not conflict with active work;
-4. acquire/establish issue ownership using the project workflow;
-5. work only that selected issue;
-6. persist implementation/PR/CI/merge/convergence/acceptance state as required by the issue lifecycle;
-7. while GitHub CI/CD is running, use GitHub-native status/check/workflow evidence and continue bounded revalidation rather than terminating merely because the gate is asynchronous;
-8. terminate only when the issue reaches a true terminal state, a genuine blocker prevents safe continuation, or the execution environment itself ends.
+3. otherwise read the protected-main Developer backlog and filter CLOSED/non-implementation/dependency-blocked/already-owned/parallel-unsafe entries using GitHub live;
+4. preserve backlog priority among the surviving candidates;
+5. acquire ownership through the deterministic atomic claim protocol; if a race is lost, continue to the next eligible backlog candidate rather than retrying the same issue/attempt;
+6. work only the issue it actually claimed;
+7. persist implementation/PR/CI/merge/convergence/acceptance state as required by the issue lifecycle;
+8. while GitHub CI/CD is running, use GitHub-native status/check/workflow evidence and continue bounded revalidation rather than terminating merely because the gate is asynchronous;
+9. terminate only when the issue reaches a true terminal state, a genuine blocker prevents safe continuation, or the execution environment itself ends.
 
 `PR_OPEN`, `CI_VALIDATING`, `READY_FOR_MERGE`, `MERGED`, pending convergence, and explicit post-merge acceptance pending are **not** terminal. An activation cutoff does not release the claim; the next activation resumes it and may not select another issue.
 
@@ -549,7 +552,9 @@ The Tester may continue executing all other cases in the same discovery snapshot
 
 ## 10. Developer selection and parallelism
 
-Developer workers choose from live defect issues, not from cached case-pool status alone.
+Developer workers choose from the protected-main `automation/developer-backlog.json` candidate registry and then revalidate every candidate against GitHub live. Cached case-pool status alone is never a dispatch queue.
+
+The backlog provides ordering and bounded scope only. It does not make a closed, blocked, claimed or semantically unsafe issue eligible.
 
 An issue is eligible only when:
 

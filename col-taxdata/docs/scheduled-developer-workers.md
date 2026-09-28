@@ -19,6 +19,58 @@ Each worker:
 
 Elapsed time, scheduler rollover, an activation cutoff, an open PR, running CI, a merge, or a pending convergence run do **not** release ownership.
 
+
+## Durable Developer backlog and candidate discovery
+
+New-work discovery uses the machine-readable queue at:
+
+`col-taxdata/automation/developer-backlog.json`
+
+The backlog is a **priority/candidate registry**, not an ownership authority and not a cached replacement for GitHub. Before every claim attempt a worker MUST revalidate the referenced issue in GitHub live.
+
+Selection order is:
+
+1. resume the worker's own active real claim, if any;
+2. read the current backlog from protected `main`;
+3. discard entries whose issue is CLOSED, validation-only, controller-only, already actively claimed, dependency-blocked, or unsafe against current active work;
+4. preserve backlog priority order among the remaining candidates;
+5. attempt an atomic claim once for the first safe candidate;
+6. if that claim race is lost, revalidate once and continue to the next safe backlog item in the same activation;
+7. if no safe candidate remains, exit `NO-OP`.
+
+Tester case `blocking_issues` are evidence/context for defect creation and case lifecycle. They are **not** the Developer queue. Stale case state must therefore never force a Developer to select a closed issue.
+
+The backlog may include future items with explicit dependencies. Such an entry is not eligible until GitHub live proves those dependencies satisfied. Backlog metadata such as complexity or semantic domains is a scheduling hint; issue/spec/live GitHub state remains authoritative.
+
+Closed issues #5, #8 and #221 are historical completed work and must not re-enter the active backlog unless GitHub contains an explicit regression/reopen.
+
+## Atomic claim attempts and orphan branches
+
+For issue `N`, inspect both:
+
+- machine-readable Developer claim records for issue `N`; and
+- existing branches matching `agent/issue-N-claim-aK-*`.
+
+The next attempt is:
+
+`attempt = 1 + max(K observed in either source)`
+
+If no prior attempt exists, `attempt = 1`.
+
+A branch matching the claim pattern that has **no** machine-readable `CLAIMED` metadata, **no** implementation PR/development log, and whose HEAD is exactly its creation/base commit is `ORPHAN_NOOP`.
+
+An `ORPHAN_NOOP`:
+
+- consumes its observed attempt number `K`;
+- is never reused or force-updated;
+- is not active ownership;
+- does not block another worker from using the next attempt number;
+- remains historical evidence unless separately cleaned by an explicit administrative policy.
+
+Workers competing for the same issue/attempt/main SHA must construct the same branch name. Branch creation is the atomic ownership race. A worker that loses that race MUST NOT retry the same attempt or write to the winner's branch; it proceeds to the next eligible backlog candidate after one live revalidation.
+
+After winning branch creation, the worker must immediately publish the machine-readable Developer claim comment before product edits. Failure to persist that metadata prevents implementation and leaves the branch as non-owning/orphan evidence.
+
 ## One issue through the complete lifecycle
 
 Once a Developer claims issue `N`, that issue remains the sole task through:

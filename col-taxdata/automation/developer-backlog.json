@@ -1,0 +1,163 @@
+{
+  "schema_version": 1,
+  "kind": "developer_backlog",
+  "policy": {
+    "authority": "GitHub live state is authoritative; backlog entries are candidate/priority hints only.",
+    "resume_active_claim_first": true,
+    "filter_before_claim": [
+      "closed_or_not_open",
+      "non_implementation_role",
+      "unsatisfied_dependency",
+      "active_claim_or_implementation_pr",
+      "parallel_unsafe_with_active_work"
+    ],
+    "lost_claim_race": "revalidate_once_then_continue_to_next_candidate",
+    "claim_attempt": "1 + max(K observed in claim branches or machine-readable claim records)",
+    "orphan_noop": "consumes K; never reused; not active ownership",
+    "tester_case_blockers": "context_only_not_developer_dispatch"
+  },
+  "items": [
+    {
+      "issue": 53,
+      "priority": 10,
+      "complexity": "low",
+      "depends_on": [
+        52
+      ],
+      "readiness": "ready_if_live_eligible",
+      "semantic_domains": [
+        "spec-catalog",
+        "docs"
+      ],
+      "runtime_mutation": false,
+      "rationale": "Register already-implemented DEF-0008/DEF-0010; dependency #52 is complete."
+    },
+    {
+      "issue": 258,
+      "priority": 20,
+      "complexity": "low",
+      "depends_on": [],
+      "readiness": "ready_if_live_eligible",
+      "semantic_domains": [
+        "execution-provenance",
+        "config-hashing"
+      ],
+      "runtime_mutation": false,
+      "rationale": "Bounded deterministic configuration hashing primitive extracted from #11."
+    },
+    {
+      "issue": 259,
+      "priority": 30,
+      "complexity": "low",
+      "depends_on": [],
+      "readiness": "ready_if_live_eligible",
+      "semantic_domains": [
+        "execution-provenance",
+        "migration-fingerprint"
+      ],
+      "runtime_mutation": false,
+      "rationale": "Bounded deterministic migration-state fingerprint extracted from #11."
+    },
+    {
+      "issue": 58,
+      "priority": 40,
+      "complexity": "low-medium",
+      "depends_on": [],
+      "readiness": "ready_if_live_eligible",
+      "semantic_domains": [
+        "maintainability",
+        "documentation-policy",
+        "ci-policy"
+      ],
+      "runtime_mutation": false,
+      "rationale": "Establish durable documentation/rationale standard before dependent remediation."
+    },
+    {
+      "issue": 6,
+      "priority": 50,
+      "complexity": "low-medium",
+      "depends_on": [],
+      "readiness": "ready_if_live_eligible",
+      "semantic_domains": [
+        "container-runtime",
+        "filesystem-ownership"
+      ],
+      "runtime_mutation": true,
+      "rationale": "Focused container privilege/ownership defect with explicit spec and bounded acceptance."
+    },
+    {
+      "issue": 268,
+      "priority": 60,
+      "complexity": "low-medium",
+      "depends_on": [],
+      "readiness": "ready_if_live_eligible",
+      "semantic_domains": [
+        "execution-provenance",
+        "source-revision"
+      ],
+      "runtime_mutation": false,
+      "rationale": "Bounded immutable-source-revision execution primitive extracted from #11 after duplicate search found no existing owner."
+    },
+    {
+      "issue": 260,
+      "priority": 70,
+      "complexity": "low-medium",
+      "depends_on": [
+        258,
+        259
+      ],
+      "readiness": "blocked_on_dependencies",
+      "semantic_domains": [
+        "execution-provenance",
+        "run-manifest"
+      ],
+      "runtime_mutation": false,
+      "rationale": "Versioned run-manifest serializer after the two provenance primitives converge."
+    },
+    {
+      "issue": 59,
+      "priority": 80,
+      "complexity": "low",
+      "depends_on": [
+        58
+      ],
+      "readiness": "blocked_on_dependencies",
+      "semantic_domains": [
+        "docs",
+        "corpus-doctor"
+      ],
+      "runtime_mutation": false,
+      "rationale": "Documentation-only Doctor remediation after #58 standard exists."
+    },
+    {
+      "issue": 60,
+      "priority": 90,
+      "complexity": "low-medium",
+      "depends_on": [
+        58
+      ],
+      "readiness": "blocked_on_dependencies",
+      "semantic_domains": [
+        "docs",
+        "legal-data-pipeline"
+      ],
+      "runtime_mutation": false,
+      "rationale": "Documentation-only core-pipeline invariants after #58."
+    },
+    {
+      "issue": 61,
+      "priority": 100,
+      "complexity": "low-medium",
+      "depends_on": [
+        58
+      ],
+      "readiness": "blocked_on_dependencies",
+      "semantic_domains": [
+        "docs",
+        "case-llm"
+      ],
+      "runtime_mutation": false,
+      "rationale": "Documentation-only CASE/LLM trust-boundary remediation after #58."
+    }
+  ]
+}
