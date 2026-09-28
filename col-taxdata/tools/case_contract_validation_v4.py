@@ -86,6 +86,11 @@ _CLIENT_AMBIGUITY_PATTERNS = (
 # vocabulary is introduced here.
 _GROSS_INCOME_SEMANTIC_KEY = "col.tax.natural_person.gross_income"
 _GROSS_PATRIMONY_SEMANTIC_KEY = "col.tax.natural_person.gross_patrimony"
+_SUPPORTED_UVT_FAMILIES = {
+    "gross_income_uvt": _GROSS_INCOME_SEMANTIC_KEY,
+    "gross_patrimony_uvt": _GROSS_PATRIMONY_SEMANTIC_KEY,
+}
+_SUPPORTED_UVT_SEMANTIC_KEYS = frozenset(_SUPPORTED_UVT_FAMILIES.values())
 _EXPLICIT_YEAR_RE = re.compile(r"\b(?:19|20)[0-9]{2}\b")
 
 _CONFIRMATION_PREFIXES = (
@@ -718,11 +723,97 @@ def _uvt_measurement_from_quote(
     }
 
 
+def _supported_uvt_projection_from_quote(
+    quote: str,
+) -> tuple[str, dict[str, Any]] | None:
+    """Project one exact client quote onto the bounded supported UVT vocabulary.
+
+    A quote is usable only when exactly one existing supported fact family and
+    exactly one UVT/year measurement can be derived from its literal bytes.
+    This remains deterministic client-evidence parsing, not model semantics.
+    """
+    projections: list[tuple[str, dict[str, Any]]] = []
+    for family, semantic_key in _SUPPORTED_UVT_FAMILIES.items():
+        if not _span_supports_family(family, quote):
+            continue
+        projection = _uvt_measurement_from_quote(
+            quote,
+            semantic_key=semantic_key,
+        )
+        if projection is not None:
+            projections.append(projection)
+    if len(projections) != 1:
+        return None
+    return projections[0]
+
+
+def _recover_supported_user_uvt_fact(
+    problem_text: str,
+    fact: dict[str, Any],
+) -> None:
+    """Recover only a provably supported user-provided UVT mismatch.
+
+    #239 extends #210's exact-source recovery to an already-user_provided fact,
+    but only for the two bounded natural-person UVT concepts.  Recovery requires
+    either (a) model label + declared measurement to agree with one unique exact
+    client span for the same family, or (b) the current exact quote + declared
+    measurement to agree and only the semantic key to be wrong.  Otherwise the
+    fact remains untouched and authoritative validation rejects the mismatch.
+    """
+    if fact.get("state") != "user_provided":
+        return
+
+    semantic_key = fact.get("semantic_key")
+    measurement = fact.get("measurement")
+    quote = fact.get("source_quote")
+    if (
+        semantic_key not in _SUPPORTED_UVT_SEMANTIC_KEYS
+        or not isinstance(measurement, dict)
+        or not isinstance(quote, str)
+    ):
+        return
+
+    declared = (semantic_key, measurement)
+    current_projection = _supported_uvt_projection_from_quote(quote)
+    if current_projection == declared:
+        return
+
+    # Prefer the same bounded lexical family selection used by #210.  The model
+    # label is only a selector; the replacement values are re-derived from one
+    # unique exact client span, and the declared numeric measurement must agree.
+    family = _descriptor_family(fact)
+    expected_key = _SUPPORTED_UVT_FAMILIES.get(family)
+    if expected_key is not None:
+        recovered_quote = _unique_normalization_span(problem_text, family)
+        if recovered_quote is not None:
+            recovered_projection = _supported_uvt_projection_from_quote(
+                recovered_quote
+            )
+            if (
+                recovered_projection is not None
+                and recovered_projection[0] == expected_key
+                and recovered_projection[1] == measurement
+            ):
+                fact["source_quote"] = recovered_quote
+                fact["semantic_key"] = recovered_projection[0]
+                fact["measurement"] = deepcopy(recovered_projection[1])
+                return
+
+    # If the exact client quote and declared numeric measurement already agree,
+    # correcting only the bounded semantic key is unambiguous.
+    if (
+        current_projection is not None
+        and current_projection[1] == measurement
+    ):
+        fact["semantic_key"] = current_projection[0]
+        fact["measurement"] = deepcopy(current_projection[1])
+
+
 def normalize_intake_draft(
     case_input: dict[str, Any],
     draft: dict[str, Any],
 ) -> dict[str, Any]:
-    """Apply the narrow, exact-source deterministic recovery authorized by #210.
+    """Apply the narrow exact-source recovery/consistency rules from #210/#239.
 
     This function is intentionally not a general model-output repair layer.  It
     never creates a fact, never guesses between spans, never infers legal
@@ -737,7 +828,11 @@ def normalize_intake_draft(
     problem_text = str(case_input.get("problem_text", ""))
 
     for fact in normalized.get("facts", []):
-        if fact.get("state") not in {"missing", "ambiguous"}:
+        state = fact.get("state")
+        if state == "user_provided":
+            _recover_supported_user_uvt_fact(problem_text, fact)
+            continue
+        if state not in {"missing", "ambiguous"}:
             continue
 
         family = _descriptor_family(fact)
@@ -1022,6 +1117,44 @@ def _missing_fact_duplicates_question(
     return False
 
 
+def _validate_supported_user_uvt_consistency(
+    fact: dict[str, Any],
+    *,
+    index: int,
+    problem_text: str,
+) -> None:
+    """Reject supported UVT semantics that contradict their exact client quote."""
+    if fact.get("state") != "user_provided":
+        return
+    semantic_key = fact.get("semantic_key")
+    measurement = fact.get("measurement")
+    quote = fact.get("source_quote")
+    if semantic_key not in _SUPPORTED_UVT_SEMANTIC_KEYS:
+        return
+    if not isinstance(measurement, dict) or not isinstance(quote, str):
+        return
+
+    projection = _supported_uvt_projection_from_quote(quote)
+    if projection is None:
+        _fail(
+            INVALID_INTAKE_DRAFT,
+            f"$.facts[{index}].source_quote",
+            (
+                "supported natural-person UVT mapping is not uniquely "
+                "supported by its exact client quote"
+            ),
+        )
+    if projection != (semantic_key, measurement):
+        _fail(
+            INVALID_INTAKE_DRAFT,
+            f"$.facts[{index}].semantic_key",
+            (
+                "supported natural-person UVT semantic_key, measurement, "
+                "and exact source_quote contradict each other"
+            ),
+        )
+
+
 def validate_intake_draft(
     case_input: dict[str, Any],
     draft: dict[str, Any],
@@ -1122,6 +1255,11 @@ def validate_intake_draft(
                     f"$.facts[{index}].source_quote",
                     "source quote is not present verbatim in CaseInput.problem_text",
                 )
+        _validate_supported_user_uvt_consistency(
+            fact,
+            index=index,
+            problem_text=case_input["problem_text"],
+        )
         for name in ("label", "value", "needed_information"):
             value = fact.get(name)
             if isinstance(value, str) and _PLATFORM_REF_IN_MODEL_TEXT.search(value):
