@@ -1524,6 +1524,18 @@ def validate_research_result(
         code=INVALID_RESEARCH_RESULT,
         owner="$.trace",
     )
+    authority_refs = set(result["authority_refs"])
+    bounds = plan["bounds"]
+    if len(authority_refs) > bounds["max_total_authorities"]:
+        _fail(
+            INVALID_RESEARCH_RESULT,
+            "$.authority_refs",
+            "admitted canonical authorities exceed max_total_authorities",
+        )
+
+    trace_counts_by_question: dict[str, int] = {}
+    saw_bounds_exhausted = False
+    saw_questions_satisfied = False
     for index, step in enumerate(result["trace"]):
         _require_refs(
             [step["task_ref"]],
@@ -1531,6 +1543,92 @@ def validate_research_result(
             code=INVALID_RESEARCH_RESULT,
             path=f"$.trace[{index}].task_ref",
         )
+        task = tasks[step["task_ref"]]
+        expected_round = task["depth"] + 1
+        if step["round"] != expected_round:
+            _fail(
+                INVALID_RESEARCH_RESULT,
+                f"$.trace[{index}].round",
+                (
+                    "trace round must equal ResearchTask.depth + 1; "
+                    f"expected {expected_round}"
+                ),
+            )
+        if step["round"] > bounds["max_rounds"]:
+            _fail(
+                INVALID_RESEARCH_RESULT,
+                f"$.trace[{index}].round",
+                "executed research round exceeds max_rounds",
+            )
+        if task["depth"] > bounds["max_reference_depth"]:
+            _fail(
+                INVALID_RESEARCH_RESULT,
+                f"$.trace[{index}].task_ref",
+                "executed task depth exceeds max_reference_depth",
+            )
+        if step["hit_count"] > bounds["max_hits_per_query"]:
+            _fail(
+                INVALID_RESEARCH_RESULT,
+                f"$.trace[{index}].hit_count",
+                "admitted hit count exceeds max_hits_per_query",
+            )
+
+        question_ref = task["question_ref"]
+        trace_counts_by_question[question_ref] = (
+            trace_counts_by_question.get(question_ref, 0) + 1
+        )
+        if (
+            trace_counts_by_question[question_ref]
+            > bounds["max_queries_per_question"]
+        ):
+            _fail(
+                INVALID_RESEARCH_RESULT,
+                f"$.trace[{index}].task_ref",
+                (
+                    "executed query count exceeds max_queries_per_question "
+                    f"for {question_ref!r}"
+                ),
+            )
+
+        for authority_ref in step["authority_refs"]:
+            if authority_ref not in authority_refs:
+                _fail(
+                    INVALID_RESEARCH_RESULT,
+                    f"$.trace[{index}].authority_refs",
+                    (
+                        "trace references authority not admitted by "
+                        f"ResearchResult: {authority_ref!r}"
+                    ),
+                )
+
+        stop_reason = step.get("stop_reason")
+        if stop_reason == "bounds_exhausted":
+            saw_bounds_exhausted = True
+        elif stop_reason == "questions_satisfied":
+            saw_questions_satisfied = True
+
+    if saw_bounds_exhausted:
+        if saw_questions_satisfied:
+            _fail(
+                INVALID_RESEARCH_RESULT,
+                "$.trace",
+                (
+                    "bounds_exhausted cannot coexist with questions_satisfied; "
+                    "dropped required work remains incomplete"
+                ),
+            )
+        if result["status"] == "complete":
+            _fail(
+                INVALID_RESEARCH_RESULT,
+                "$.status",
+                "bounds_exhausted cannot produce complete research",
+            )
+        if not result["unresolved_refs"]:
+            _fail(
+                INVALID_RESEARCH_RESULT,
+                "$.unresolved_refs",
+                "bounds_exhausted must expose the affected unfinished work",
+            )
 
     _validate_research_context(
         result["research_context"],

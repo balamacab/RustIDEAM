@@ -26,7 +26,7 @@ from legal_authority_classification import (
 
 
 PLANNER_VERSION = "2"
-RETRIEVAL_VERSION = "4"
+RETRIEVAL_VERSION = "5"
 
 DEFAULT_BOUNDS: dict[str, int] = {
     "max_rounds": 3,
@@ -66,6 +66,7 @@ _RETRIEVAL_CONFIG = {
     "hint_policy": "secondary-only",
     "dedupe": "within-extraction exact text_sha256 before top-N; task_ref+extracted_segment_id; authority_ref",
     "reference_policy": "validated-canonical-target-lookup-no-thematic-fallback",
+    "budget_policy": "admission-before-cap-with-explicit-pending-work",
 }
 
 # Conflict is never inferred from two authorities merely coexisting. Only an
@@ -666,6 +667,59 @@ def _candidate_from_hit(
     return item
 
 
+def _merge_candidate(
+    target: dict[str, dict[str, Any]],
+    *,
+    task: dict[str, Any],
+    hit: RetrievalHit,
+    provision: dict[str, Any] | None,
+    reference_target: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Admit/merge one evidence candidate after authority-budget approval.
+
+    Evidence for an already-admitted authority may be enriched by later
+    in-budget hits. A candidate for a new authority is never created before
+    the caller has verified that the authority slot is available.
+    """
+    candidate = target.get(hit.extracted_segment_id)
+    if candidate is None:
+        candidate = _candidate_from_hit(
+            task,
+            hit,
+            provision,
+            reference_target=reference_target,
+        )
+        target[hit.extracted_segment_id] = candidate
+        return candidate
+
+    candidate["task_refs"] = sorted(
+        set(candidate["task_refs"]) | {task["task_ref"]}
+    )
+    candidate["question_refs"] = sorted(
+        set(candidate["question_refs"]) | {task["question_ref"]}
+    )
+    candidate["query_texts"] = sorted(
+        set(candidate["query_texts"]) | {task["query_text"]}
+    )
+    if reference_target is not None:
+        path: dict[str, Any] = {
+            "task_ref": task["task_ref"],
+            "strategy": reference_target["strategy"],
+            "target_document_ref": (
+                f"document:{reference_target['target_document_id']}"
+            ),
+        }
+        if reference_target.get("target_provision_id") is not None:
+            path["target_provision_ref"] = (
+                f"provision:{reference_target['target_provision_id']}"
+            )
+        paths = candidate.setdefault("reference_paths", [])
+        if path not in paths:
+            paths.append(path)
+            paths.sort(key=_compact_json)
+    return candidate
+
+
 def _merge_unresolved(
     target: dict[str, dict[str, Any]],
     items: Iterable[dict[str, Any]],
@@ -748,38 +802,79 @@ class PlatformResearchService:
         _merge_unresolved(unresolved, _intake_blockers(intake_draft))
         authority_cache: dict[str, dict[str, Any]] = {}
         question_authorities: dict[str, set[str]] = {}
-        bounds_exhausted = False
+        exhausted_bounds: set[str] = set()
+
+        def record_bound(
+            *,
+            bound_name: str,
+            task: dict[str, Any],
+            detail: str,
+            material: tuple[object, ...],
+        ) -> str:
+            """Record only genuine dropped work, never a merely-touched limit."""
+            exhausted_bounds.add(bound_name)
+            item = _unresolved(
+                category="other",
+                description=(
+                    f"Research bound {bound_name} prevented required work: {detail}"
+                ),
+                question_ref=task["question_ref"],
+                next_action="expand_research",
+                material=(
+                    "research_bound",
+                    bound_name,
+                    task["task_ref"],
+                    *material,
+                ),
+            )
+            unresolved[item["unresolved_ref"]] = item
+            return item["unresolved_ref"]
 
         while queue:
             task, reference_target = queue.pop(0)
             question_ref = task["question_ref"]
             count = queries_by_question.get(question_ref, 0)
             if count >= plan["bounds"]["max_queries_per_question"]:
-                bounds_exhausted = True
+                record_bound(
+                    bound_name="max_queries_per_question",
+                    task=task,
+                    detail="planned task was not executed",
+                    material=(task["query_text"], task["depth"]),
+                )
                 continue
             if task["depth"] + 1 > plan["bounds"]["max_rounds"]:
-                bounds_exhausted = True
+                record_bound(
+                    bound_name="max_rounds",
+                    task=task,
+                    detail="planned task exceeded the executable round limit",
+                    material=(task["query_text"], task["depth"]),
+                )
                 continue
             queries_by_question[question_ref] = count + 1
 
+            max_hits = plan["bounds"]["max_hits_per_query"]
+            sentinel_limit = max_hits + 1
             target_lookup_status: str | None = None
             if reference_target is None:
-                hits = retrieval.search(
+                fetched_hits = retrieval.search(
                     task["query_text"],
-                    limit=plan["bounds"]["max_hits_per_query"],
+                    limit=sentinel_limit,
                 )
             else:
                 lookup = retrieval.lookup_canonical_target(
                     reference_target["target_document_id"],
                     target_provision_id=reference_target.get("target_provision_id"),
-                    limit=plan["bounds"]["max_hits_per_query"],
+                    limit=sentinel_limit,
                 )
                 target_lookup_status = lookup.status
                 reference_target = {
                     **reference_target,
                     "strategy": lookup.strategy,
                 }
-                hits = list(lookup.hits)
+                fetched_hits = list(lookup.hits)
+
+            hit_work_truncated = len(fetched_hits) > max_hits
+            hits = fetched_hits[:max_hits]
 
             unique_hits: list[RetrievalHit] = []
             seen_segments: set[str] = set()
@@ -792,6 +887,19 @@ class PlatformResearchService:
             step_authorities: set[str] = set()
             step_unresolved: set[str] = set()
             expansion_requests: list[dict[str, Any]] = []
+
+            if hit_work_truncated:
+                step_unresolved.add(
+                    record_bound(
+                        bound_name="max_hits_per_query",
+                        task=task,
+                        detail=(
+                            "additional retrieval hits existed beyond the admitted "
+                            f"limit of {max_hits}"
+                        ),
+                        material=(task["query_text"], max_hits),
+                    )
+                )
 
             if not unique_hits:
                 if reference_target is None:
@@ -827,43 +935,15 @@ class PlatformResearchService:
 
             for hit in unique_hits:
                 provision = retrieval.provision_for_segment(hit.extracted_segment_id)
-                candidate = candidates.get(hit.extracted_segment_id)
-                if candidate is None:
-                    candidate = _candidate_from_hit(
-                        task,
-                        hit,
-                        provision,
-                        reference_target=reference_target,
-                    )
-                    candidates[hit.extracted_segment_id] = candidate
-                else:
-                    candidate["task_refs"] = sorted(
-                        set(candidate["task_refs"]) | {task["task_ref"]}
-                    )
-                    candidate["question_refs"] = sorted(
-                        set(candidate["question_refs"]) | {task["question_ref"]}
-                    )
-                    candidate["query_texts"] = sorted(
-                        set(candidate["query_texts"]) | {task["query_text"]}
-                    )
-                    if reference_target is not None:
-                        path: dict[str, Any] = {
-                            "task_ref": task["task_ref"],
-                            "strategy": reference_target["strategy"],
-                            "target_document_ref": (
-                                f"document:{reference_target['target_document_id']}"
-                            ),
-                        }
-                        if reference_target.get("target_provision_id") is not None:
-                            path["target_provision_ref"] = (
-                                f"provision:{reference_target['target_provision_id']}"
-                            )
-                        paths = candidate.setdefault("reference_paths", [])
-                        if path not in paths:
-                            paths.append(path)
-                            paths.sort(key=_compact_json)
 
                 if hit.document_id is None:
+                    _merge_candidate(
+                        candidates,
+                        task=task,
+                        hit=hit,
+                        provision=provision,
+                        reference_target=reference_target,
+                    )
                     item = _unresolved(
                         category="unresolved_identity",
                         description=(
@@ -893,7 +973,35 @@ class PlatformResearchService:
                 classified = authority_cache[hit.document_id]
                 authority = classified["authority"]
                 authority_ref = str(authority["authority_ref"])
-                authorities[authority_ref] = deepcopy(authority)
+                already_admitted = authority_ref in authorities
+
+                if (
+                    not already_admitted
+                    and len(authorities)
+                    >= plan["bounds"]["max_total_authorities"]
+                ):
+                    step_unresolved.add(
+                        record_bound(
+                            bound_name="max_total_authorities",
+                            task=task,
+                            detail=(
+                                "a new canonical authority/evidence candidate "
+                                "could not be admitted"
+                            ),
+                            material=(hit.extracted_segment_id, authority_ref),
+                        )
+                    )
+                    continue
+
+                _merge_candidate(
+                    candidates,
+                    task=task,
+                    hit=hit,
+                    provision=provision,
+                    reference_target=reference_target,
+                )
+                if not already_admitted:
+                    authorities[authority_ref] = deepcopy(authority)
                 step_authorities.add(authority_ref)
 
                 temporal_state = authority["temporal_state"]
@@ -980,9 +1088,6 @@ class PlatformResearchService:
                         continue
                     seen_targets.add(target_key)
 
-                    if len(authorities) >= plan["bounds"]["max_total_authorities"]:
-                        bounds_exhausted = True
-                        break
                     key = (
                         "canonical_target",
                         question_ref,
@@ -1000,8 +1105,18 @@ class PlatformResearchService:
                         )
                         >= plan["bounds"]["max_queries_per_question"]
                     ):
-                        bounds_exhausted = True
-                        break
+                        step_unresolved.add(
+                            record_bound(
+                                bound_name="max_queries_per_question",
+                                task=task,
+                                detail=(
+                                    "resolved-reference expansion could not be "
+                                    "scheduled for an exact target"
+                                ),
+                                material=(target_key[0], target_key[1] or ""),
+                            )
+                        )
+                        continue
                     expanded = _task(
                         question_ref=question_ref,
                         origin="reference_expansion",
@@ -1014,7 +1129,30 @@ class PlatformResearchService:
                     queue.append((expanded, request))
                     scheduled.add(key)
             elif expansion_requests:
-                bounds_exhausted = True
+                if task["depth"] >= plan["bounds"]["max_reference_depth"]:
+                    step_unresolved.add(
+                        record_bound(
+                            bound_name="max_reference_depth",
+                            task=task,
+                            detail=(
+                                "resolved-reference expansion remained pending "
+                                "beyond the permitted depth"
+                            ),
+                            material=(len(expansion_requests), task["depth"]),
+                        )
+                    )
+                if task["depth"] + 1 >= plan["bounds"]["max_rounds"]:
+                    step_unresolved.add(
+                        record_bound(
+                            bound_name="max_rounds",
+                            task=task,
+                            detail=(
+                                "resolved-reference expansion remained pending "
+                                "beyond the permitted round count"
+                            ),
+                            material=(len(expansion_requests), task["depth"] + 1),
+                        )
+                    )
 
             trace.append(
                 {
@@ -1036,9 +1174,7 @@ class PlatformResearchService:
                 }
             )
 
-            if len(authorities) >= plan["bounds"]["max_total_authorities"]:
-                bounds_exhausted = True
-                break
+        bounds_exhausted = bool(exhausted_bounds)
 
         validate_research_plan(intake_draft, plan)
 
@@ -1067,7 +1203,11 @@ class PlatformResearchService:
         if trace:
             if bounds_exhausted:
                 stop_reason = "bounds_exhausted"
-            elif open_legal_questions and open_legal_questions <= covered_questions:
+            elif (
+                open_legal_questions
+                and open_legal_questions <= covered_questions
+                and not unresolved
+            ):
                 stop_reason = "questions_satisfied"
             elif blocked_questions and not open_legal_questions:
                 stop_reason = "blocked_by_missing_facts"
