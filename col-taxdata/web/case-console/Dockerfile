@@ -14,7 +14,7 @@ COPY nginx/healthcheck.sh /usr/local/bin/case-console-healthcheck
 # to strict browser MIME checks, so keep both extensions on the same explicit
 # JavaScript type and fail the image build if the base-file shape ever drifts.
 RUN sed -i -E \
-      's#application/javascript([[:space:]]+)js;#application/javascript\\1js mjs;#' \
+      's#application/javascript([[:space:]]+)js;#application/javascript\1js mjs;#' \
       /etc/nginx/mime.types \
     && grep -Eq \
       '^[[:space:]]*application/javascript[[:space:]]+js[[:space:]]+mjs;' \
