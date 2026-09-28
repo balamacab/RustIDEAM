@@ -32,7 +32,9 @@ persist observable result
 terminate
 ```
 
-Workers do not remain alive waiting for dependencies, CI, other agents, or future work. A later scheduled invocation re-reads durable state and continues from what is actually true at that time.
+Workers do not remain alive waiting for future work, another issue, or another scheduled cycle. Generator and Tester remain bounded one-sweep workers.
+
+A Developer that has already acquired an implementation claim is different: CI, merge, convergence, and explicit post-merge acceptance are lifecycle stages of that **same issue**, not future work. During the current activation it should continue following GitHub-native lifecycle state until that issue reaches a true terminal state. If the execution environment itself ends first, durable ownership remains active and the next activation must resume the same claim; elapsed time or a waiting CI run never releases ownership.
 
 Normal cadence is hourly. Exact minute offsets are deployment configuration, but the intended ordering within a cycle is:
 
@@ -318,16 +320,20 @@ Cardinality: five scheduled workers.
 
 Purpose: provide high horizontal implementation throughput over independent defect issues discovered by validation.
 
-Each Developer invocation may select **at most one** eligible defect issue.
+Each Developer invocation may select **at most one** eligible defect issue. Once an issue is claimed, that issue remains the sole task through all non-terminal repository lifecycle stages.
 
 A Developer must:
 
 1. read GitHub live;
-2. select one issue whose dependencies are satisfied and whose ownership does not conflict with active work;
-3. acquire/establish issue ownership using the project workflow;
-4. work only that selected issue;
-5. persist implementation/PR/CI state as required by the issue lifecycle;
-6. terminate.
+2. resume its own active claim before considering new work;
+3. otherwise select one issue whose dependencies are satisfied and whose ownership does not conflict with active work;
+4. acquire/establish issue ownership using the project workflow;
+5. work only that selected issue;
+6. persist implementation/PR/CI/merge/convergence/acceptance state as required by the issue lifecycle;
+7. while GitHub CI/CD is running, use GitHub-native status/check/workflow evidence and continue bounded revalidation rather than terminating merely because the gate is asynchronous;
+8. terminate only when the issue reaches a true terminal state, a genuine blocker prevents safe continuation, or the execution environment itself ends.
+
+`PR_OPEN`, `CI_VALIDATING`, `READY_FOR_MERGE`, `MERGED`, pending convergence, and explicit post-merge acceptance pending are **not** terminal. An activation cutoff does not release the claim; the next activation resumes it and may not select another issue.
 
 If the selected issue exposes additional child defects, the Developer may record/create those issues when within the established controller contract, but it must not switch to implementing a second issue in the same invocation.
 

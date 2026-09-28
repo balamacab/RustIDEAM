@@ -8,21 +8,23 @@ Controller-side issue creation, decomposition, dependency analysis and orchestra
 
 Normal implementation uses:
 
-`issue -> admission -> dedicated branch -> implementation -> PR -> CI Gate -> automatic merge -> main -> Convergence Gate -> done`
+`issue -> admission -> dedicated branch -> implementation -> PR -> CI Gate -> automatic merge -> main -> Convergence Gate -> [post-merge acceptance when required] -> done`
 
 An implementation agent must never develop directly on `main`. Each admitted issue owns one branch named `agent/issue-<number>-<slug>` created from the accepted current `main` revision. The base SHA is recorded in pull-request metadata.
 
-The pull request is the integration unit. It targets `main` and contains exactly one closing target (`Fixes`, `Closes`, or `Resolves`) for durable linkage. Native GitHub auto-close is treated as a convenience, not the sole completion mechanism: after post-merge convergence succeeds, repository automation idempotently closes the owning issue if it is still open. Human approval, a manual merge click, manual rerun, manual conflict resolution, and manual issue closure are not normal lifecycle steps.
+The pull request is the integration unit and targets `main`. Ownership and completion behavior are machine-readable. Default `completion_mode=convergence` keeps exactly one closing target (`Fixes`, `Closes`, or `Resolves`) for the owning issue; successful convergence is final repository completion. `completion_mode=post_merge_acceptance` requires `issue_number` in PR metadata and forbids GitHub closing syntax so the issue remains open through merge and convergence until its explicit post-merge/runtime/provider/fresh-acceptance gate passes. Native GitHub auto-close is therefore used only when convergence is sufficient. For `post_merge_acceptance`, the owning Developer closes the issue only after recording PASS evidence for that explicit acceptance contract.
 
 ## Machine-readable PR metadata
 
 Every col-taxdata autonomous PR carries one HTML comment with JSON:
 
 ```text
-<!-- col-taxdata-agent-metadata: {"base_sha":"<40-hex-sha>","parallel_safe":false,"semantic_domains":["<domain>"],"likely_touched":["<path-or-glob>"],"depends_on":[]} -->
+<!-- col-taxdata-agent-metadata: {"base_sha":"<40-hex-sha>","parallel_safe":false,"semantic_domains":["<domain>"],"likely_touched":["<path-or-glob>"],"depends_on":[],"completion_mode":"convergence"} -->
 ```
 
 `parallel_safe` must be classified conservatively. Historical absence of concurrency metadata never implies that parallel execution is safe. `depends_on` contains GitHub issue numbers. Semantic domains are used by post-merge convergence checks; textual Git conflicts are not treated as a complete compatibility model.
+
+`completion_mode` is optional for backward compatibility and defaults to `convergence`. Allowed values are `convergence` and `post_merge_acceptance`. The latter requires a positive `issue_number` in the same metadata object and forbids GitHub closing syntax so merge cannot prematurely close the issue. New PRs should emit `completion_mode` explicitly.
 
 ## Scope and repository invariants
 
@@ -75,7 +77,7 @@ Retries are bounded per `(reason, head_sha)`. After three recorded resume reques
 
 ## Agent states
 
-Normal states are represented by issue/PR/check state and durable lifecycle comments: `ADMITTED`, `WORKING`, `PR_OPEN`, `CI_VALIDATING`, `READY_FOR_MERGE`, `MERGED`, and `DONE`. Exceptional states include `NEEDS_REBASE`, `MERGE_CONFLICT`, `CI_FAILED`, `CHECKS_OUTDATED`, `SEMANTIC_REVALIDATION_REQUIRED`, and `BLOCKED`.
+Normal states are represented by issue/PR/check state and durable lifecycle comments: `ADMITTED`, `WORKING`, `PR_OPEN`, `CI_VALIDATING`, `READY_FOR_MERGE`, `MERGED`, `POST_MERGE_ACCEPTANCE_PENDING`, and `DONE`. `PR_OPEN`, `CI_VALIDATING`, `READY_FOR_MERGE`, `MERGED`, pending convergence, and `POST_MERGE_ACCEPTANCE_PENDING` are non-terminal. Exceptional states include `NEEDS_REBASE`, `MERGE_CONFLICT`, `CI_FAILED`, `CHECKS_OUTDATED`, `SEMANTIC_REVALIDATION_REQUIRED`, and `BLOCKED`.
 
 A clean merge is not sufficient evidence of semantic compatibility. Agents must refresh `main` before final integration and rerun validation after relevant concurrent changes.
 
@@ -85,7 +87,7 @@ After a successful `CI Gate`, the lifecycle controller re-reads live PR mergeabi
 
 Convergence marks the merged SHA with `Convergence Gate`, detects overlapping semantic domains among recent merged autonomous PRs, and runs the complete col-taxdata integration/invariant suite on the resulting `main`. Repository-dispatch semantic-domain metadata is normalized to compact JSON before it is exported through GitHub Actions outputs. The test suite runs for every applicable merge, so semantic overlap cannot bypass convergence validation.
 
-On convergence success, the controller closes the owning issue if GitHub did not already do so. It also reconciles recent stranded autonomous merged issues only when their merge commit is contained in the successfully validated current history and the issue was not explicitly reopened after that merge. Historical failed convergence statuses are not rewritten; recovery is recorded against the newer validated main state.
+On convergence success, completion depends on the PR declared mode. For `completion_mode=convergence`, the controller closes the owning issue if GitHub did not already do so. For `completion_mode=post_merge_acceptance`, convergence records `POST_MERGE_ACCEPTANCE_PENDING` and deliberately leaves the issue open. The owning Developer then executes the explicit acceptance contract on the converged `main`; only PASS evidence permits final `DONE` and issue closure. Stranded-issue reconciliation never closes a `post_merge_acceptance` issue. For normal convergence-complete PRs it only reconciles recent stranded autonomous merged issues when their merge commit is contained in the successfully validated current history and the issue was not explicitly reopened after that merge. Historical failed convergence statuses are not rewritten; recovery is recorded against the newer validated main state.
 
 A convergence failure sets the commit status to failure, leaves downstream readiness blocked, and automatically creates a focused corrective issue. Merged histories are preserved; revert or forward-fix is an explicit, separately validated action.
 

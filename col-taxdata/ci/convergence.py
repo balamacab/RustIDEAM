@@ -9,12 +9,13 @@ import urllib.error
 import urllib.request
 from typing import Any
 
-from policy import PolicyError, closing_issue_number, parse_metadata
+from policy import PolicyError, owning_issue_number, parse_metadata
 
 API = "https://api.github.com"
 STATUS_CONTEXT = "Convergence Gate"
 CORRECTIVE_MARKER = "<!-- col-taxdata-convergence-corrective:"
 STATE_MARKER = "<!-- col-taxdata-agent-state:"
+POST_MERGE_ACCEPTANCE_STATE = "POST_MERGE_ACCEPTANCE_PENDING"
 
 class ConvergenceError(RuntimeError):
     pass
@@ -113,6 +114,38 @@ def issue_reopened_after(token: str, repo: str, issue: int, merged_at: str) -> b
     )
 
 
+def pr_completion_mode(pr: dict[str, Any]) -> str:
+    metadata = parse_metadata(str(pr.get("body") or ""))
+    return str(metadata.get("completion_mode", "convergence"))
+
+
+def mark_post_merge_acceptance_pending(
+    token: str,
+    repo: str,
+    issue: int,
+    *,
+    pr: int,
+    convergence_sha: str,
+) -> None:
+    payload = {
+        "state": POST_MERGE_ACCEPTANCE_STATE,
+        "pr_number": pr,
+        "convergence_sha": convergence_sha,
+    }
+    request_json(
+        token,
+        "POST",
+        f"/repos/{repo}/issues/{issue}/comments",
+        {
+            "body": (
+                f"{STATE_MARKER} {json.dumps(payload, sort_keys=True, separators=(',', ':'))} -->\n"
+                "Agent state: `POST_MERGE_ACCEPTANCE_PENDING`. Convergence passed; "
+                "the selected issue remains open until its explicit post-merge acceptance contract passes."
+            )
+        },
+    )
+
+
 def close_issue_completed(
     token: str,
     repo: str,
@@ -178,9 +211,11 @@ def reconcile_stranded_merged_issues(
             continue
         body = str(pr.get("body") or "")
         try:
-            issue = closing_issue_number(body)
-            parse_metadata(body)
+            issue = owning_issue_number(body)
+            metadata = parse_metadata(body)
         except PolicyError:
+            continue
+        if metadata.get("completion_mode", "convergence") == "post_merge_acceptance":
             continue
         if not is_ancestor_of_validated_sha(token, repo, merge_sha, validated_sha):
             continue
@@ -230,15 +265,29 @@ def cmd_prepare(args: argparse.Namespace) -> int:
 def cmd_finalize(args: argparse.Namespace) -> int:
     token = auth()
     if args.result == "success":
-        close_issue_completed(
-            token,
-            args.repo,
-            args.issue,
-            pr=args.pr,
-            convergence_sha=args.sha,
-            original_merge_sha=args.sha,
-            recovered=False,
-        )
+        pr = request_json(token, "GET", f"/repos/{args.repo}/pulls/{args.pr}")
+        if not isinstance(pr, dict):
+            raise ConvergenceError(f"PR #{args.pr} could not be resolved during convergence finalization")
+        mode = pr_completion_mode(pr)
+        completion_pending = mode == "post_merge_acceptance"
+        if completion_pending:
+            mark_post_merge_acceptance_pending(
+                token,
+                args.repo,
+                args.issue,
+                pr=args.pr,
+                convergence_sha=args.sha,
+            )
+        else:
+            close_issue_completed(
+                token,
+                args.repo,
+                args.issue,
+                pr=args.pr,
+                convergence_sha=args.sha,
+                original_merge_sha=args.sha,
+                recovered=False,
+            )
         recovered = reconcile_stranded_merged_issues(
             token,
             args.repo,
@@ -246,7 +295,13 @@ def cmd_finalize(args: argparse.Namespace) -> int:
             current_pr=args.pr,
         )
         set_status(token, args.repo, args.sha, "success", "post-merge convergence validation passed")
-        print(json.dumps({"result": "PASS", "sha": args.sha, "recovered_issues": recovered}))
+        print(json.dumps({
+            "result": "PASS",
+            "sha": args.sha,
+            "completion_mode": mode,
+            "post_merge_acceptance_pending": completion_pending,
+            "recovered_issues": recovered,
+        }))
         return 0
     set_status(token, args.repo, args.sha, "failure", "post-merge convergence validation failed")
     corrective = corrective_issue(token, args.repo, args.sha, args.pr, args.issue, args.details)
