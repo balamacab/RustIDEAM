@@ -747,6 +747,42 @@ def _supported_uvt_projection_from_quote(
     return projections[0]
 
 
+
+def _supported_uvt_family_from_user_fact(
+    fact: dict[str, Any],
+) -> str | None:
+    """Select one bounded UVT family from model label + structured measurement.
+
+    #246 closes a narrow gap in #239: for an already-user_provided fact, the
+    structured measurement itself can establish that the unit is UVT even when
+    the model label says only "Ingresos brutos" or "Patrimonio bruto".  The
+    semantic key is deliberately not used to choose the family because it may
+    be the corrupted field being recovered.  Ambiguous/generic labels remain
+    unresolved so the existing consistency validator can fail closed.
+    """
+    family = _descriptor_family(fact)
+    if family in _SUPPORTED_UVT_FAMILIES:
+        return family
+
+    measurement = fact.get("measurement")
+    if not isinstance(measurement, dict) or measurement.get("unit") != "UVT":
+        return None
+
+    text = _fold_lexical_text(
+        " ".join(
+            str(fact.get(name, ""))
+            for name in ("label", "needed_information")
+        )
+    )
+    candidates: list[str] = []
+    if re.search(r"\bingres\w*\s+brut\w*", text):
+        candidates.append("gross_income_uvt")
+    if re.search(r"\bpatrimon\w*\s+brut\w*", text):
+        candidates.append("gross_patrimony_uvt")
+    if len(candidates) != 1:
+        return None
+    return candidates[0]
+
 def _recover_supported_user_uvt_fact(
     problem_text: str,
     fact: dict[str, Any],
@@ -781,7 +817,7 @@ def _recover_supported_user_uvt_fact(
     # Prefer the same bounded lexical family selection used by #210.  The model
     # label is only a selector; the replacement values are re-derived from one
     # unique exact client span, and the declared numeric measurement must agree.
-    family = _descriptor_family(fact)
+    family = _supported_uvt_family_from_user_fact(fact)
     expected_key = _SUPPORTED_UVT_FAMILIES.get(family)
     if expected_key is not None:
         recovered_quote = _unique_normalization_span(problem_text, family)
