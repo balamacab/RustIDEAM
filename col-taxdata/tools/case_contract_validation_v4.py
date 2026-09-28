@@ -813,7 +813,7 @@ def normalize_intake_draft(
     case_input: dict[str, Any],
     draft: dict[str, Any],
 ) -> dict[str, Any]:
-    """Apply the narrow, exact-source deterministic recovery authorized by #210.
+    """Apply the narrow exact-source recovery/consistency rules from #210/#239.
 
     This function is intentionally not a general model-output repair layer.  It
     never creates a fact, never guesses between spans, never infers legal
