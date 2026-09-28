@@ -1,0 +1,5 @@
+schema_version: 1
+kind: case_pool
+pool_id: col-taxdata-case-validation
+generation: 0
+cases: []
