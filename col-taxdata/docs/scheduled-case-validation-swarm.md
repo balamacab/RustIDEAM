@@ -1,5 +1,15 @@
 # Scheduled stateless case-validation swarm
 
+> **Controller superseding policy — clean-main full-platform Tester E2E**
+>
+> The scheduled Case Tester is an E2E regression worker over the latest protected-main snapshot. Its execution is **not gated by GitHub branches, PRs, CI, convergence, Developer/Generator claims, open defects, or prior sweep bookkeeping**. Those artifacts may affect post-run bookkeeping/attribution but never admission to execute.
+>
+> Each activation obtains a clean ephemeral snapshot of the exact protected-main SHA, prepares isolated writable validation state, starts/composes the existing CASE v4 core plus REST v1 (#144), Web (#143), MCP (#145) and admitted provider runtime, executes the active non-RETIRED case set through the required outer public surfaces, records outcomes, then tears the environment down. GitHub evidence integration happens **after** execution.
+>
+> Existing sections below that describe overlap guards, issue/branch/PR claims before scored execution, or CI/convergence as prerequisites for starting a Tester sweep are historical and are superseded by this policy. A prior incomplete sweep is evidence, not a lock.
+>
+> Surface routing remains one scored provider-reaching submission per case per sweep: REST-only through REST; WEB+REST through Web→REST; MCP+REST through MCP→REST. Web and MCP target the same REST instance.
+
 Status: **operational/controller contract**
 
 This document defines how the long-running Col-taxdata legal-case validation effort is coordinated through short-lived scheduled workers. It does not change CASE application semantics, canonical legal-data behavior, corpus provenance rules, or any public API contract.
