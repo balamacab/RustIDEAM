@@ -12,9 +12,15 @@ import sqlite3
 import unicodedata
 import uuid
 
+from document_family_identity import (
+    SegmentIdentityInput,
+    assess_supported_family_identity,
+)
 from source_identity import (
+    FUNCION_PUBLICA_NORMATIVE_ACT,
     assess_generic_normative_identity,
     canonical_identifier_values,
+    classify_source_url,
     equivalent_existing_canonical_key,
     persist_assessment,
 )
@@ -177,6 +183,7 @@ def register_simple_act(
     *,
     extraction_id: str,
     db_path: Path,
+    expected_canonical_key: str | None = None,
 ) -> dict[str, object]:
     con = sqlite3.connect(db_path)
     con.execute("PRAGMA foreign_keys = ON")
@@ -230,7 +237,39 @@ def register_simple_act(
         if heading is None:
             raise RuntimeError("document heading not found")
 
-        assessment = assess_generic_normative_identity(source_url, heading[3])
+        source_family = classify_source_url(source_url).family
+        identity_signal = None
+        if source_family == FUNCION_PUBLICA_NORMATIVE_ACT:
+            identity_rows = con.execute(
+                """
+                SELECT sequence_no, segment_type, text
+                FROM extracted_segments
+                WHERE extraction_id = ?
+                ORDER BY sequence_no
+                """,
+                (extraction_id,),
+            ).fetchall()
+            identity_segments = [
+                SegmentIdentityInput(int(sequence_no), segment_type, text)
+                for sequence_no, segment_type, text in identity_rows
+            ]
+            family_result = assess_supported_family_identity(
+                source_url,
+                identity_segments,
+            )
+            if family_result is None:
+                raise RuntimeError(
+                    "Función Pública source family parser is unavailable"
+                )
+            assessment = family_result.assessment
+            identity_signal = family_result.identity
+        else:
+            assessment = assess_generic_normative_identity(
+                source_url,
+                heading[3],
+            )
+            identity_signal = assessment.content
+
         with con:
             review_id = persist_assessment(
                 con,
@@ -257,13 +296,51 @@ def register_simple_act(
                     "document_id": None,
                 }
 
-        assert assessment.content is not None
-        doc_type = assessment.content.document_type
-        number = assessment.content.number
-        year = assessment.content.year
-        issuer_key = assessment.content.issuer_key
-        canonical_key = assessment.content.canonical_key
+        assert identity_signal is not None
+        doc_type = identity_signal.document_type
+        number = identity_signal.number
+        year = identity_signal.year
+        issuer_key = identity_signal.issuer_key
+        canonical_key = identity_signal.canonical_key
         assert doc_type and number and year and canonical_key
+
+        if (
+            expected_canonical_key is not None
+            and canonical_key != expected_canonical_key
+        ):
+            conflict = assessment.__class__(
+                "unresolved",
+                assessment.source,
+                identity_signal,
+                "SOURCE_IDENTITY_CONFLICT",
+            )
+            with con:
+                review_id = persist_assessment(
+                    con,
+                    manifestation_id=manifestation_id,
+                    extraction_id=extraction_id,
+                    assessment=conflict,
+                )
+                if existing_document_id is not None:
+                    con.execute(
+                        "UPDATE manifestations SET document_id = NULL "
+                        "WHERE manifestation_id = ?",
+                        (manifestation_id,),
+                    )
+            return {
+                "parser_name": PARSER_NAME,
+                "parser_version": PARSER_VERSION,
+                "status": "unresolved",
+                "reason_code": "SOURCE_IDENTITY_CONFLICT",
+                "review_id": review_id,
+                "source_family": assessment.source.family,
+                "manifestation_id": manifestation_id,
+                "extraction_id": extraction_id,
+                "document_id": None,
+                "expected_canonical_key": expected_canonical_key,
+                "observed_canonical_key": canonical_key,
+            }
+
         document_id = deterministic_id("DOC", canonical_key)
 
         if (
@@ -273,7 +350,7 @@ def register_simple_act(
             equivalent_key = equivalent_existing_canonical_key(
                 con,
                 document_id=existing_document_id,
-                signal=assessment.content,
+                signal=identity_signal,
             )
             if equivalent_key is not None:
                 document_id = existing_document_id
@@ -282,7 +359,7 @@ def register_simple_act(
                 conflict = assessment.__class__(
                     "unresolved",
                     assessment.source,
-                    assessment.content,
+                    identity_signal,
                     "SOURCE_IDENTITY_CONFLICT",
                 )
                 with con:
@@ -394,7 +471,7 @@ def register_simple_act(
             )
 
             for identifier_value, is_primary in canonical_identifier_values(
-                assessment.content
+                identity_signal
             ):
                 identifier_id = deterministic_id(
                     "ID",
@@ -609,11 +686,19 @@ def main() -> int:
     )
     parser.add_argument("--extraction-id", required=True)
     parser.add_argument("--db", default="data/state/taxdata.sqlite")
+    parser.add_argument(
+        "--expected-canonical-key",
+        help=(
+            "Optional fail-closed identity constraint used by external "
+            "official-source adapters."
+        ),
+    )
     args = parser.parse_args()
 
     result = register_simple_act(
         extraction_id=args.extraction_id,
         db_path=Path(args.db),
+        expected_canonical_key=args.expected_canonical_key,
     )
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0
