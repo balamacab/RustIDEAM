@@ -11,7 +11,12 @@ sys.path.insert(0, str(ROOT / "tools"))
 
 from case_contract_validation_v4 import normalize_intake_draft
 from deterministic_intake_adapter import DeterministicIntakeAdapter
-from llm_client import CaseStructuringService, LLMPlatformConfig, ModelRoute
+from llm_client import (
+    CaseStructuringService,
+    LLMPlatformConfig,
+    ModelRoute,
+    _materialize_client_owned_fields,
+)
 
 
 AS_OF = "2026-09-27"
@@ -80,11 +85,19 @@ def config() -> LLMPlatformConfig:
 
 
 def structure(problem_text: str, candidate_json: str) -> dict:
-    candidate = json.loads(candidate_json)
+    ci = case_input(problem_text)
+    # The rejected audit artifact stores exactly the model-authored candidate.
+    # The OpenAI-compatible adapter deterministically restores caller-owned
+    # root fields before CaseStructuringService receives it; mirror that
+    # boundary here without changing the preserved fixture bytes.
+    candidate = _materialize_client_owned_fields(
+        ci,
+        json.loads(candidate_json),
+    )
     return CaseStructuringService(
         config(),
         DeterministicIntakeAdapter([candidate]),
-    ).structure(case_input(problem_text)).intake
+    ).structure(ci).intake
 
 
 def unresolved_draft(problem_text: str, fact: dict) -> dict:
