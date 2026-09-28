@@ -121,3 +121,27 @@ Only synthetic/public-safe case descriptions belong here. Do not store secrets, 
 ## Schema
 
 `schemas/control-state.schema.json` defines the record shapes and shared enums. YAML records are JSON-data-model compatible and are validated against the corresponding `$defs` entry by the future worker implementation.
+
+
+## Tester runtime admission and CI integration
+
+Before a non-empty scheduled Tester sweep creates its discovery snapshot or consumes any candidate, the Tester MUST preflight the exact harness/runtime path it will use.
+
+Mandatory preflight:
+
+- resolve the current CASE, REST and MCP contracts from protected `main`;
+- for normal newly generated cases, use the current CASE v4 / REST v1 path unless the case definition explicitly pins a historical compatibility contract;
+- never execute a v4 case through the historical v3 compatibility adapter;
+- verify harness dependencies in the exact execution environment before discovery;
+- validate harness-generated public request fields against the active public contract before discovery, including external correlation/client-reference fields;
+- never use a reserved internal CASE identifier as a public client correlation value when the active contract rejects it;
+- if any harness/runtime prerequisite fails, abort before discovery/run creation and report a preflight failure rather than consuming a candidate as `NOT_EXECUTED`.
+
+Repository integration must also obey the current trusted CI policy. Each non-empty Tester sweep therefore creates one **validation-only integration issue** and uses a CI-compliant branch of the form:
+
+`agent/issue-<issue-number>-case-tester-sweep-<slug>`
+
+The sweep PR must close only that validation-only issue and must carry normal `col-taxdata-agent-metadata`. This issue is coordination/audit ownership for the sweep, not a product defect and not Developer implementation work.
+
+The validation-only issue exists so the required trusted `CI Gate` and autonomous merge/convergence workflow can operate without weakening repository branch/PR policy.
+

@@ -1,0 +1,15 @@
+schema_version: 1
+kind: run_result
+origin: scheduled_sweep
+run_id: R-20260928T015159Z-S01
+case_id: TC-20260928-S01
+completed_at: "2026-09-28T01:57:19Z"
+outcome: NOT_EXECUTED
+classification: admission_wrong_application_contract
+evidence_refs:
+  - "remote:/home/user/col-taxdata-case-tester-SW-20260928T014005Z-ct/cases/CASE-e86b239734ac5e2488483858e7e4f603/case_draft.json#sha256=1087f515da28befa5ac5d8f174d74665805733a785a10ed168a1b9e8f65aa731"
+  - "remote:/home/user/col-taxdata-case-tester-SW-20260928T014005Z-ct/cases/CASE-e86b239734ac5e2488483858e7e4f603/case_result.json#sha256=7dbcd631cfbb3671017afefdc0a795f930416a8c745e0d41f343a604e80d5741"
+  - "http:200:CASE-e86b239734ac5e2488483858e7e4f603"
+  - "git:main@cd3b1e11c88481963f652f6997d74de5f637d48b:col-taxdata/specs/README.md"
+defect_issues: []
+notes: "A provider-reaching execution occurred, but the Tester invoked the frozen historical #66 v3 compatibility adapter (actual CaseDraft contract_version=3.0.0, prompt case-structuring-v3) while the pre-run snapshot claimed active v4.0.0. Protected-main specs state that normal new structuring and REST v1 are v4 and v3 is historical compatibility only. The attempt is preserved but is not a valid scored execution of S01's current contract; no retry occurred and no product defect is attributed from the v3 semantic output."

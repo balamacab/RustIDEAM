@@ -1,0 +1,13 @@
+schema_version: 1
+kind: run_result
+origin: scheduled_sweep
+run_id: R-20260928T015100Z-M01
+case_id: TC-20260928-M01
+completed_at: "2026-09-28T01:51:35Z"
+outcome: NOT_EXECUTED
+classification: harness_invalid_client_reference
+evidence_refs:
+  - "remote:/home/user/col-taxdata-case-tester-SW-20260928T014005Z-ct/artifacts/TC-20260928-M01.json#sha256=728ff165a3016b4041e6cb436aab1efef30c2da2c35d565e45fb843a97d3e871"
+  - "http:400:INVALID_CASE_INPUT"
+defect_issues: []
+notes: "Pre-product rejection at the public web->REST boundary: Tester harness correlation value began with case- and was correctly rejected as an internal CASE identifier. Provider/model was not called. M01 is not retried in this sweep."

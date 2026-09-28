@@ -1,0 +1,13 @@
+schema_version: 1
+kind: run_result
+origin: scheduled_sweep
+run_id: R-20260928T014935Z-H01
+case_id: TC-20260928-H01
+completed_at: "2026-09-28T01:50:25Z"
+outcome: NOT_EXECUTED
+classification: harness_dependency_failure
+evidence_refs:
+  - "remote:/home/user/col-taxdata-case-tester-SW-20260928T014005Z-ct/run_case.py#sha256=55620ca31239d4ad102ea1c3195abd1be21f302dc9dd6003a2b32a657b79fa38"
+  - "runtime-error:ModuleNotFoundError:No module named yaml"
+defect_issues: []
+notes: "Pre-product failure before any REST/MCP/provider call: the external Tester harness could not import PyYAML. No scored product execution began; H01 is not retried in this sweep."
