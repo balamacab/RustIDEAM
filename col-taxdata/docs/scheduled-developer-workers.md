@@ -132,7 +132,7 @@ All concurrent workers observing the same live issue state therefore compute the
 
 Construct the claim/work branch name:
 
-`agent/claim-issue-N-a<attempt>-<main12>`
+`agent/issue-N-claim-a<attempt>-<main12>`
 
 where `main12` is the first 12 hexadecimal characters of the exact protected-main SHA observed immediately before claiming.
 
@@ -151,7 +151,7 @@ The worker MUST NOT use force update to steal a claim branch.
 
 Immediately after successful branch creation, post a claim comment on the selected issue:
 
-`<!-- col-taxdata-developer-claim: {"worker_id":"DEV-X","issue":N,"attempt":K,"base_sha":"<40hex>","branch":"agent/claim-issue-N-aK-<main12>","state":"CLAIMED"} -->`
+`<!-- col-taxdata-developer-claim: {"worker_id":"DEV-X","issue":N,"attempt":K,"base_sha":"<40hex>","branch":"agent/issue-N-claim-aK-<main12>","state":"CLAIMED"} -->`
 
 The human-readable part of the same comment should state:
 
