@@ -2,11 +2,9 @@ schema_version: 1
 kind: case_state
 case_id: TC-0142-C
 generation: 0
-state: BLOCKED
+state: READY
 last_run_id: R-ISSUE142-98495-C
-blocking_issues:
-  - 188
-  - 189
-ready_reason: null
-updated_at: "2026-09-28T00:10:09Z"
+blocking_issues: []
+ready_reason: "Controller repair: recorded blockers #188 and #189 completed; historical FAIL is preserved and the case awaits a fresh Tester E2E run."
+updated_at: "2026-09-28T07:40:00Z"
 updated_by: controller-monitor
