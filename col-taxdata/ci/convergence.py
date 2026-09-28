@@ -10,6 +10,7 @@ import urllib.request
 from typing import Any
 
 from policy import PolicyError, owning_issue_number, parse_metadata
+from issue_state_sync import apply_visible_state
 
 API = "https://api.github.com"
 STATUS_CONTEXT = "Convergence Gate"
@@ -144,6 +145,7 @@ def mark_post_merge_acceptance_pending(
             )
         },
     )
+    apply_visible_state(token, repo, issue, POST_MERGE_ACCEPTANCE_STATE)
 
 
 def close_issue_completed(
@@ -182,6 +184,7 @@ def close_issue_completed(
             )
         },
     )
+    apply_visible_state(token, repo, issue, "DONE")
     return True
 
 

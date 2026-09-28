@@ -91,6 +91,10 @@ class CompletionOwnershipPolicyTests(unittest.TestCase):
 
 
 class AgentLifecycleTests(unittest.TestCase):
+    def setUp(self):
+        self.visible_state = mock.patch.object(agent_control, "apply_visible_state").start()
+        self.addCleanup(mock.patch.stopall)
+
     def pr(self, *, mode: str = "convergence") -> dict:
         body = normal_pr_body() if mode == "convergence" else post_merge_pr_body()
         return {

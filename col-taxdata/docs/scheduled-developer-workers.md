@@ -92,6 +92,17 @@ GitHub lifecycle waiting for the currently claimed issue is not "future work." D
 
 A genuine external dependency with no safe current action may produce `BLOCKED`. The claim remains owned unless terminal metadata or an explicit Controller transfer/release says otherwise.
 
+When a Developer records a real `BLOCKED` transition in GitHub, it MUST publish the standard machine-readable lifecycle marker in the same issue comment; prose alone is insufficient control state:
+
+```text
+<!-- col-taxdata-agent-state: {"state":"BLOCKED","reason":"<why>","blocker":"<issue/ref when known>"} -->
+Agent state: `BLOCKED`.
+```
+
+The repository projects that marker to the visible `status:blocked` label while leaving the issue OPEN. When work resumes, the Developer MUST publish the next real non-blocked lifecycle marker (for example `WORKING`); the projection then removes `status:blocked`. Developers must not add/remove the label as an independent source of truth.
+
+For post-merge/runtime/provider acceptance failures, the BLOCKED marker should also include the relevant converged/main identity when available. This makes #237-style failures visible without parsing narrative development logs.
+
 ## Role boundaries
 
 Developer workers do not:

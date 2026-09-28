@@ -79,6 +79,16 @@ Retries are bounded per `(reason, head_sha)`. After three recorded resume reques
 
 Normal states are represented by issue/PR/check state and durable lifecycle comments: `ADMITTED`, `WORKING`, `PR_OPEN`, `CI_VALIDATING`, `READY_FOR_MERGE`, `MERGED`, `POST_MERGE_ACCEPTANCE_PENDING`, and `DONE`. `PR_OPEN`, `CI_VALIDATING`, `READY_FOR_MERGE`, `MERGED`, pending convergence, and `POST_MERGE_ACCEPTANCE_PENDING` are non-terminal. Exceptional states include `NEEDS_REBASE`, `MERGE_CONFLICT`, `CI_FAILED`, `CHECKS_OUTDATED`, `SEMANTIC_REVALIDATION_REQUIRED`, and `BLOCKED`.
 
+GitHub's native issue state remains only OPEN/CLOSED, so Col-taxdata projects the operational `BLOCKED` state into one visible/filterable issue label: `status:blocked`. The source of truth is the durable machine-readable lifecycle marker, not the label and not free-form prose:
+
+```text
+<!-- col-taxdata-agent-state: {"state":"BLOCKED","reason":"<why>","blocker":"<issue/ref when known>"} -->
+Agent state: `BLOCKED`.
+```
+
+A real `BLOCKED` transition adds `status:blocked` idempotently and leaves the issue OPEN. A later machine-readable non-blocked lifecycle state removes the label idempotently. Arbitrary text such as `State: BLOCKED` without the marker is diagnostic prose only and must not mutate GitHub metadata.
+
+Trusted repository workflows project states directly because comments created with GitHub's workflow token are not relied upon to recursively launch another workflow. Developer/operator lifecycle comments created outside that trusted workflow path are synchronized by the dedicated `col-taxdata Issue State` issue-comment workflow. Both paths use the same `issue_state_sync.py` projection rules.
 A clean merge is not sufficient evidence of semantic compatibility. Agents must refresh `main` before final integration and rerun validation after relevant concurrent changes.
 
 ## Merge and convergence
