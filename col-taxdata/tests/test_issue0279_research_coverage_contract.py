@@ -307,7 +307,7 @@ class Issue0279ResearchCoverageContractTests(unittest.TestCase):
 
     def test_representation_pressure_gate_does_not_treat_142_as_pass(self) -> None:
         self.assertIn("REPRESENTATION_PRESSURE_GATE", self.spec)
-        self.assertIn("#142 closed not_planned", self.adr)
+        self.assertIn("#142 is closed as not_planned", self.adr)
         self.assertIn("#288 may provide measurements", self.adr)
         self.assertIn("representation/access", self.adr)
 
