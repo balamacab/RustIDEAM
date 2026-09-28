@@ -218,7 +218,7 @@ class Def0005RetrievalDedupTests(unittest.TestCase):
         self.assertEqual(primary.duplicate_count, 12)
         self.assertEqual(
             primary.alternate_segment_ids,
-            tuple(repeated_ids[1:]),
+            tuple(repeated_ids[1:12]),
         )
         self.assertEqual(other.extracted_segment_id, other_document_ids[0])
         self.assertEqual(other.duplicate_count, 1)
