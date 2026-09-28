@@ -1,0 +1,17 @@
+schema_version: 1
+kind: sweep_result
+sweep_id: SW-20260928T024531Z-ct
+completed_at: "2026-09-28T02:48:44Z"
+candidate_results:
+  - case_id: TC-20260928-H01
+    disposition: skipped
+    run_id: null
+    skip_reason: "global pre-product blocker: protected main had a valid Tester preflight but no project-owned CASE v4 execution harness; no scored execution was started"
+  - case_id: TC-20260928-M01
+    disposition: skipped
+    run_id: null
+    skip_reason: "global pre-product blocker: protected main had a valid Tester preflight but no project-owned CASE v4 execution harness; no scored execution was started"
+  - case_id: TC-20260928-S01
+    disposition: skipped
+    run_id: null
+    skip_reason: "global pre-product blocker: protected main had a valid Tester preflight but no project-owned CASE v4 execution harness; no scored execution was started"
