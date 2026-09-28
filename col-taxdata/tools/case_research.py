@@ -25,7 +25,7 @@ from legal_authority_classification import (
 )
 
 
-PLANNER_VERSION = "1"
+PLANNER_VERSION = "2"
 RETRIEVAL_VERSION = "2"
 
 DEFAULT_BOUNDS: dict[str, int] = {
@@ -39,20 +39,30 @@ DEFAULT_BOUNDS: dict[str, int] = {
 # The vocabulary is intentionally about research topics, not legal outcomes or
 # canonical IDs. It exists so a domain-specific client word does not have to
 # occur verbatim in a general controlling rule.
-_RESEARCH_VOCABULARY_VERSION = "1"
+_RESEARCH_VOCABULARY_VERSION = "2"
 _WORD_RE = re.compile(r"[^\W_]+", re.UNICODE)
 _FILING_ACTION_TERMS = frozenset(
     {"declarar", "declaracion", "presentar", "obligacion", "obligado", "obligados"}
 )
 _PENALTY_TERMS = frozenset({"sancion", "sanciones", "extemporanea", "extemporaneidad"})
 _FOREIGN_ASSET_TERMS = frozenset({"exterior", "extranjero", "extranjera", "extranjera"})
+_TREATY_MARKER_TERMS = frozenset({"convenio", "tratado", "cdi"})
+_TREATY_TAX_CONTEXT_TERMS = frozenset(
+    {"doble", "imposicion", "tributario", "tributaria", "fiscal", "renta"}
+)
+_TREATY_TOPIC_QUERIES = (
+    "beneficios empresariales",
+    "cánones regalías",
+    "establecimiento permanente",
+)
 
 _RETRIEVAL_CONFIG = {
     "planner_version": PLANNER_VERSION,
     "retrieval_version": RETRIEVAL_VERSION,
     "research_vocabulary_version": _RESEARCH_VOCABULARY_VERSION,
     "default_bounds": DEFAULT_BOUNDS,
-    "query_policy": "question+confirmed-facts+deterministic-tax-vocabulary",
+    "query_policy": "question+confirmed-facts+deterministic-tax/treaty-vocabulary",
+    "treaty_topic_policy": "bounded-platform-required-topic-queries",
     "hint_policy": "secondary-only",
     "dedupe": "task_ref+extracted_segment_id; authority_ref",
     "reference_policy": "resolved-explicit-only",
@@ -198,6 +208,26 @@ def _deterministic_vocabulary(seed_text: str) -> list[str]:
     return _dedupe_phrases(phrases)
 
 
+def _treaty_topic_queries(seed_text: str) -> list[str]:
+    """Return bounded neutral treaty topics for explicit tax-treaty questions.
+
+    These queries research common provision families without deciding whether a
+    transaction is governed by any one family.  Keeping them separate from the
+    broad client question prevents high-volume generic tax hits from consuming
+    the complete bounded retrieval window before material treaty text is seen.
+    """
+    tokens = _tokens(seed_text)
+    marker_present = bool(tokens.intersection(_TREATY_MARKER_TERMS))
+    tax_context_present = (
+        "cdi" in tokens
+        or bool(tokens.intersection(_TREATY_TAX_CONTEXT_TERMS))
+        or ("doble" in tokens and "imposicion" in tokens)
+    )
+    if not marker_present or not tax_context_present:
+        return []
+    return list(_TREATY_TOPIC_QUERIES)
+
+
 def _confirmed_fact_texts(
     intake_draft: dict[str, Any],
     question: dict[str, Any],
@@ -325,6 +355,27 @@ def build_research_plan(
             )
         )
         scheduled_queries = {_fold_text(query)}
+
+        # A broad treaty question needs bounded provision-topic coverage before
+        # optional model hints or reference expansion.  Each topic stays a
+        # platform-owned primary-research task: it asks for evidence but never
+        # characterizes the client's transaction or selects a legal outcome.
+        treaty_seed = " ".join([question["text"], *_confirmed_fact_texts(intake_draft, question)[1]])
+        for topic_query in _treaty_topic_queries(treaty_seed):
+            folded_topic = _fold_text(topic_query)
+            if folded_topic in scheduled_queries:
+                continue
+            scheduled_queries.add(folded_topic)
+            tasks.append(
+                _task(
+                    question_ref=question["question_ref"],
+                    origin="platform_required",
+                    purpose="primary_research",
+                    query_text=topic_query,
+                    depth=0,
+                    generated_from_fact_refs=fact_refs,
+                )
+            )
 
         for hint in sorted(
             hints_by_question.get(question["question_ref"], []),
