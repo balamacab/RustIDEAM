@@ -1,0 +1,21 @@
+schema_version: 1
+kind: run_result
+origin: imported_historical_validation
+run_id: R-ISSUE142-98495-B
+case_id: TC-0142-B
+completed_at: null
+reported_at: "2026-09-27T17:16:19Z"
+outcome: FAIL
+classification: intake_fidelity_failure
+artifact_sha256: "d7b63c24dc15b96e28faece9507c19ac88968735a8820e385341b22f71e72b4d"
+case_input_sha256: "5fdd697a0924d9c6aca90b711b701256f1ea8d774cd7c79eaf716724eb6495b2"
+raw_request_sha256: "7d1eea276a6719a75ff7156eb86a803b45fddcf3a68eb2de14e7b26bba5290c3"
+bundle_ref: "bundle:d6dadcc4ee460e1c62b1845079553623"
+bundle_sha256: "669eeae06fcbf28a7f795ac4ad798dba32f8e3060e55db4e5dff4f9fff6823c3"
+model_run_ref: "run:dbf2d2e208314b9ca562e1bbd01957ca"
+evidence_refs:
+  - "git:agent/issue-142-e2e-validation@c3e44ea0a4294f6fe1a67eec9f0248c111b749e0:col-taxdata/validation/issue-0142/phase1-recovery-98495-report.md"
+  - "bundle:d6dadcc4ee460e1c62b1845079553623"
+defect_issues:
+  - 188
+notes: "Historical #142 FAIL: all 9 selected explicitly stated facts were emitted as missing with zero exact source quotes."
