@@ -15,6 +15,10 @@ import convergence  # noqa: E402
 
 
 class Issue0032ConvergenceLifecycleTests(unittest.TestCase):
+    def setUp(self):
+        self.visible_state = mock.patch.object(convergence, "apply_visible_state").start()
+        self.addCleanup(mock.patch.stopall)
+
     def test_multiline_dispatch_domains_are_compacted(self):
         raw = '[\n  "case-contracts",\n  "case-validation",\n  "application-interface"\n]'
         self.assertEqual(
