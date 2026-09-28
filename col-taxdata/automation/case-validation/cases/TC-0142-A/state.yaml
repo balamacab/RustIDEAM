@@ -1,0 +1,11 @@
+schema_version: 1
+kind: case_state
+case_id: TC-0142-A
+generation: 0
+state: BLOCKED
+last_run_id: R-ISSUE142-98495-A
+blocking_issues:
+  - 188
+ready_reason: null
+updated_at: "2026-09-28T00:10:09Z"
+updated_by: controller-monitor

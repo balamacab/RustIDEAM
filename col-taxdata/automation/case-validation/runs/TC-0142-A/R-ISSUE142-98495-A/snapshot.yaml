@@ -1,0 +1,40 @@
+schema_version: 1
+kind: run_snapshot
+origin: imported_historical_validation
+source_refs:
+  - "github:issue/142"
+  - "github:pull/179"
+  - "git:agent/issue-142-e2e-validation@c3e44ea0a4294f6fe1a67eec9f0248c111b749e0:col-taxdata/validation/issue-0142/phase1-recovery-98495-report.md"
+  - "git:agent/issue-142-e2e-validation@c3e44ea0a4294f6fe1a67eec9f0248c111b749e0:col-taxdata/validation/issue-0142/control-plan.json#cases.A"
+run_id: R-ISSUE142-98495-A
+sweep_id: null
+case_id: TC-0142-A
+captured_at: null
+case_definition:
+  path: null
+  git_blob_sha: null
+  sha256: null
+case_state_generation: null
+repository:
+  branch: main
+  commit_sha: "98495aa39fe97049449cbebca8708db924c5a8d2"
+contracts:
+  case_contract_version: "4.0.0"
+  rest_contract_version: "1.0.0"
+  mcp_contract_version: null
+harness:
+  ref: "git:agent/issue-142-e2e-validation@c3e44ea0a4294f6fe1a67eec9f0248c111b749e0:col-taxdata/validation/issue-0142/phase1-recovery-runner.py"
+  sha256: null
+control_packet:
+  ref: "git:agent/issue-142-e2e-validation@c3e44ea0a4294f6fe1a67eec9f0248c111b749e0:col-taxdata/validation/issue-0142/control-plan.json#cases.A.control"
+  sha256: "be125739327fcef4c972c1e7f7dc1fa7744a8a0354c884bdab767b7cb0982305"
+corpus:
+  research_context_fingerprint: null
+  database_snapshot_ref: "/home/user/col-taxdata-validation-142-rerun3-98495"
+runtime:
+  profile: "case-migration-rtx3070-v1"
+  image_digest: "sha256:1f4b9cf58982dd4d7cc497aea31b1a456ca9a3a1f94f527d317d3fdee0d60ab6"
+  provider: "operator-llama-cpp-migration-test"
+  model: "gemma-4-E2B-it-Q4_K_M"
+  model_sha256: "740185b21d22ceb83a11c3aa62ad5842ef32c70f6096d756bbee85a1e4ec34b8"
+satisfied_blockers: []

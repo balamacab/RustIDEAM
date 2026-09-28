@@ -1,0 +1,26 @@
+schema_version: 1
+kind: run_result
+origin: imported_historical_validation
+run_id: R-ISSUE142-98495-C
+case_id: TC-0142-C
+completed_at: null
+reported_at: "2026-09-27T17:16:19Z"
+outcome: FAIL
+classification: intake_and_research_coverage_failure
+artifact_sha256: "9b854f5bcba990db1316fbf67752e41983573571e1c81a07269d95e6dd427312"
+case_input_sha256: "21f055a11992c7fb8ba2a21414cd0920c017b59958c61764ea4c1629dd06b9a4"
+raw_request_sha256: "ccc50b7742bee28be37caefe99a27721cdced5a430f665a8abd0f11dad0927d0"
+bundle_ref: "bundle:fb05735049119932d65d4b00f38a035f"
+bundle_sha256: "ca2a9a81f5d13a925fc373e63f998c570a17735d380084094e4a5f804bb22c3f"
+model_run_ref: "run:81d87a5e6d1f4945aede1658665abf41"
+evidence_refs:
+  - "git:agent/issue-142-e2e-validation@c3e44ea0a4294f6fe1a67eec9f0248c111b749e0:col-taxdata/validation/issue-0142/phase1-recovery-98495-report.md"
+  - "bundle:fb05735049119932d65d4b00f38a035f"
+  - "canonical-segment:SEG-bb72b5e66da5516281fe477615033bb7"
+  - "canonical-segment:SEG-2733d6bd613956d996274dbb68ab3771"
+  - "canonical-segment:SEG-42b3e92ab3af53a19b62482f7f2ca032"
+  - "canonical-segment:SEG-a04cffb206bf5c62a019a7ec8a5ab048"
+defect_issues:
+  - 188
+  - 189
+notes: "Historical #142 FAIL: IVA question was misclassified and lost mandatory research (#188); material Colombia-Spain treaty article 7/12 support present in corpus was not recovered (#189)."

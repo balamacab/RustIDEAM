@@ -1,0 +1,10 @@
+schema_version: 1
+kind: case_state
+case_id: TC-example
+generation: 0
+state: NEW
+last_run_id: null
+blocking_issues: []
+ready_reason: generated
+updated_at: "2026-09-28T00:00:00Z"
+updated_by: case-generator

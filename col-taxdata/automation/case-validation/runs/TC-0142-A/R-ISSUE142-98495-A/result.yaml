@@ -1,0 +1,21 @@
+schema_version: 1
+kind: run_result
+origin: imported_historical_validation
+run_id: R-ISSUE142-98495-A
+case_id: TC-0142-A
+completed_at: null
+reported_at: "2026-09-27T17:16:19Z"
+outcome: FAIL
+classification: intake_fidelity_failure
+artifact_sha256: "24c629ec7104869de14651fcd1b202197c696ffd28fac4c7680eb63497986c5c"
+case_input_sha256: "c0502cd7f19ed2ffa2ac1b3b56cb3bd0fdfab98c1767f81997160d26b4cd8117"
+raw_request_sha256: "9417a8a251271018c0a7775127ba6e1e32f55469047455b83a6aa3e8986b4589"
+bundle_ref: "bundle:6a9cf007b1f75901fbc2095abfd3ee16"
+bundle_sha256: "eeb4121f47886f0b1557f5e10f8596781f36717687a2803389162bdf238081b7"
+model_run_ref: "run:1209561e9368443f8da27bd3f525c390"
+evidence_refs:
+  - "git:agent/issue-142-e2e-validation@c3e44ea0a4294f6fe1a67eec9f0248c111b749e0:col-taxdata/validation/issue-0142/phase1-recovery-98495-report.md"
+  - "bundle:6a9cf007b1f75901fbc2095abfd3ee16"
+defect_issues:
+  - 188
+notes: "Historical #142 FAIL: 4/4 selected client facts were downgraded to ambiguous with no exact source quotes; bounded evaluator received no confirmed structured inputs."
