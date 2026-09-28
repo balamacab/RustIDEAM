@@ -2,7 +2,18 @@ services:
   taxdata:
     build:
       context: .
+      target: runtime
     image: col-taxdata:local
+    working_dir: /app
+    volumes:
+      - ./data:/app/data
+    restart: "no"
+
+  case-tester:
+    build:
+      context: .
+      target: case-tester
+    image: col-taxdata-case-tester:local
     working_dir: /app
     volumes:
       - ./data:/app/data
