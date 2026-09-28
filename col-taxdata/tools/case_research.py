@@ -921,41 +921,12 @@ class PlatformResearchService:
                 # the current-authority requirement.
 
                 for relation in classified["relationships"]:
+                    # Relationship endpoints are retained for evidence-owner
+                    # closure/materialization, not used as graph-walk research
+                    # seeds. Issue #180 deliberately prevents importing a
+                    # second-degree relationship graph. Exact expansion here is
+                    # therefore limited to validated reference_resolutions.
                     relationships[str(relation["relationship_ref"])] = deepcopy(relation)
-                    other_ref = (
-                        relation["target_authority_ref"]
-                        if relation["source_authority_ref"] == authority_ref
-                        else relation["source_authority_ref"]
-                    )
-                    if isinstance(other_ref, str) and other_ref.startswith("authority:"):
-                        other_document_id = other_ref.split(":", 1)[1]
-                        label = retrieval.query_for_document(other_document_id)
-                        if label:
-                            expansion_requests.append(
-                                {
-                                    "query_text": label,
-                                    "target_document_id": other_document_id,
-                                    "target_provision_id": None,
-                                    "source": "canonical_relationship",
-                                }
-                            )
-                        else:
-                            item = _unresolved(
-                                category="unresolved_identity",
-                                description=(
-                                    "Canonical relationship endpoint cannot be "
-                                    "materialized as an existing document target."
-                                ),
-                                question_ref=question_ref,
-                                next_action="human_review",
-                                material=(
-                                    task["task_ref"],
-                                    relation["relationship_ref"],
-                                    other_document_id,
-                                ),
-                            )
-                            unresolved[item["unresolved_ref"]] = item
-                            step_unresolved.add(item["unresolved_ref"])
 
                 _merge_unresolved(unresolved, classified["unresolved"])
                 step_unresolved.update(
