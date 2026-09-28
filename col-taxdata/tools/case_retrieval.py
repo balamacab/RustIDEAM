@@ -611,15 +611,31 @@ class CorpusRetrievalService:
         plan: _ThematicQueryPlan,
         stage_index: int,
     ) -> tuple[Any, ...]:
-        text_tokens = set(_query_tokens(hit.text, maximum=512))
+        text_sequence = _query_tokens(hit.text, maximum=512)
+        text_tokens = set(text_sequence)
+        significant_sequence = [
+            token for token in text_sequence
+            if _is_significant_query_term(token)
+        ]
 
         def term_matches(term: str) -> bool:
             return any(variant in text_tokens for variant in _lexical_variants(term))
 
+        def ordered_concept_matches(left: str, right: str) -> bool:
+            left_variants = set(_lexical_variants(left))
+            right_variants = set(_lexical_variants(right))
+            return any(
+                current in left_variants and following in right_variants
+                for current, following in zip(
+                    significant_sequence,
+                    significant_sequence[1:],
+                )
+            )
+
         concept_matches = sum(
             1
             for left, right in plan.concepts
-            if term_matches(left) and term_matches(right)
+            if ordered_concept_matches(left, right)
         )
         term_matches_count = sum(1 for term in plan.terms if term_matches(term))
         numeric_matches = sum(1 for term in plan.numeric_terms if term in text_tokens)
