@@ -1,0 +1,682 @@
+{
+  "format_version": "1.0.0",
+  "contract_version": "5.0.0",
+  "purpose": "Focused semantic contract vectors for issue #279. They exercise v5 research-aspect/coverage invariants without pretending to be persisted runtime bundles.",
+  "scenarios": [
+    {
+      "id": "narrow-finite-no-evaluator",
+      "class": "narrow",
+      "expected_valid": true,
+      "expected_error_codes": [],
+      "case_as_of_date": null,
+      "deterministic_evaluations": [],
+      "plan": {
+        "aspects": [
+          {
+            "aspect_ref": "aspect:narrow-rule",
+            "question_ref": "question:q1",
+            "required": true,
+            "origin": "explicit_scope",
+            "scope_status": "explicit_finite"
+          }
+        ],
+        "tasks": [
+          {
+            "task_ref": "task:narrow-rule",
+            "question_ref": "question:q1",
+            "aspect_ref": "aspect:narrow-rule",
+            "required": true
+          }
+        ]
+      },
+      "evidence_registry": [
+        "evidence:narrow-1"
+      ],
+      "authority_registry": [
+        "authority:narrow-1"
+      ],
+      "result": {
+        "status": "complete",
+        "selections": [
+          {
+            "selection_ref": "selection:narrow-1",
+            "aspect_ref": "aspect:narrow-rule",
+            "task_ref": "task:narrow-rule",
+            "authority_ref": "authority:narrow-1",
+            "evidence_refs": [
+              "evidence:narrow-1"
+            ],
+            "context_status": "exact_sufficient",
+            "authority_status": "resolved",
+            "temporal_status": "unassessed"
+          }
+        ],
+        "omissions": [],
+        "coverage": [
+          {
+            "coverage_ref": "coverage:narrow-rule",
+            "aspect_ref": "aspect:narrow-rule",
+            "task_refs": [
+              "task:narrow-rule"
+            ],
+            "selection_refs": [
+              "selection:narrow-1"
+            ],
+            "omission_refs": [],
+            "execution_status": "complete",
+            "evidence_status": "context_ready",
+            "authority_status": "resolved",
+            "temporal_status": "unassessed",
+            "fact_status": "not_required",
+            "synthesis_status": "requires_interpretive_synthesis",
+            "support_closure": "complete",
+            "limitation_codes": [
+              "temporal_unassessed"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "broad-generic-limited",
+      "class": "broad",
+      "expected_valid": true,
+      "expected_error_codes": [],
+      "case_as_of_date": null,
+      "deterministic_evaluations": [],
+      "plan": {
+        "aspects": [
+          {
+            "aspect_ref": "aspect:generic",
+            "question_ref": "question:q1",
+            "required": true,
+            "origin": "generic_fallback",
+            "scope_status": "generic_limited"
+          }
+        ],
+        "tasks": [
+          {
+            "task_ref": "task:generic",
+            "question_ref": "question:q1",
+            "aspect_ref": "aspect:generic",
+            "required": true
+          }
+        ]
+      },
+      "evidence_registry": [
+        "evidence:generic-1"
+      ],
+      "authority_registry": [
+        "authority:generic-1"
+      ],
+      "result": {
+        "status": "partial",
+        "selections": [
+          {
+            "selection_ref": "selection:generic-1",
+            "aspect_ref": "aspect:generic",
+            "task_ref": "task:generic",
+            "authority_ref": "authority:generic-1",
+            "evidence_refs": [
+              "evidence:generic-1"
+            ],
+            "context_status": "exact_sufficient",
+            "authority_status": "resolved",
+            "temporal_status": "unassessed"
+          }
+        ],
+        "omissions": [
+          {
+            "omission_ref": "omission:generic-scope",
+            "aspect_ref": "aspect:generic",
+            "required": true,
+            "class": "research",
+            "reason": "unsupported_scope"
+          }
+        ],
+        "coverage": [
+          {
+            "coverage_ref": "coverage:generic",
+            "aspect_ref": "aspect:generic",
+            "task_refs": [
+              "task:generic"
+            ],
+            "selection_refs": [
+              "selection:generic-1"
+            ],
+            "omission_refs": [
+              "omission:generic-scope"
+            ],
+            "execution_status": "complete",
+            "evidence_status": "context_ready",
+            "authority_status": "resolved",
+            "temporal_status": "unassessed",
+            "fact_status": "not_required",
+            "synthesis_status": "requires_interpretive_synthesis",
+            "support_closure": "unsupported_scope",
+            "limitation_codes": [
+              "generic_scope",
+              "temporal_unassessed"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "mixed-missing-personalization-fact",
+      "class": "mixed",
+      "expected_valid": true,
+      "expected_error_codes": [],
+      "case_as_of_date": "2025-12-31",
+      "deterministic_evaluations": [],
+      "plan": {
+        "aspects": [
+          {
+            "aspect_ref": "aspect:general-threshold-rule",
+            "question_ref": "question:q1",
+            "required": true,
+            "origin": "profile",
+            "scope_status": "profiled_finite"
+          },
+          {
+            "aspect_ref": "aspect:personal-threshold-evaluation",
+            "question_ref": "question:q1",
+            "required": true,
+            "origin": "profile",
+            "scope_status": "profiled_finite"
+          }
+        ],
+        "tasks": [
+          {
+            "task_ref": "task:general-rule",
+            "question_ref": "question:q1",
+            "aspect_ref": "aspect:general-threshold-rule",
+            "required": true
+          },
+          {
+            "task_ref": "task:personal-eval",
+            "question_ref": "question:q1",
+            "aspect_ref": "aspect:personal-threshold-evaluation",
+            "required": true
+          }
+        ]
+      },
+      "evidence_registry": [
+        "evidence:threshold-rule"
+      ],
+      "authority_registry": [
+        "authority:threshold-law"
+      ],
+      "result": {
+        "status": "partial",
+        "selections": [
+          {
+            "selection_ref": "selection:threshold-rule",
+            "aspect_ref": "aspect:general-threshold-rule",
+            "task_ref": "task:general-rule",
+            "authority_ref": "authority:threshold-law",
+            "evidence_refs": [
+              "evidence:threshold-rule"
+            ],
+            "context_status": "expanded_verified",
+            "authority_status": "resolved",
+            "temporal_status": "effective_as_of"
+          }
+        ],
+        "omissions": [
+          {
+            "omission_ref": "omission:personal-fact",
+            "aspect_ref": "aspect:personal-threshold-evaluation",
+            "task_ref": "task:personal-eval",
+            "required": true,
+            "class": "research",
+            "reason": "blocked_by_facts"
+          }
+        ],
+        "coverage": [
+          {
+            "coverage_ref": "coverage:general-rule",
+            "aspect_ref": "aspect:general-threshold-rule",
+            "task_refs": [
+              "task:general-rule"
+            ],
+            "selection_refs": [
+              "selection:threshold-rule"
+            ],
+            "omission_refs": [],
+            "execution_status": "complete",
+            "evidence_status": "context_ready",
+            "authority_status": "resolved",
+            "temporal_status": "assessed",
+            "fact_status": "not_required",
+            "synthesis_status": "requires_interpretive_synthesis",
+            "support_closure": "complete",
+            "limitation_codes": []
+          },
+          {
+            "coverage_ref": "coverage:personal-eval",
+            "aspect_ref": "aspect:personal-threshold-evaluation",
+            "task_refs": [
+              "task:personal-eval"
+            ],
+            "selection_refs": [],
+            "omission_refs": [
+              "omission:personal-fact"
+            ],
+            "execution_status": "blocked",
+            "evidence_status": "not_assessed",
+            "authority_status": "unassessed",
+            "temporal_status": "unassessed",
+            "fact_status": "missing",
+            "synthesis_status": "requires_facts",
+            "support_closure": "incomplete",
+            "limitation_codes": [
+              "missing_facts"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "ambiguous-mixed-temporal-support",
+      "class": "ambiguous",
+      "expected_valid": true,
+      "expected_error_codes": [],
+      "case_as_of_date": "2020-06-30",
+      "deterministic_evaluations": [],
+      "plan": {
+        "aspects": [
+          {
+            "aspect_ref": "aspect:temporal-effect",
+            "question_ref": "question:q1",
+            "required": true,
+            "origin": "explicit_scope",
+            "scope_status": "explicit_finite"
+          }
+        ],
+        "tasks": [
+          {
+            "task_ref": "task:temporal-effect",
+            "question_ref": "question:q1",
+            "aspect_ref": "aspect:temporal-effect",
+            "required": true
+          }
+        ]
+      },
+      "evidence_registry": [
+        "evidence:historical",
+        "evidence:ambiguous"
+      ],
+      "authority_registry": [
+        "authority:a",
+        "authority:b"
+      ],
+      "result": {
+        "status": "partial",
+        "selections": [
+          {
+            "selection_ref": "selection:historical",
+            "aspect_ref": "aspect:temporal-effect",
+            "task_ref": "task:temporal-effect",
+            "authority_ref": "authority:a",
+            "evidence_refs": [
+              "evidence:historical"
+            ],
+            "context_status": "exact_sufficient",
+            "authority_status": "resolved",
+            "temporal_status": "historical_as_of"
+          },
+          {
+            "selection_ref": "selection:ambiguous",
+            "aspect_ref": "aspect:temporal-effect",
+            "task_ref": "task:temporal-effect",
+            "authority_ref": "authority:b",
+            "evidence_refs": [
+              "evidence:ambiguous"
+            ],
+            "context_status": "exact_sufficient",
+            "authority_status": "ambiguous",
+            "temporal_status": "ambiguous"
+          }
+        ],
+        "omissions": [],
+        "coverage": [
+          {
+            "coverage_ref": "coverage:temporal-effect",
+            "aspect_ref": "aspect:temporal-effect",
+            "task_refs": [
+              "task:temporal-effect"
+            ],
+            "selection_refs": [
+              "selection:historical",
+              "selection:ambiguous"
+            ],
+            "omission_refs": [],
+            "execution_status": "complete",
+            "evidence_status": "context_ready",
+            "authority_status": "ambiguous",
+            "temporal_status": "mixed",
+            "fact_status": "sufficient",
+            "synthesis_status": "requires_interpretive_synthesis",
+            "support_closure": "incomplete",
+            "limitation_codes": [
+              "authority_conflict"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "unsupported-topic-unplanned",
+      "class": "unsupported-topic",
+      "expected_valid": true,
+      "expected_error_codes": [],
+      "case_as_of_date": null,
+      "deterministic_evaluations": [],
+      "plan": {
+        "aspects": [
+          {
+            "aspect_ref": "aspect:unknown",
+            "question_ref": "question:q1",
+            "required": true,
+            "origin": "generic_fallback",
+            "scope_status": "unknown_unplanned"
+          }
+        ],
+        "tasks": [
+          {
+            "task_ref": "task:unknown",
+            "question_ref": "question:q1",
+            "aspect_ref": "aspect:unknown",
+            "required": true
+          }
+        ]
+      },
+      "evidence_registry": [],
+      "authority_registry": [],
+      "result": {
+        "status": "partial",
+        "selections": [],
+        "omissions": [
+          {
+            "omission_ref": "omission:unknown",
+            "aspect_ref": "aspect:unknown",
+            "task_ref": "task:unknown",
+            "required": true,
+            "class": "research",
+            "reason": "unsupported_scope"
+          }
+        ],
+        "coverage": [
+          {
+            "coverage_ref": "coverage:unknown",
+            "aspect_ref": "aspect:unknown",
+            "task_refs": [
+              "task:unknown"
+            ],
+            "selection_refs": [],
+            "omission_refs": [
+              "omission:unknown"
+            ],
+            "execution_status": "complete",
+            "evidence_status": "none_found",
+            "authority_status": "unassessed",
+            "temporal_status": "unassessed",
+            "fact_status": "not_required",
+            "synthesis_status": "unsupported",
+            "support_closure": "unsupported_scope",
+            "limitation_codes": [
+              "unplanned_scope",
+              "unsupported_topic",
+              "temporal_unassessed"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "invalid-dangling-aspect-ref",
+      "class": "negative",
+      "expected_valid": false,
+      "expected_error_codes": [
+        "V5-REF-ASPECT-001"
+      ],
+      "case_as_of_date": null,
+      "deterministic_evaluations": [],
+      "plan": {
+        "aspects": [
+          {
+            "aspect_ref": "aspect:owned",
+            "question_ref": "question:q1",
+            "required": true,
+            "origin": "explicit_scope",
+            "scope_status": "explicit_finite"
+          }
+        ],
+        "tasks": [
+          {
+            "task_ref": "task:dangling",
+            "question_ref": "question:q1",
+            "aspect_ref": "aspect:missing",
+            "required": true
+          }
+        ]
+      },
+      "evidence_registry": [],
+      "authority_registry": [],
+      "result": {
+        "status": "partial",
+        "selections": [],
+        "omissions": [],
+        "coverage": []
+      }
+    },
+    {
+      "id": "invalid-dangling-evidence-ref",
+      "class": "negative",
+      "expected_valid": false,
+      "expected_error_codes": [
+        "V5-REF-SELECTION-002"
+      ],
+      "case_as_of_date": null,
+      "deterministic_evaluations": [],
+      "plan": {
+        "aspects": [
+          {
+            "aspect_ref": "aspect:a",
+            "question_ref": "question:q1",
+            "required": true,
+            "origin": "explicit_scope",
+            "scope_status": "explicit_finite"
+          }
+        ],
+        "tasks": [
+          {
+            "task_ref": "task:a",
+            "question_ref": "question:q1",
+            "aspect_ref": "aspect:a",
+            "required": true
+          }
+        ]
+      },
+      "evidence_registry": [],
+      "authority_registry": [
+        "authority:a"
+      ],
+      "result": {
+        "status": "partial",
+        "selections": [
+          {
+            "selection_ref": "selection:a",
+            "aspect_ref": "aspect:a",
+            "task_ref": "task:a",
+            "authority_ref": "authority:a",
+            "evidence_refs": [
+              "evidence:missing"
+            ],
+            "context_status": "exact_sufficient",
+            "authority_status": "resolved",
+            "temporal_status": "unassessed"
+          }
+        ],
+        "omissions": [],
+        "coverage": []
+      }
+    },
+    {
+      "id": "invalid-complete-generic-scope",
+      "class": "negative",
+      "expected_valid": false,
+      "expected_error_codes": [
+        "V5-COMPLETE-001",
+        "V5-SCOPE-001"
+      ],
+      "case_as_of_date": null,
+      "deterministic_evaluations": [],
+      "plan": {
+        "aspects": [
+          {
+            "aspect_ref": "aspect:generic",
+            "question_ref": "question:q1",
+            "required": true,
+            "origin": "generic_fallback",
+            "scope_status": "generic_limited"
+          }
+        ],
+        "tasks": [
+          {
+            "task_ref": "task:generic",
+            "question_ref": "question:q1",
+            "aspect_ref": "aspect:generic",
+            "required": true
+          }
+        ]
+      },
+      "evidence_registry": [
+        "evidence:g"
+      ],
+      "authority_registry": [
+        "authority:g"
+      ],
+      "result": {
+        "status": "complete",
+        "selections": [
+          {
+            "selection_ref": "selection:g",
+            "aspect_ref": "aspect:generic",
+            "task_ref": "task:generic",
+            "authority_ref": "authority:g",
+            "evidence_refs": [
+              "evidence:g"
+            ],
+            "context_status": "exact_sufficient",
+            "authority_status": "resolved",
+            "temporal_status": "unassessed"
+          }
+        ],
+        "omissions": [],
+        "coverage": [
+          {
+            "coverage_ref": "coverage:g",
+            "aspect_ref": "aspect:generic",
+            "task_refs": [
+              "task:generic"
+            ],
+            "selection_refs": [
+              "selection:g"
+            ],
+            "omission_refs": [],
+            "execution_status": "complete",
+            "evidence_status": "context_ready",
+            "authority_status": "resolved",
+            "temporal_status": "unassessed",
+            "fact_status": "not_required",
+            "synthesis_status": "requires_interpretive_synthesis",
+            "support_closure": "complete",
+            "limitation_codes": [
+              "generic_scope",
+              "temporal_unassessed"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "invalid-complete-context-incomplete",
+      "class": "negative",
+      "expected_valid": false,
+      "expected_error_codes": [
+        "V5-COMPLETE-001",
+        "V5-CONTEXT-001"
+      ],
+      "case_as_of_date": "2024-01-01",
+      "deterministic_evaluations": [],
+      "plan": {
+        "aspects": [
+          {
+            "aspect_ref": "aspect:context",
+            "question_ref": "question:q1",
+            "required": true,
+            "origin": "explicit_scope",
+            "scope_status": "explicit_finite"
+          }
+        ],
+        "tasks": [
+          {
+            "task_ref": "task:context",
+            "question_ref": "question:q1",
+            "aspect_ref": "aspect:context",
+            "required": true
+          }
+        ]
+      },
+      "evidence_registry": [
+        "evidence:heading"
+      ],
+      "authority_registry": [
+        "authority:context"
+      ],
+      "result": {
+        "status": "complete",
+        "selections": [
+          {
+            "selection_ref": "selection:context",
+            "aspect_ref": "aspect:context",
+            "task_ref": "task:context",
+            "authority_ref": "authority:context",
+            "evidence_refs": [
+              "evidence:heading"
+            ],
+            "context_status": "incomplete",
+            "authority_status": "resolved",
+            "temporal_status": "effective_as_of"
+          }
+        ],
+        "omissions": [],
+        "coverage": [
+          {
+            "coverage_ref": "coverage:context",
+            "aspect_ref": "aspect:context",
+            "task_refs": [
+              "task:context"
+            ],
+            "selection_refs": [
+              "selection:context"
+            ],
+            "omission_refs": [],
+            "execution_status": "complete",
+            "evidence_status": "context_incomplete",
+            "authority_status": "resolved",
+            "temporal_status": "assessed",
+            "fact_status": "not_required",
+            "synthesis_status": "requires_interpretive_synthesis",
+            "support_closure": "complete",
+            "limitation_codes": [
+              "context_gap"
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}
