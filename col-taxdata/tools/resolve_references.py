@@ -213,6 +213,7 @@ def resolve_references(
     detection_run_id: str,
     db_path: Path,
     relations_only: bool,
+    target_document_key: str | None = None,
 ) -> dict[str, object]:
     con = sqlite3.connect(db_path)
     con.execute("PRAGMA foreign_keys = ON")
@@ -262,6 +263,13 @@ def resolve_references(
                 """,
                 (detection_run_id,),
             ).fetchall()
+
+        if target_document_key is not None:
+            rows = [
+                row
+                for row in rows
+                if row[2] == target_document_key
+            ]
 
         now = utc_now()
         counts = {
@@ -404,6 +412,7 @@ def resolve_references(
             "detection_run_id": detection_run_id,
             "extraction_id": run[1],
             "relations_only": relations_only,
+            "target_document_key": target_document_key,
             "mentions_processed": len(rows),
             "resolved": counts["resolved"],
             "unresolved": counts["unresolved"],
@@ -435,12 +444,19 @@ def main() -> int:
         ),
     )
     parser.add_argument("--db", default="data/state/taxdata.sqlite")
+    parser.add_argument(
+        "--target-document-key",
+        help=(
+            "Optionally reconcile only mentions for one canonical target key."
+        ),
+    )
     args = parser.parse_args()
 
     result = resolve_references(
         detection_run_id=args.detection_run_id,
         db_path=Path(args.db),
         relations_only=args.relations_only,
+        target_document_key=args.target_document_key,
     )
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0
