@@ -60,7 +60,7 @@ items:
   - id: DEF-0005
     type: defect
     priority: P2
-    status: specified
+    status: verified
     area: retrieval
     spec: specs/defects/DEF-0005-retrieval-duplicate-segments.md
     github_issue: 5
