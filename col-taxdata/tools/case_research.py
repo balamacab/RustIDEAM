@@ -26,7 +26,7 @@ from legal_authority_classification import (
 
 
 PLANNER_VERSION = "2"
-RETRIEVAL_VERSION = "4"
+RETRIEVAL_VERSION = "5"
 
 DEFAULT_BOUNDS: dict[str, int] = {
     "max_rounds": 3,
@@ -66,6 +66,7 @@ _RETRIEVAL_CONFIG = {
     "hint_policy": "secondary-only",
     "dedupe": "within-extraction exact text_sha256 before top-N; task_ref+extracted_segment_id; authority_ref",
     "reference_policy": "validated-canonical-target-lookup-no-thematic-fallback",
+    "budget_policy": "admission-before-cap-with-explicit-pending-work",
 }
 
 # Conflict is never inferred from two authorities merely coexisting. Only an
@@ -664,6 +665,59 @@ def _candidate_from_hit(
             )
         item["reference_paths"] = [path]
     return item
+
+
+def _merge_candidate(
+    target: dict[str, dict[str, Any]],
+    *,
+    task: dict[str, Any],
+    hit: RetrievalHit,
+    provision: dict[str, Any] | None,
+    reference_target: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Admit/merge one evidence candidate after authority-budget approval.
+
+    Evidence for an already-admitted authority may be enriched by later
+    in-budget hits. A candidate for a new authority is never created before
+    the caller has verified that the authority slot is available.
+    """
+    candidate = target.get(hit.extracted_segment_id)
+    if candidate is None:
+        candidate = _candidate_from_hit(
+            task,
+            hit,
+            provision,
+            reference_target=reference_target,
+        )
+        target[hit.extracted_segment_id] = candidate
+        return candidate
+
+    candidate["task_refs"] = sorted(
+        set(candidate["task_refs"]) | {task["task_ref"]}
+    )
+    candidate["question_refs"] = sorted(
+        set(candidate["question_refs"]) | {task["question_ref"]}
+    )
+    candidate["query_texts"] = sorted(
+        set(candidate["query_texts"]) | {task["query_text"]}
+    )
+    if reference_target is not None:
+        path: dict[str, Any] = {
+            "task_ref": task["task_ref"],
+            "strategy": reference_target["strategy"],
+            "target_document_ref": (
+                f"document:{reference_target['target_document_id']}"
+            ),
+        }
+        if reference_target.get("target_provision_id") is not None:
+            path["target_provision_ref"] = (
+                f"provision:{reference_target['target_provision_id']}"
+            )
+        paths = candidate.setdefault("reference_paths", [])
+        if path not in paths:
+            paths.append(path)
+            paths.sort(key=_compact_json)
+    return candidate
 
 
 def _merge_unresolved(
