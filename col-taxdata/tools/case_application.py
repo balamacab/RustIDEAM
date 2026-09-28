@@ -42,7 +42,12 @@ from case_research import (
     ResearchIntegrityError,
     ResearchPlanningError,
 )
-from llm_client import CaseStructuringService
+from llm_client import (
+    CASE_PROVIDER_TIMEOUT,
+    CASE_STRUCTURING_UNAVAILABLE,
+    CaseStructuringService,
+    LLMClientError,
+)
 from register_case_bundle import deterministic_id, register_case
 from rematerialize_case import refresh_case_materializations
 from validate_case_bundle import validate_case
@@ -67,6 +72,40 @@ class CaseAnalysisIntegrityError(RuntimeError):
     def __init__(self, detail: str):
         super().__init__(f"{self.code}: {detail}")
         self.detail = detail
+
+
+class CaseStructuringIntegrityError(CaseAnalysisIntegrityError):
+    """Expected v4 intake failure that prevents a contract-valid analysis."""
+
+    diagnostic_family = "structuring_integrity"
+
+    def __init__(self, diagnostic_code: str):
+        self.diagnostic_code = diagnostic_code
+        super().__init__(
+            "v4 intake structuring failed safely before canonical research"
+        )
+
+
+class CaseStructuringUnavailableError(RuntimeError):
+    """Expected v4 intake backend/integration unavailability."""
+
+    diagnostic_family = "structuring_provider_unavailable"
+    code = CASE_STRUCTURING_UNAVAILABLE
+
+    def __init__(self, diagnostic_code: str):
+        self.diagnostic_code = diagnostic_code
+        super().__init__(self.code)
+
+
+class CaseStructuringTimeoutError(TimeoutError):
+    """Expected v4 provider timeout normalized at the application boundary."""
+
+    diagnostic_family = "structuring_provider_timeout"
+    code = CASE_PROVIDER_TIMEOUT
+
+    def __init__(self, diagnostic_code: str):
+        self.diagnostic_code = diagnostic_code
+        super().__init__(self.code)
 
 
 class CaseResearchNotImplementedError(RuntimeError):
@@ -650,6 +689,40 @@ def _backup_sqlite(source: Path, target: Path) -> None:
         source_con.close()
 
 
+def _structure_case(
+    *,
+    case_input: dict[str, Any],
+    contract_version: str,
+    structurer: CaseStructuringService,
+    request_fingerprints: dict[str, str] | None,
+) -> Any:
+    """Normalize expected v4 intake failures before transport sees them.
+
+    Historical v3 behavior is deliberately preserved.  For v4, contract/model
+    output failures are integrity failures, provider/backend availability is a
+    service condition, and provider timeouts remain timeouts.  The original
+    exception stays chained for private diagnostics without crossing the public
+    REST boundary.
+    """
+    try:
+        return structurer.structure(
+            case_input,
+            request_fingerprints=request_fingerprints,
+        )
+    except CaseContractError as exc:
+        if contract_version != V4_CONTRACT_VERSION:
+            raise
+        raise CaseStructuringIntegrityError(exc.code) from exc
+    except LLMClientError as exc:
+        if contract_version != V4_CONTRACT_VERSION:
+            raise
+        if exc.code == CASE_PROVIDER_TIMEOUT:
+            raise CaseStructuringTimeoutError(exc.code) from exc
+        if exc.code == CASE_STRUCTURING_UNAVAILABLE:
+            raise CaseStructuringUnavailableError(exc.code) from exc
+        raise CaseStructuringIntegrityError(exc.code) from exc
+
+
 def analyze_case(
     *,
     case_input: dict[str, Any],
@@ -668,8 +741,10 @@ def analyze_case(
     or promotes a legacy/model-authored legal claim.
     """
     contract_version = validate_dispatched_case_input(case_input)
-    structuring = structurer.structure(
-        case_input,
+    structuring = _structure_case(
+        case_input=case_input,
+        contract_version=contract_version,
+        structurer=structurer,
         request_fingerprints=request_fingerprints,
     )
     draft = structuring.draft
