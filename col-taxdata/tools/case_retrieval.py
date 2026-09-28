@@ -44,6 +44,17 @@ class RetrievalHit:
     alternate_segment_ids: tuple[str, ...] = ()
 
 
+@dataclass(frozen=True)
+class CanonicalTargetLookup:
+    """Result of a read-only lookup for one already-resolved canonical target."""
+
+    target_document_id: str
+    target_provision_id: str | None
+    strategy: str
+    status: str
+    hits: tuple[RetrievalHit, ...] = ()
+
+
 def normalize_text(value: str) -> str:
     return " ".join(value.casefold().split())
 
@@ -239,6 +250,39 @@ class CorpusRetrievalService:
             )
         return len(rows), tuple(alternates)
 
+    def _materialize_hit(self, row: Any, *, rank: float) -> RetrievalHit:
+        """Build one verified hit from an authoritative extracted-segment row."""
+        self._verify_segment_fingerprint(row[0], row[3], row[4])
+        duplicate_count, alternate_segment_ids = self._duplicate_provenance(
+            extraction_id=str(row[1]),
+            text_sha256=str(row[4]),
+            representative_id=str(row[0]),
+            representative_text=str(row[3]),
+        )
+        return RetrievalHit(
+            extracted_segment_id=row[0],
+            extraction_id=row[1],
+            sequence_no=int(row[2]),
+            text=row[3],
+            text_sha256=row[4],
+            manifestation_id=row[5],
+            manifestation_sha256=row[6],
+            retrieved_at=row[7],
+            source_id=row[8],
+            source_url=row[9],
+            authority=row[10],
+            source_kind=row[11],
+            document_id=row[12],
+            document_type=row[13],
+            document_title=row[14],
+            document_number=row[15],
+            document_issuer=row[16],
+            document_year=row[17],
+            rank=rank,
+            duplicate_count=duplicate_count,
+            alternate_segment_ids=alternate_segment_ids,
+        )
+
     def search(self, query: str, *, limit: int = 20) -> list[RetrievalHit]:
         """Return top-N exact-text-diversified hits without deleting evidence.
 
@@ -275,44 +319,13 @@ class CorpusRetrievalService:
                 if not any(term in normalized for term in terms):
                     continue
 
-                self._verify_segment_fingerprint(row[0], row[3], row[4])
                 equivalence_key = (str(row[1]), str(row[4]))
                 if equivalence_key in seen_equivalents:
                     continue
 
-                duplicate_count, alternate_segment_ids = self._duplicate_provenance(
-                    extraction_id=str(row[1]),
-                    text_sha256=str(row[4]),
-                    representative_id=str(row[0]),
-                    representative_text=str(row[3]),
-                )
+                hit = self._materialize_hit(row, rank=rank)
                 seen_equivalents.add(equivalence_key)
-
-                hits.append(
-                    RetrievalHit(
-                        extracted_segment_id=row[0],
-                        extraction_id=row[1],
-                        sequence_no=int(row[2]),
-                        text=row[3],
-                        text_sha256=row[4],
-                        manifestation_id=row[5],
-                        manifestation_sha256=row[6],
-                        retrieved_at=row[7],
-                        source_id=row[8],
-                        source_url=row[9],
-                        authority=row[10],
-                        source_kind=row[11],
-                        document_id=row[12],
-                        document_type=row[13],
-                        document_title=row[14],
-                        document_number=row[15],
-                        document_issuer=row[16],
-                        document_year=row[17],
-                        rank=rank,
-                        duplicate_count=duplicate_count,
-                        alternate_segment_ids=alternate_segment_ids,
-                    )
-                )
+                hits.append(hit)
                 if len(hits) >= limit:
                     break
 
@@ -360,6 +373,147 @@ class CorpusRetrievalService:
             seen_segments.add(hit.extracted_segment_id)
             result.append(hit)
         return result
+
+    def lookup_canonical_target(
+        self,
+        target_document_id: str,
+        *,
+        target_provision_id: str | None = None,
+        limit: int = 20,
+    ) -> CanonicalTargetLookup:
+        """Retrieve evidence only from one validated canonical target.
+
+        This path never falls back to thematic FTS. A provision target is valid
+        only inside its owning document. Missing/stale/inconsistent targets are
+        returned as explicit lookup states so the research layer can preserve
+        uncertainty rather than broadening the query silently.
+        """
+        strategy = (
+            "canonical_provision_target"
+            if target_provision_id is not None
+            else "canonical_document_target"
+        )
+        if limit <= 0:
+            return CanonicalTargetLookup(
+                target_document_id,
+                target_provision_id,
+                strategy,
+                "no_evidence",
+            )
+
+        document = self.con.execute(
+            "SELECT 1 FROM documents WHERE document_id = ?",
+            (target_document_id,),
+        ).fetchone()
+        if document is None:
+            return CanonicalTargetLookup(
+                target_document_id,
+                target_provision_id,
+                strategy,
+                "missing_document",
+            )
+
+        if target_provision_id is not None:
+            provision = self.con.execute(
+                "SELECT document_id FROM provisions WHERE provision_id = ?",
+                (target_provision_id,),
+            ).fetchone()
+            if provision is None:
+                return CanonicalTargetLookup(
+                    target_document_id,
+                    target_provision_id,
+                    strategy,
+                    "missing_provision",
+                )
+            if str(provision[0]) != target_document_id:
+                return CanonicalTargetLookup(
+                    target_document_id,
+                    target_provision_id,
+                    strategy,
+                    "inconsistent_provision",
+                )
+
+        hits: list[RetrievalHit] = []
+        seen_equivalents: set[tuple[str, str]] = set()
+        offset = 0
+        batch_size = max(limit, _FTS_SCAN_BATCH_SIZE)
+
+        while len(hits) < limit:
+            if target_provision_id is None:
+                rows = self.con.execute(
+                    """
+                    SELECT es.rowid
+                    FROM extracted_segments es
+                    JOIN text_extractions te
+                      ON te.extraction_id = es.extraction_id
+                     AND te.status = 'success'
+                    JOIN manifestations m
+                      ON m.manifestation_id = te.manifestation_id
+                    WHERE m.document_id = ?
+                    ORDER BY es.extraction_id, es.sequence_no, es.extracted_segment_id
+                    LIMIT ? OFFSET ?
+                    """,
+                    (target_document_id, batch_size, offset),
+                ).fetchall()
+            else:
+                rows = self.con.execute(
+                    """
+                    SELECT DISTINCT es.rowid
+                    FROM provision_observations po
+                    JOIN provisions p
+                      ON p.provision_id = po.provision_id
+                    JOIN extracted_segments es
+                      ON es.extracted_segment_id = po.extracted_segment_id
+                    JOIN text_extractions te
+                      ON te.extraction_id = es.extraction_id
+                     AND te.status = 'success'
+                    JOIN manifestations m
+                      ON m.manifestation_id = te.manifestation_id
+                    WHERE p.provision_id = ?
+                      AND p.document_id = ?
+                      AND m.document_id = ?
+                    ORDER BY es.extraction_id, es.sequence_no, es.extracted_segment_id
+                    LIMIT ? OFFSET ?
+                    """,
+                    (
+                        target_provision_id,
+                        target_document_id,
+                        target_document_id,
+                        batch_size,
+                        offset,
+                    ),
+                ).fetchall()
+
+            if not rows:
+                break
+            for (rowid,) in rows:
+                row = self._candidate_row(int(rowid))
+                if row is None:
+                    continue
+                if str(row[12]) != target_document_id:
+                    raise RetrievalIntegrityError(
+                        "canonical target lookup escaped owning document: "
+                        f"expected={target_document_id} actual={row[12]}"
+                    )
+                equivalence_key = (str(row[1]), str(row[4]))
+                if equivalence_key in seen_equivalents:
+                    continue
+                hits.append(self._materialize_hit(row, rank=0.0))
+                seen_equivalents.add(equivalence_key)
+                if len(hits) >= limit:
+                    break
+
+            if len(hits) >= limit or len(rows) < batch_size:
+                break
+            offset += len(rows)
+
+        return CanonicalTargetLookup(
+            target_document_id,
+            target_provision_id,
+            strategy,
+            "resolved" if hits else "no_evidence",
+            tuple(hits),
+        )
 
     def provision_for_segment(
         self,
@@ -430,40 +584,93 @@ class CorpusRetrievalService:
         }
 
 
-    def resolved_references_for_segment(
+    def reference_resolution_states_for_segment(
         self,
         extracted_segment_id: str,
     ) -> list[dict[str, Any]]:
-        """Return only explicitly resolved canonical references from one hit.
-
-        Candidate/ambiguous reference mentions are deliberately excluded: #137
-        may expand through supported canonical resolution, never through a guess.
-        """
+        """Return one conservative resolution state for each reference mention."""
         rows = self.con.execute(
             """
-            SELECT DISTINCT
+            SELECT
+                rm.reference_mention_id,
                 rm.normalized_reference,
+                rm.requires_human_review,
+                rr.reference_resolution_id,
+                rr.status,
+                rr.requires_human_review,
                 rr.target_document_id,
                 rr.target_provision_id
             FROM reference_mentions rm
-            JOIN reference_resolutions rr
+            LEFT JOIN reference_resolutions rr
               ON rr.reference_mention_id = rm.reference_mention_id
-             AND rr.status = 'resolved'
-             AND rr.requires_human_review = 0
             WHERE rm.extracted_segment_id = ?
-              AND rr.target_document_id IS NOT NULL
             ORDER BY
-                rm.normalized_reference,
-                rr.target_document_id,
-                rr.target_provision_id
+                rm.reference_mention_id,
+                rr.reference_resolution_id
             """,
             (extracted_segment_id,),
         ).fetchall()
 
-        result: list[dict[str, Any]] = []
+        grouped: dict[str, dict[str, Any]] = {}
         for row in rows:
-            query_text = row[0]
-            if row[2] is not None:
+            mention_id = str(row[0])
+            item = grouped.setdefault(
+                mention_id,
+                {
+                    "reference_mention_id": mention_id,
+                    "query_text": str(row[1]),
+                    "mention_requires_human_review": bool(row[2]),
+                    "resolutions": [],
+                },
+            )
+            if row[3] is not None:
+                item["resolutions"].append(
+                    {
+                        "reference_resolution_id": str(row[3]),
+                        "status": str(row[4]),
+                        "requires_human_review": bool(row[5]),
+                        "target_document_id": row[6],
+                        "target_provision_id": row[7],
+                    }
+                )
+
+        result: list[dict[str, Any]] = []
+        for mention_id in sorted(grouped):
+            item = grouped[mention_id]
+            resolutions = item.pop("resolutions")
+            state = "missing_resolution"
+            target_document_id: str | None = None
+            target_provision_id: str | None = None
+
+            if item["mention_requires_human_review"] or any(
+                row["requires_human_review"] for row in resolutions
+            ):
+                state = "requires_review"
+            elif not resolutions:
+                state = "missing_resolution"
+            elif any(row["status"] == "ambiguous" for row in resolutions):
+                state = "ambiguous"
+            elif any(row["status"] == "unresolved" for row in resolutions):
+                state = "unresolved"
+            elif all(row["status"] == "resolved" for row in resolutions):
+                targets = {
+                    (row["target_document_id"], row["target_provision_id"])
+                    for row in resolutions
+                }
+                if len(targets) != 1:
+                    state = "ambiguous"
+                else:
+                    target_document_id, target_provision_id = next(iter(targets))
+                    state = (
+                        "resolved"
+                        if target_document_id is not None
+                        else "inconsistent_target"
+                    )
+            else:
+                state = "unresolved"
+
+            query_text = item["query_text"]
+            if state == "resolved" and target_provision_id is not None:
                 provision = self.con.execute(
                     """
                     SELECT designation
@@ -471,18 +678,38 @@ class CorpusRetrievalService:
                     WHERE provision_id = ?
                       AND document_id = ?
                     """,
-                    (row[2], row[1]),
+                    (target_provision_id, target_document_id),
                 ).fetchone()
                 if provision is not None and provision[0]:
                     query_text = f"{query_text} {provision[0]}"
+
             result.append(
                 {
+                    "reference_mention_id": mention_id,
                     "query_text": query_text,
-                    "target_document_id": row[1],
-                    "target_provision_id": row[2],
+                    "resolution_state": state,
+                    "target_document_id": target_document_id,
+                    "target_provision_id": target_provision_id,
                 }
             )
         return result
+
+    def resolved_references_for_segment(
+        self,
+        extracted_segment_id: str,
+    ) -> list[dict[str, Any]]:
+        """Return only references eligible for exact canonical expansion."""
+        return [
+            {
+                "query_text": item["query_text"],
+                "target_document_id": item["target_document_id"],
+                "target_provision_id": item["target_provision_id"],
+            }
+            for item in self.reference_resolution_states_for_segment(
+                extracted_segment_id
+            )
+            if item["resolution_state"] == "resolved"
+        ]
 
     def query_for_document(self, document_id: str) -> str | None:
         """Return human-readable canonical vocabulary for reference expansion.
