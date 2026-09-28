@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 import sys
 import tempfile
@@ -137,7 +138,7 @@ class Issue0240BlockedStatusTests(unittest.TestCase):
     def test_event_with_unrelated_comment_does_nothing(self, sync_from_comments):
         event = {
             "issue": {"number": 240},
-            "comment": {"body": "This issue is BLOCKED in ordinary prose."},
+            "comment": {"body": "This issue is BLOCKED in ordinary prose.", "author_association": "OWNER"},
         }
         with tempfile.NamedTemporaryFile("w", encoding="utf-8", delete=False) as fh:
             json.dump(event, fh)
@@ -149,6 +150,40 @@ class Issue0240BlockedStatusTests(unittest.TestCase):
         )()
         self.assertEqual(issue_state_sync.cmd_event(args), 0)
         sync_from_comments.assert_not_called()
+
+    @mock.patch.object(issue_state_sync, "sync_from_comments")
+    def test_untrusted_commenter_cannot_mutate_visible_state(self, sync_from_comments):
+        event = {
+            "issue": {"number": 240},
+            "comment": {
+                "body": self.marker("BLOCKED"),
+                "author_association": "NONE",
+            },
+        }
+        with tempfile.NamedTemporaryFile("w", encoding="utf-8", delete=False) as fh:
+            json.dump(event, fh)
+            event_path = fh.name
+        args = type("Args", (), {"event": event_path, "repository": "balamacab/RustIDEAM"})()
+        self.assertEqual(issue_state_sync.cmd_event(args), 0)
+        sync_from_comments.assert_not_called()
+
+    @mock.patch.object(issue_state_sync, "sync_from_comments")
+    @mock.patch.dict("os.environ", {"GITHUB_TOKEN": "token"})
+    def test_owner_marker_is_eligible_for_sync(self, sync_from_comments):
+        event = {
+            "issue": {"number": 240},
+            "comment": {
+                "body": self.marker("BLOCKED"),
+                "author_association": "OWNER",
+            },
+        }
+        with tempfile.NamedTemporaryFile("w", encoding="utf-8", delete=False) as fh:
+            json.dump(event, fh)
+            event_path = fh.name
+        sync_from_comments.return_value = {"changed": False}
+        args = type("Args", (), {"event": event_path, "repository": "balamacab/RustIDEAM"})()
+        self.assertEqual(issue_state_sync.cmd_event(args), 0)
+        sync_from_comments.assert_called_once_with("token", "balamacab/RustIDEAM", 240)
 
     def test_issue_comment_workflow_has_only_required_write_scope(self):
         workflow = (
