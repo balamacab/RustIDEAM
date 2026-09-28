@@ -10,7 +10,6 @@ from source_identity import (
     CORTE_CONSTITUCIONAL_SENTENCIA_C,
     DIAN_CONCEPTO,
     DIAN_OFICIO,
-    FUNCION_PUBLICA_NORMATIVE_ACT,
     IdentityAssessment,
     IdentitySignal,
     classify_source_url,
@@ -23,7 +22,6 @@ SUPPORTED_FAMILIES = frozenset(
     {
         DIAN_CONCEPTO,
         DIAN_OFICIO,
-        FUNCION_PUBLICA_NORMATIVE_ACT,
         CORTE_CONSTITUCIONAL_SENTENCIA_C,
         CONPES,
         CONSTITUCION_POLITICA,
@@ -64,11 +62,6 @@ CONPES_HEADING_RE = re.compile(
 CONSTITUCION_HEADING_RE = re.compile(
     r"^CONSTITUCION\s+POLITICA(?:\s+DE\s+COLOMBIA)?"
     r"(?:\s+DE)?\s*(?P<year>\d{4})?\b",
-    re.IGNORECASE,
-)
-FUNCION_PUBLICA_NORMATIVE_HEADING_RE = re.compile(
-    r"^(?P<type>LEY|DECRETO)\s+(?:NUMERO\s+)?"
-    r"(?P<number>\d+[A-Z]?)\s+DE\s+(?P<year>\d{4})\b",
     re.IGNORECASE,
 )
 
@@ -155,25 +148,7 @@ def _heading_candidates(
             continue
         normalized = _normalized_heading(title)
 
-        if source.family == FUNCION_PUBLICA_NORMATIVE_ACT:
-            match = FUNCION_PUBLICA_NORMATIVE_HEADING_RE.match(normalized)
-            if match:
-                document_type = match.group("type").upper()
-                issuer_key = (
-                    "CONGRESO"
-                    if document_type == "LEY"
-                    else "PRESIDENCIA"
-                )
-                candidates.append(
-                    _candidate_from_match(
-                        family=source.family,
-                        title=title,
-                        document_type=document_type,
-                        issuer_key=issuer_key,
-                        match=match,
-                    )
-                )
-        elif source.family in {DIAN_CONCEPTO, DIAN_OFICIO}:
+        if source.family in {DIAN_CONCEPTO, DIAN_OFICIO}:
             for concept_pattern in (
                 DIAN_CONCEPTO_HEADING_RE,
                 DIAN_CONCEPTO_BRACKET_HEADING_RE,
@@ -277,16 +252,6 @@ def _candidate_conflicts_with_source(
     # oficio_dian_* is a source-page family. Modern pages may carry an explicit
     # CONCEPTO title; that title is accepted only when the encoded number/year
     # agree with the source URL. Older pages default to OFICIO from the URL.
-    if source.family == FUNCION_PUBLICA_NORMATIVE_ACT:
-        if candidate.document_type not in {"LEY", "DECRETO"}:
-            return True
-        expected_issuer = (
-            "CONGRESO"
-            if candidate.document_type == "LEY"
-            else "PRESIDENCIA"
-        )
-        return candidate.issuer_key != expected_issuer
-
     allowed_types = (
         {"OFICIO", "CONCEPTO"}
         if source.family == DIAN_OFICIO
