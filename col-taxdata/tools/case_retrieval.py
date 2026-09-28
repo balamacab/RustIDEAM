@@ -693,32 +693,31 @@ class CorpusRetrievalService:
         executions: list[ThematicStageExecution] = []
 
         for stage_index, stage in enumerate(plan.stages):
-            if len(
-                self._diversify_ranked_hits(
-                    [
-                        item[0]
-                        for item in sorted(
-                            collected.values(),
-                            key=lambda pair: self._thematic_relevance_key(
-                                pair[0],
-                                plan=plan,
-                                stage_index=pair[1],
-                            ),
-                        )
-                    ],
-                    limit=limit,
+            current_ranked = [
+                item[0]
+                for item in sorted(
+                    collected.values(),
+                    key=lambda pair: self._thematic_relevance_key(
+                        pair[0],
+                        plan=plan,
+                        stage_index=pair[1],
+                    ),
                 )
-            ) >= limit:
+            ]
+            current_full = (
+                len(self._diversify_ranked_hits(current_ranked, limit=limit))
+                >= limit
+            )
+            # Phrase and controlled-variant stages jointly define focused
+            # retrieval. A full exact-phrase window must not suppress unseen
+            # paraphrased evidence. Only the broad OR stage is a true fallback.
+            if stage.strategy == "broad_lexical_fallback" and current_full:
                 break
 
             if stage.strategy == "concept_phrase":
                 reason = "focused_multiword_concepts"
             elif stage.strategy == "controlled_lexical_variants":
-                reason = (
-                    "concept_phrase_stage_underfilled"
-                    if executions
-                    else "no_phrase_stage_available"
-                )
+                reason = "controlled_variant_recall"
             else:
                 reason = (
                     "focused_stages_underfilled"
