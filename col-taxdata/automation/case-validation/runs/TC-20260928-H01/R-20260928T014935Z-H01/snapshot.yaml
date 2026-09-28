@@ -1,0 +1,39 @@
+schema_version: 1
+kind: run_snapshot
+origin: scheduled_sweep
+source_refs:
+  - "remote:/home/user/col-taxdata-case-tester-SW-20260928T014005Z-ct/run_case.py#sha256=55620ca31239d4ad102ea1c3195abd1be21f302dc9dd6003a2b32a657b79fa38"
+  - "remote:/home/user/col-taxdata-case-tester-SW-20260928T014005Z-ct/state/taxdata.sqlite#sha256=86732e9276ccf6e881b3149f033d62e9b2bb35498b65af9bf9af763f0de772b1"
+  - "docker:mcp@sha256:5f1cd4edf15c27afea42f498b6a04f507a73b1db1f83ed3f5ee1e2afd39ff29d"
+run_id: R-20260928T014935Z-H01
+sweep_id: SW-20260928T014005Z-ct
+case_id: TC-20260928-H01
+captured_at: "2026-09-28T01:49:35Z"
+case_definition:
+  path: col-taxdata/automation/case-validation/cases/TC-20260928-H01/case.yaml
+  git_blob_sha: "2b08c0d4d7aeb34c9eb615856f587cf3d30f663a"
+  sha256: null
+case_state_generation: 1
+repository:
+  branch: main
+  commit_sha: "cd3b1e11c88481963f652f6997d74de5f637d48b"
+contracts:
+  case_contract_version: "4.0.0"
+  rest_contract_version: "1.0.0"
+  mcp_contract_version: "1.0.0"
+harness:
+  ref: "remote:/home/user/col-taxdata-case-tester-SW-20260928T014005Z-ct/run_case.py"
+  sha256: "55620ca31239d4ad102ea1c3195abd1be21f302dc9dd6003a2b32a657b79fa38"
+control_packet:
+  ref: null
+  sha256: null
+corpus:
+  research_context_fingerprint: "1d8740fd60a14b77418cd4ff806a1a0fd9eca8ccdfc02be4bfb2f3b9c6126645"
+  database_snapshot_ref: "remote:/home/user/col-taxdata-case-tester-SW-20260928T014005Z-ct/state/taxdata.sqlite#sha256=86732e9276ccf6e881b3149f033d62e9b2bb35498b65af9bf9af763f0de772b1"
+runtime:
+  profile: "case-migration-rtx3070-v1"
+  image_digest: "sha256:37985642072f3fcc9e16ba3912dd8feda7399c2d6f7f4762cd810d9f03b16b8a"
+  provider: "operator-llama-cpp-migration-test"
+  model: "gemma-4-E2B-it-Q4_K_M"
+  model_sha256: "740185b21d22ceb83a11c3aa62ad5842ef32c70f6096d756bbee85a1e4ec34b8"
+satisfied_blockers: []
