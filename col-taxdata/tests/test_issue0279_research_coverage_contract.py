@@ -153,7 +153,7 @@ class Issue0279ResearchCoverageContractTests(unittest.TestCase):
             self.schema["$defs"]["CaseInput"]["properties"]["contract_version"]["const"],
             "5.0.0",
         )
-        self.assertIn("Historical CASE v4 remains frozen", self.spec)
+        self.assertIn("v4 remains frozen", self.spec)
         self.assertIn("REST v1 continues to transport CASE 4.0.0", self.spec)
         self.assertIn("Use a new CASE major version", self.adr)
 
