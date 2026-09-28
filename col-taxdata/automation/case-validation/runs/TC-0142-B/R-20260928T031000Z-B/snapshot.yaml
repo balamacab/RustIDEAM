@@ -20,8 +20,8 @@ harness:
   ref: "ephemeral:rest_launcher.py + public-surface clients"
   sha256: "11b7a215f1d7a6c443a51e44b808c472a78ecadcb4da94528a77e1ad0d664d44"
 control_packet:
-  ref: null
-  sha256: null
+  ref: "git:agent/issue-142-e2e-validation@c3e44ea0a4294f6fe1a67eec9f0248c111b749e0:col-taxdata/validation/issue-0142/control-plan.json#cases.B.control"
+  sha256: "7ddf7098a2c76e149abdb36ed825c1f37c42f12e3167d4099a718dcb578c1c01"
 corpus:
   research_context_fingerprint: "sha256:8d04a82e190fc10e022e56095a2a2b9ac87ca487013c72135798dbfd1b644877"
   database_snapshot_ref: "isolated-sqlite-copy:sha256:8d04a82e190fc10e022e56095a2a2b9ac87ca487013c72135798dbfd1b644877"
