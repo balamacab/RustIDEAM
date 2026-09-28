@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from policy import PolicyError, owning_issue_number, parse_metadata
+from issue_state_sync import apply_visible_state
 
 API = "https://api.github.com"
 RESUME_MARKER = "<!-- col-taxdata-agent-resume:"
@@ -125,6 +126,18 @@ def state_comment(state: str, **details: Any) -> str:
     return f"{STATE_MARKER} {json.dumps(payload, sort_keys=True, separators=(',', ':'))} -->\nAgent state: `{state}`."
 
 
+def post_state_comment(
+    token: str,
+    repo: str,
+    issue: int,
+    state: str,
+    **details: Any,
+) -> None:
+    """Persist lifecycle evidence and project visible GitHub blocked metadata."""
+    post_issue_comment(token, repo, issue, state_comment(state, **details))
+    apply_visible_state(token, repo, issue, state)
+
+
 def resume_comment(payload: dict[str, Any]) -> str:
     marker = json.dumps(payload, sort_keys=True, separators=(",", ":"))
     retry = payload.get("retry")
@@ -186,9 +199,15 @@ def request_resume(token: str, req: ResumeRequest) -> dict[str, Any]:
     if attempt > req.max_attempts:
         blocked = ResumeRequest(**{**req.__dict__, "attempt": attempt})
         blocker = create_blocker(token, blocked)
-        post_issue_comment(token, req.repository, req.issue_number, state_comment(
-            "BLOCKED", reason=req.reason, head_sha=req.head_sha, blocker=blocker.get("html_url")
-        ))
+        post_state_comment(
+            token,
+            req.repository,
+            req.issue_number,
+            "BLOCKED",
+            reason=req.reason,
+            head_sha=req.head_sha,
+            blocker=blocker.get("html_url"),
+        )
         return {"dispatched": False, "blocked": True, "attempt": attempt, "blocker": blocker}
     actual = ResumeRequest(**{**req.__dict__, "attempt": attempt})
     payload = build_resume_payload(actual)
@@ -280,7 +299,7 @@ def handle_lifecycle(token: str, repo: str, pr_number: int, ci_conclusion: str |
         return request_resume(token, req)
 
     if state == "behind":
-        post_issue_comment(token, repo, issue, state_comment("NEEDS_REBASE", pr_number=pr_number, head_sha=head_sha))
+        post_state_comment(token, repo, issue, "NEEDS_REBASE", pr_number=pr_number, head_sha=head_sha)
         automatic_update = False
         try:
             request_json(token, "PUT", f"/repos/{repo}/pulls/{pr_number}/update-branch", {"expected_head_sha": head_sha})
@@ -309,16 +328,14 @@ def handle_lifecycle(token: str, repo: str, pr_number: int, ci_conclusion: str |
                 req = ResumeRequest(repo, issue, pr_number, branch, head_sha, base_sha, "NEEDS_REBASE", domains, 0)
                 return request_resume(token, req)
             if mergeable is True and state == "blocked":
-                post_issue_comment(
+                post_state_comment(
                     token,
                     repo,
                     issue,
-                    state_comment(
-                        "CHECKS_OUTDATED",
-                        pr_number=pr_number,
-                        head_sha=head_sha,
-                        mergeable_state=state,
-                    ),
+                    "CHECKS_OUTDATED",
+                    pr_number=pr_number,
+                    head_sha=head_sha,
+                    mergeable_state=state,
                 )
                 req = ResumeRequest(
                     repo,
@@ -335,7 +352,7 @@ def handle_lifecycle(token: str, repo: str, pr_number: int, ci_conclusion: str |
 
         if mergeable is not True or state not in MERGE_READY_STATES:
             return {"merged": False, "waiting": True, "mergeable": mergeable, "mergeable_state": state}
-        post_issue_comment(token, repo, issue, state_comment("READY_FOR_MERGE", pr_number=pr_number, head_sha=head_sha))
+        post_state_comment(token, repo, issue, "READY_FOR_MERGE", pr_number=pr_number, head_sha=head_sha)
         result = request_json(token, "PUT", f"/repos/{repo}/pulls/{pr_number}/merge", {
             "sha": head_sha,
             "merge_method": "squash",
@@ -345,7 +362,7 @@ def handle_lifecycle(token: str, repo: str, pr_number: int, ci_conclusion: str |
             req = ResumeRequest(repo, issue, pr_number, branch, head_sha, base_sha, "NEEDS_REBASE", domains, 0)
             return request_resume(token, req)
         merge_sha = str(result.get("sha") or "")
-        post_issue_comment(token, repo, issue, state_comment("MERGED", pr_number=pr_number, merge_sha=merge_sha))
+        post_state_comment(token, repo, issue, "MERGED", pr_number=pr_number, merge_sha=merge_sha)
         dispatch_convergence(token, repo, sha=merge_sha, pr=pr_number, issue=issue, domains=domains)
         if branch.startswith(f"agent/issue-{issue}-"):
             encoded = urllib.parse.quote(branch, safe="")
@@ -356,11 +373,13 @@ def handle_lifecycle(token: str, repo: str, pr_number: int, ci_conclusion: str |
         return {"merged": True, "merge_sha": merge_sha, "issue_number": issue}
 
     if ci_conclusion is None:
-        post_issue_comment(
+        post_state_comment(
             token,
             repo,
             issue,
-            state_comment("CI_VALIDATING", pr_number=pr_number, head_sha=head_sha),
+            "CI_VALIDATING",
+            pr_number=pr_number,
+            head_sha=head_sha,
         )
         dispatch_ci(token, repo, branch, pr_number)
         return {
