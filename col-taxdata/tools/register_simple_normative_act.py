@@ -308,35 +308,18 @@ def register_simple_act(
             expected_canonical_key is not None
             and canonical_key != expected_canonical_key
         ):
-            conflict = assessment.__class__(
-                "unresolved",
-                assessment.source,
-                identity_signal,
-                "SOURCE_IDENTITY_CONFLICT",
-            )
-            with con:
-                review_id = persist_assessment(
-                    con,
-                    manifestation_id=manifestation_id,
-                    extraction_id=extraction_id,
-                    assessment=conflict,
-                )
-                if existing_document_id is not None:
-                    con.execute(
-                        "UPDATE manifestations SET document_id = NULL "
-                        "WHERE manifestation_id = ?",
-                        (manifestation_id,),
-                    )
+            # The external adapter's requested key is an acquisition constraint,
+            # not new evidence about the archived page. Fail without mutating
+            # an existing canonical binding or manufacturing a source conflict.
             return {
                 "parser_name": PARSER_NAME,
                 "parser_version": PARSER_VERSION,
                 "status": "unresolved",
-                "reason_code": "SOURCE_IDENTITY_CONFLICT",
-                "review_id": review_id,
+                "reason_code": "EXPECTED_CANONICAL_KEY_MISMATCH",
                 "source_family": assessment.source.family,
                 "manifestation_id": manifestation_id,
                 "extraction_id": extraction_id,
-                "document_id": None,
+                "document_id": existing_document_id,
                 "expected_canonical_key": expected_canonical_key,
                 "observed_canonical_key": canonical_key,
             }
