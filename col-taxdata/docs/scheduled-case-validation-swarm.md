@@ -122,24 +122,159 @@ The Controller Monitor is **not** the ordinary dispatcher for scheduled workers 
 
 Cardinality: one scheduled worker.
 
-Purpose: maintain a useful and diverse supply of legal cases so the Tester can continue discovering independent defects across different domains and complexities.
+Purpose: maintain a useful and diverse supply of legal cases so the Tester can continue discovering independent defects across different domains and complexities **without allowing unresolved validation debt to grow without bound**.
 
 Each invocation performs one bounded inventory sweep:
 
-1. read current case-pool state;
-2. revalidate relevant case issues against GitHub live where needed;
-3. determine whether sufficient NEW/READY case inventory exists;
-4. create only the case work needed to restore useful inventory;
-5. persist the new case definitions/references;
-6. terminate.
+1. read the current case-pool index and each referenced immutable case definition/current case state;
+2. classify every non-retired case by complexity typology: `simple`, `medium` or `high`;
+3. calculate the unresolved and active-supply counts for each typology;
+4. decide independently for each typology whether one new case is permitted;
+5. create at most one new case for each permitted typology;
+6. persist the new immutable case definition/state and update the pool using optimistic concurrency;
+7. terminate.
 
-The generator should favor diversity. When replenishing a depleted pool, the default target is a small batch spanning:
+#### Generator inventory and backpressure policy
 
-- simple;
-- medium;
-- high complexity;
+For Generator inventory purposes, **typology means case complexity**:
 
-and, where practical, different legal/tax domains rather than three near-duplicates exercising the same subsystem.
+- `simple`;
+- `medium`;
+- `high`.
+
+The following constants are mandatory:
+
+```text
+HARD_MAX_UNRESOLVED_PER_TYPE = 3
+TARGET_ACTIVE_SUPPLY_PER_TYPE = 1
+MAX_NEW_PER_TYPE_PER_SWEEP = 1
+MAX_NEW_TOTAL_PER_SWEEP = 3
+```
+
+A case counts as **unresolved** while its current Tester-owned lifecycle state is any of:
+
+```text
+NEW
+READY
+RUNNING
+BLOCKED
+```
+
+A case in `CLOSED` or `RETIRED` does not consume unresolved capacity. Historical closed/retired cases remain preserved and may accumulate without affecting the cap.
+
+A case counts as **active supply** while its lifecycle state is:
+
+```text
+NEW
+READY
+RUNNING
+```
+
+`BLOCKED` cases consume the hard unresolved cap but do **not** satisfy the active-supply target. This is deliberate: blocked validation debt applies backpressure while still permitting limited exploration of a new case when capacity remains.
+
+For each typology independently, the Generator applies exactly this decision:
+
+```text
+unresolved = count(NEW + READY + RUNNING + BLOCKED)
+active_supply = count(NEW + READY + RUNNING)
+
+if unresolved >= 3:
+    create 0
+
+else if active_supply >= 1:
+    create 0
+
+else:
+    create exactly 1
+```
+
+Therefore one Generator sweep can create at most:
+
+```text
+1 simple
+1 medium
+1 high
+---------
+3 total
+```
+
+It MUST NOT fill every free slot to the hard cap in one invocation.
+
+Example with the imported #142 campaign:
+
+```text
+simple:
+  TC-0142-A BLOCKED
+  unresolved = 1
+  active_supply = 0
+  => create 1 simple
+
+medium:
+  TC-0142-B BLOCKED
+  unresolved = 1
+  active_supply = 0
+  => create 1 medium
+
+high:
+  TC-0142-C BLOCKED
+  unresolved = 1
+  active_supply = 0
+  => create 1 high
+```
+
+After those three new cases are created, the next Generator sweep creates no additional case in a typology while its newly created case remains `NEW`, `READY` or `RUNNING`.
+
+If that case later fails and becomes `BLOCKED`, the following Generator sweep may create one more case of that typology provided the unresolved count is still below three.
+
+Once a typology reaches three unresolved cases, generation for that typology stops completely until at least one existing case becomes `CLOSED` or `RETIRED`.
+
+For example:
+
+```text
+simple:
+  TC-A BLOCKED
+  TC-D BLOCKED
+  TC-G BLOCKED
+  unresolved = 3
+  active_supply = 0
+  => HARD BACKPRESSURE: create 0
+```
+
+This remains true even if every one of those three cases is blocked. The purpose of the cap is specifically to prevent the system from accumulating an unbounded queue of unsolved cases while developers are still resolving earlier defects.
+
+#### Lifecycle ownership during inventory calculation
+
+The Generator reads Tester-owned lifecycle state but does not perform Tester lifecycle transitions.
+
+In particular:
+
+- it must not change a `BLOCKED` case to `READY`;
+- it must not close a case;
+- it must not reinterpret an old FAIL;
+- it must not decide that a blocker has converged on behalf of the Tester.
+
+If GitHub live suggests that a recorded blocker may have converged but the case still says `BLOCKED`, the case continues to count as `BLOCKED` for Generator inventory. The next Tester sweep owns the live revalidation and any resulting lifecycle transition.
+
+If a known case has missing, corrupt or internally inconsistent definition/state such that the Generator cannot classify it safely, the Generator must **not** create replacement work to compensate. It stops generation for the affected typology and surfaces the coordination-state problem for Controller repair.
+
+#### Diversity policy
+
+When a new case is permitted, the Generator should prefer a legal/tax domain that is underrepresented among the currently unresolved cases and, where evidence permits, exercise a different subsystem or legal-research path.
+
+This is a preference subordinate to validity: the Generator must not create an artificial or legally incoherent case merely to obtain domain diversity.
+
+The intended effect is:
+
+```text
+many PASS/CLOSED
+  -> capacity is released
+  -> Generator continues exploration
+
+many FAIL/BLOCKED
+  -> unresolved capacity is consumed
+  -> generation slows and then stops
+  -> Developer capacity is directed toward existing debt
+```
 
 The generator does not execute cases, diagnose product failures, implement defects or consume work from the developer queue.
 
