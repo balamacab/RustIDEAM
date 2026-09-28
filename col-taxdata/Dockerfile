@@ -1,4 +1,4 @@
-FROM python:3.12-slim-bookworm
+FROM python:3.12-slim-bookworm AS base
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
@@ -21,3 +21,14 @@ PY
 VOLUME ["/app/data"]
 
 CMD ["python3", "tools/init_db.py"]
+
+
+FROM base AS case-tester
+
+RUN python3 -m pip install \
+    --disable-pip-version-check \
+    --no-cache-dir \
+    -r requirements-case-tester.txt
+
+
+FROM base AS runtime
