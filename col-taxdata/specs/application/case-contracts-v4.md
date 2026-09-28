@@ -400,6 +400,40 @@ later `requires_interpretive_synthesis` handoff into failed research; that
 category may still coexist with a complete bundle when the platform has
 finished its owned research/evidence work.
 
+### 9.1.1 Deterministic thematic retrieval
+
+Thematic retrieval is distinct from exact canonical-target lookup. A validated
+document/provision target uses the exact target path and MUST NOT be widened to
+thematic FTS merely because an exact lookup is empty or inconvenient.
+
+For thematic research queries the platform uses a deterministic, versioned
+retrieval strategy:
+
+1. sanitize caller/platform query text into generated FTS syntax; raw query
+   syntax is never passed through as FTS operators;
+2. preserve bounded multiword concept windows and significant numeric tokens;
+3. search concept/phrase-aware clauses first;
+4. if the focused stage cannot fill the requested bounded result window, use
+   controlled lexical variants for the same concepts;
+5. only then use a bounded broader lexical fallback, recording that the focused
+   stages were insufficient.
+
+Candidate selection is relevance/diversity logic only. The deterministic order
+prefers stronger concept coverage, then the underlying FTS rank and stable
+provenance tie-breakers, while giving distinct canonical documents an initial
+diversity pass before same-document backfill when the result window has room.
+This ordering does not create, classify, or rank legal authority.
+
+The executed thematic strategy/fallback reason remains inspectable in internal
+retrieval evidence metadata, while the versioned retrieval configuration is
+captured by the existing ResearchContextFingerprint. No new public v4 wire
+field is introduced for this issue.
+
+Phrase matching is not an exclusivity rule: paraphrased evidence remains
+eligible through controlled lexical variants and the broader fallback. The
+platform MUST NOT replace the whole query with one blanket AND expression, use
+an unapproved model reranker, or embed a universal legal hierarchy score.
+
 ### 9.2 Minimal ResearchContextFingerprint
 
 The fingerprint records:

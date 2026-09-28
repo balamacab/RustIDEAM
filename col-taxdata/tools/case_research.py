@@ -18,7 +18,11 @@ from case_contract_validation_v4 import (
     validate_research_plan,
     validate_research_result,
 )
-from case_retrieval import CorpusRetrievalService, RetrievalHit
+from case_retrieval import (
+    CorpusRetrievalService,
+    RetrievalHit,
+    thematic_retrieval_config,
+)
 from legal_authority_classification import (
     AuthorityClassificationError,
     classify_canonical_authority,
@@ -26,7 +30,7 @@ from legal_authority_classification import (
 
 
 PLANNER_VERSION = "2"
-RETRIEVAL_VERSION = "5"
+RETRIEVAL_VERSION = "6"
 
 DEFAULT_BOUNDS: dict[str, int] = {
     "max_rounds": 3,
@@ -67,6 +71,7 @@ _RETRIEVAL_CONFIG = {
     "dedupe": "within-extraction exact text_sha256 before top-N; task_ref+extracted_segment_id; authority_ref",
     "reference_policy": "validated-canonical-target-lookup-no-thematic-fallback",
     "budget_policy": "admission-before-cap-with-explicit-pending-work",
+    "thematic_retrieval": thematic_retrieval_config(),
 }
 
 # Conflict is never inferred from two authorities merely coexisting. Only an
@@ -646,6 +651,11 @@ def _candidate_from_hit(
         "duplicate_count": hit.duplicate_count,
         "alternate_segment_ids": list(hit.alternate_segment_ids),
     }
+    if hit.retrieval_strategy is not None:
+        # Internal candidate metadata records how the thematic hit was obtained.
+        # It is intentionally not added to the closed public v4 wire schema.
+        item["retrieval_strategy"] = hit.retrieval_strategy
+        item["retrieval_reason"] = hit.retrieval_reason
     if hit.document_id is not None:
         item["document_ref"] = f"document:{hit.document_id}"
         item["authority_ref"] = f"authority:{hit.document_id}"
