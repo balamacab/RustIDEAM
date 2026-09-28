@@ -78,6 +78,16 @@ _CLIENT_AMBIGUITY_PATTERNS = (
     "dudoso",
 )
 
+# #210 is a deliberately bounded exception to the general no-post-response-
+# repair rule: only an already model-selected unresolved fact may be promoted,
+# and only when one supported lexical fact family resolves to one exact,
+# unambiguous client-owned span.  These are the two semantic keys already
+# consumed by the existing bounded natural-person evaluator; no new evaluator
+# vocabulary is introduced here.
+_GROSS_INCOME_SEMANTIC_KEY = "col.tax.natural_person.gross_income"
+_GROSS_PATRIMONY_SEMANTIC_KEY = "col.tax.natural_person.gross_patrimony"
+_EXPLICIT_YEAR_RE = re.compile(r"\b(?:19|20)[0-9]{2}\b")
+
 _CONFIRMATION_PREFIXES = (
     "confirmacion de que ",
     "confirmar que ",
@@ -460,6 +470,312 @@ def _unambiguous_assertive_spans(problem_text: str) -> list[str]:
             continue
         result.append(span)
     return result
+
+
+def _normalization_source_spans(problem_text: str) -> list[str]:
+    """Return bounded exact client spans eligible for #210 normalization.
+
+    The normalizer deliberately works from declarative client-owned sentences,
+    not model-authored paraphrases.  A sentence carrying multiple UVT amounts
+    is split only at the existing exact clause boundary so each numeric fact
+    can retain one-measurement provenance.  Duplicate text remains visible to
+    the uniqueness check and is never guessed by occurrence.
+    """
+    spans: list[str] = []
+    seen: set[str] = set()
+
+    def add(value: str) -> None:
+        candidate = value.strip()
+        if (
+            candidate
+            and candidate in problem_text
+            and candidate not in seen
+        ):
+            spans.append(candidate)
+            seen.add(candidate)
+
+    for sentence in _assertive_client_spans(problem_text):
+        if len(_UVT_MEASUREMENT_RE.findall(sentence)) >= 2:
+            for fragment in _INTAKE_QUOTE_BOUNDARY.split(sentence):
+                add(fragment)
+        else:
+            add(sentence)
+    return spans
+
+
+def _descriptor_family(fact: dict[str, Any]) -> str | None:
+    """Classify only the bounded fact families authorized by #210.
+
+    Matching is lexical and deterministic.  There is no similarity score,
+    fuzzy matching, embedding lookup, or semantic-equivalence fallback.
+    """
+    text = _fold_lexical_text(
+        " ".join(
+            str(fact.get(name, ""))
+            for name in ("label", "needed_information")
+        )
+    )
+
+    if re.search(r"\bingres\w*\s+brut\w*", text) and re.search(r"\buvt\b", text):
+        return "gross_income_uvt"
+    if re.search(r"\bpatrimon\w*\s+brut\w*", text) and re.search(r"\buvt\b", text):
+        return "gross_patrimony_uvt"
+    if re.search(r"\bresiden\w*\s+fiscal\w*", text) and re.search(r"\bcolomb\w*", text):
+        return "fiscal_residence_colombia"
+    if (
+        re.search(r"\bactiv\w*\s+digital\w*", text)
+        and re.search(r"\bcuenta\s+propia\b", text)
+    ):
+        return "digital_self_employed"
+    if re.search(r"\bsas\b", text) and re.search(r"\bcolombian\w*", text):
+        return "colombian_sas"
+    if (
+        re.search(r"\bbogota\b", text)
+        and re.search(r"\b(?:prest\w*|servic\w*|ejecut\w*|ubic\w*)", text)
+    ):
+        return "bogota_execution"
+    if (
+        re.search(r"\bcanada\b", text)
+        and re.search(r"\b(?:client\w*|socied\w*|domicil\w*)", text)
+    ):
+        return "canadian_customer"
+    if (
+        re.search(r"\bcolombia\b", text)
+        and re.search(r"\b(?:ausen\w*|presen\w*)", text)
+        and re.search(
+            r"\b(?:domicil\w*|sucurs\w*|establec\w*|emplead\w*|activ\w*)",
+            text,
+        )
+    ):
+        return "no_colombia_presence"
+    if (
+        re.search(r"\bexclusiv\w*", text)
+        and re.search(r"\b(?:us\w*|explot\w*)", text)
+        and re.search(r"\bcolombia\b", text)
+    ):
+        return "exclusive_foreign_use"
+    if (
+        re.search(r"\b(?:document\w*|soport\w*)", text)
+        and sum(
+            bool(re.search(pattern, text))
+            for pattern in (
+                r"\bcontrat\w*",
+                r"\bfactur\w*",
+                r"\bcomprob\w*",
+                r"\bentreg\w*",
+                r"\bacept\w*",
+            )
+        ) >= 2
+    ):
+        return "support_documents"
+    if (
+        re.search(r"\bfactur\w*", text)
+        and re.search(r"\bpago\b", text)
+        and re.search(r"\b2026\b", text)
+    ):
+        return "billing_payment"
+    if (
+        re.search(r"\bejecut\w*", text)
+        and re.search(r"\bcolombia\b", text)
+    ):
+        return "colombia_execution"
+    return None
+
+
+def _span_supports_family(family: str, span: str) -> bool:
+    """Return whether one exact client span lexically supports a fact family."""
+    text = _fold_lexical_text(span)
+
+    if family == "gross_income_uvt":
+        return bool(
+            re.search(r"\bingres\w*\s+brut\w*", text)
+            and re.search(r"\buvt\b", text)
+        )
+    if family == "gross_patrimony_uvt":
+        return bool(
+            re.search(r"\bpatrimon\w*\s+brut\w*", text)
+            and re.search(r"\buvt\b", text)
+        )
+    if family == "fiscal_residence_colombia":
+        return bool(
+            re.search(r"\bresiden\w*\s+fiscal\w*", text)
+            and re.search(r"\bcolomb\w*", text)
+        )
+    if family == "digital_self_employed":
+        return bool(
+            re.search(r"\bactiv\w*\s+digital\w*", text)
+            and re.search(r"\bcuenta\s+propia\b", text)
+        )
+    if family == "colombian_sas":
+        return bool(
+            re.search(r"\bsas\s+colombian\w*", text)
+            or (
+                re.search(r"\bsas\b", text)
+                and re.search(r"\bcolombian\w*", text)
+            )
+        )
+    if family == "bogota_execution":
+        return bool(
+            re.search(r"\bbogota\b", text)
+            and re.search(r"\b(?:prest\w*|ejecut\w*)", text)
+        )
+    if family == "canadian_customer":
+        return bool(
+            re.search(r"\bcanada\b", text)
+            and re.search(r"\b(?:client\w*|socied\w*)", text)
+            and re.search(r"\bdomicil\w*", text)
+        )
+    if family == "no_colombia_presence":
+        return bool(
+            re.search(r"\bno\s+tiene\b", text)
+            and re.search(r"\bcolombia\b", text)
+            and re.search(
+                r"\b(?:domicil\w*|sucurs\w*|establec\w*|emplead\w*|activ\w*)",
+                text,
+            )
+        )
+    if family == "exclusive_foreign_use":
+        return bool(
+            re.search(r"\bexclusiv\w*", text)
+            and re.search(r"\b(?:us\w*|explot\w*)", text)
+            and re.search(r"\bcolombia\b", text)
+        )
+    if family == "support_documents":
+        return (
+            sum(
+                bool(re.search(pattern, text))
+                for pattern in (
+                    r"\bcontrat\w*",
+                    r"\bfactur\w*",
+                    r"\bcomprob\w*",
+                    r"\bentreg\w*",
+                    r"\bacept\w*",
+                )
+            )
+            >= 3
+        )
+    if family == "billing_payment":
+        return bool(
+            re.search(r"\bfactur\w*", text)
+            and re.search(r"\bpago\b", text)
+            and re.search(r"\bagosto\b", text)
+            and re.search(r"\b2026\b", text)
+        )
+    if family == "colombia_execution":
+        return bool(
+            re.search(r"\bejecut\w*", text)
+            and re.search(r"\bcolombia\b", text)
+        )
+    return False
+
+
+def _unique_normalization_span(
+    problem_text: str,
+    family: str,
+) -> str | None:
+    """Resolve one supported fact family to exactly one exact client span."""
+    matches: list[str] = []
+    for span in _normalization_source_spans(problem_text):
+        folded = f" {_fold_lexical_text(span)} "
+        if any(marker in folded for marker in _CLIENT_AMBIGUITY_PATTERNS):
+            continue
+        if problem_text.count(span) != 1:
+            continue
+        if _span_supports_family(family, span):
+            matches.append(span)
+    if len(matches) != 1:
+        return None
+    return matches[0]
+
+
+def _uvt_measurement_from_quote(
+    quote: str,
+    *,
+    semantic_key: str,
+) -> tuple[str, dict[str, Any]] | None:
+    """Extract the already-supported UVT measurement from one exact quote."""
+    measurements = list(_UVT_MEASUREMENT_RE.finditer(quote))
+    years = sorted(set(_EXPLICIT_YEAR_RE.findall(quote)))
+    if len(measurements) != 1 or len(years) != 1:
+        return None
+
+    numeric_match = re.search(
+        r"(?:[0-9]{1,3}(?:[.\s][0-9]{3})+|[0-9]+(?:[.,][0-9]+)?)",
+        measurements[0].group(0),
+    )
+    if numeric_match is None:
+        return None
+    raw = numeric_match.group(0).replace(" ", "")
+    if re.fullmatch(r"[0-9]{1,3}(?:\.[0-9]{3})+", raw):
+        decimal_value = raw.replace(".", "")
+    else:
+        decimal_value = raw.replace(",", ".")
+
+    return semantic_key, {
+        "decimal_value": decimal_value,
+        "unit": "UVT",
+        "uvt_year": int(years[0]),
+    }
+
+
+def normalize_intake_draft(
+    case_input: dict[str, Any],
+    draft: dict[str, Any],
+) -> dict[str, Any]:
+    """Apply the narrow, exact-source deterministic recovery authorized by #210.
+
+    This function is intentionally not a general model-output repair layer.  It
+    never creates a fact, never guesses between spans, never infers legal
+    meaning, and never uses similarity/fuzzy matching.  Unsupported or
+    non-unique cases are returned untouched so authoritative validation can
+    preserve/reject them under the normal v4 contract.
+    """
+    if case_input.get("contract_version") != CONTRACT_VERSION:
+        return deepcopy(draft)
+
+    normalized = deepcopy(draft)
+    problem_text = str(case_input.get("problem_text", ""))
+
+    for fact in normalized.get("facts", []):
+        if fact.get("state") not in {"missing", "ambiguous"}:
+            continue
+
+        family = _descriptor_family(fact)
+        if family is None:
+            continue
+        quote = _unique_normalization_span(problem_text, family)
+        if quote is None:
+            continue
+
+        semantic: tuple[str, dict[str, Any]] | None = None
+        if family == "gross_income_uvt":
+            semantic = _uvt_measurement_from_quote(
+                quote,
+                semantic_key=_GROSS_INCOME_SEMANTIC_KEY,
+            )
+            if semantic is None:
+                continue
+        elif family == "gross_patrimony_uvt":
+            semantic = _uvt_measurement_from_quote(
+                quote,
+                semantic_key=_GROSS_PATRIMONY_SEMANTIC_KEY,
+            )
+            if semantic is None:
+                continue
+
+        fact["state"] = "user_provided"
+        fact["source_quote"] = quote
+        fact["requires_confirmation"] = False
+        fact.pop("needed_information", None)
+        # An unresolved model fact may carry advisory semantic metadata.  Once
+        # exact client text becomes the authority for promotion, only the two
+        # explicitly supported deterministic UVT semantics may survive.
+        fact.pop("semantic_key", None)
+        fact.pop("measurement", None)
+        if semantic is not None:
+            fact["semantic_key"], fact["measurement"] = semantic
+
+    return normalized
 
 
 def _fact_downgrade_conflicts_with_explicit_text(
