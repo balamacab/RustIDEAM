@@ -1,0 +1,21 @@
+schema_version: 1
+kind: sweep_discovery
+sweep_id: SW-20260928T024531Z-ct
+discovered_at: "2026-09-28T02:45:31Z"
+discovered_main_sha: "b47f958379b92cd176fca6735050ac50f68f43a4"
+candidates:
+  - case_id: TC-20260928-H01
+    observed_state: READY
+    observed_generation: 2
+    eligibility_reason: ready
+    blocker_observations: []
+  - case_id: TC-20260928-M01
+    observed_state: READY
+    observed_generation: 2
+    eligibility_reason: ready
+    blocker_observations: []
+  - case_id: TC-20260928-S01
+    observed_state: READY
+    observed_generation: 2
+    eligibility_reason: ready
+    blocker_observations: []
