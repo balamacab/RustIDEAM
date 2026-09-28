@@ -1,0 +1,30 @@
+schema_version: 1
+kind: case_definition
+case_id: TC-20260928-H01
+created_at: "2026-09-28T01:29:00Z"
+created_by: controller-monitor
+origin: generated
+source_refs:
+  - "github:issue/205"
+  - "controller-recovery:first-scheduled-generator-persistence-failure"
+title: "Fusión por absorción con pérdidas fiscales y activos diversos"
+complexity: high
+domains:
+  - "corporate-reorganization"
+  - "income-tax"
+  - "tax-losses"
+  - "vat"
+  - "withholding-tax"
+problem_text: |-
+  Dos SAS colombianas pertenecientes al mismo grupo planean una fusión por absorción con efectos jurídicos en diciembre de 2026. La absorbida tiene inventarios, maquinaria depreciable, una cuenta por cobrar a una vinculada, pérdidas fiscales pendientes y diferencias entre valores contables y fiscales. Los accionistas de la absorbida recibirán participaciones en la absorbente y no se prevén pagos en dinero distintos de ajustes menores de cierre. La operación se realizará con estados financieros de corte especial y se registrará mercantilmente antes de finalizar 2026.
+  
+  Las compañías preguntan: (1) qué requisitos tributarios deben verificarse para determinar si la fusión puede recibir el tratamiento fiscal aplicable a reorganizaciones empresariales; (2) cómo deben conservarse o trasladarse los costos fiscales de activos y pasivos; (3) qué limitaciones pueden afectar el uso posterior de pérdidas fiscales de la absorbida; (4) qué efectos pueden surgir frente a IVA, retenciones y obligaciones formales durante el cierre y transición; y (5) qué hechos o documentos adicionales deben permanecer sin resolver si el expediente no permite concluir alguno de esos puntos.
+problem_text_sha256: "5af1823ef1df2270b3f49fe41330176275b8a388ea1b7fd524372e5cd2416f2f"
+control_sha256: null
+as_of_date: "2026-09-28"
+acceptance:
+  required_surfaces:
+    - mcp
+    - rest
+  control_packet_ref: null
+supersedes_case_id: null

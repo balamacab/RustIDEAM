@@ -94,6 +94,26 @@ For an imported historical run:
 
 The first bootstrap is the existing #142 controlled A/B/C validation campaign. Its imported runs remain historical FAIL evidence while current case state separately records live blocking issues that must be revalidated against GitHub before any future run.
 
+
+## Generator batch persistence
+
+When one Generator sweep creates one or more cases, the new immutable `case.yaml` files, their initial `state.yaml` files and the corresponding `TestCasePool.yaml` generation update form **one logical batch**.
+
+The preferred GitHub persistence path is one atomic Git tree/commit on a dedicated Generator branch:
+
+1. read protected `main`, the exact pool blob and its `generation`;
+2. decide the permitted case set from that snapshot;
+3. prepare all new case definitions/states plus the complete next pool content;
+4. create one Git tree based on the exact observed main tree;
+5. create one commit whose parent is the exact observed main SHA;
+6. move only the dedicated Generator branch to that commit with a non-forced ref update;
+7. open the normal integration PR;
+8. revalidate that protected main/pool did not advance incompatibly before integration.
+
+A Generator MUST NOT use Morichal/SSH or another runtime filesystem as a second writer for repository coordination state. If GitHub persistence cannot be completed safely, the sweep aborts without changing the authoritative pool and without retry loops.
+
+A branch created before persistence but still identical to its base is only an abandoned operational artifact. It is not a generated case, active lifecycle state, Tester work or implementation ownership.
+
 ## Public-repository boundary
 
 Only synthetic/public-safe case descriptions belong here. Do not store secrets, private client payloads, credentials, tokens or confidential case documents.
