@@ -1630,13 +1630,6 @@ def validate_research_result(
                 "bounds_exhausted must expose the affected unfinished work",
             )
 
-    if saw_questions_satisfied and result["status"] != "complete":
-        _fail(
-            INVALID_RESEARCH_RESULT,
-            "$.status",
-            "questions_satisfied requires complete research status",
-        )
-
     _validate_research_context(
         result["research_context"],
         plan,
