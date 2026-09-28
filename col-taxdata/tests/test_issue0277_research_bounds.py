@@ -522,9 +522,11 @@ class Issue0277ResearchBoundsTests(unittest.TestCase):
         false_complete["unresolved_refs"] = ["unresolved:pending"]
         cases.append(("complete after bounds", deepcopy(plan), false_complete))
 
-        false_questions_satisfied = deepcopy(result)
-        false_questions_satisfied["status"] = "partial"
-        cases.append(("partial questions satisfied", deepcopy(plan), false_questions_satisfied))
+        trace_authority_mismatch = deepcopy(result)
+        trace_authority_mismatch["trace"][0]["authority_refs"] = ["authority:not-admitted"]
+        cases.append(
+            ("trace authority not admitted", deepcopy(plan), trace_authority_mismatch)
+        )
 
         for label, case_plan, case_result in cases:
             with self.subTest(case=label):
