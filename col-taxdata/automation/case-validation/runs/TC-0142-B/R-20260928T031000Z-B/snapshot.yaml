@@ -1,0 +1,37 @@
+schema_version: 1
+kind: run_snapshot
+run_id: R-20260928T031000Z-B
+sweep_id: SW-20260928T031000Z-e2e
+case_id: TC-0142-B
+captured_at: "2026-09-28T03:19:00Z"
+case_definition:
+  path: "col-taxdata/automation/case-validation/cases/TC-0142-B/case.yaml"
+  git_blob_sha: null
+  sha256: "ca755320084c33c9e82a9860c258f951ae4571ecc4e44d16a141a10ecd12dbdf"
+case_state_generation: 0
+repository:
+  branch: main
+  commit_sha: "ec50097fb1e42d90f95705c46e35ae2112b447c1"
+contracts:
+  case_contract_version: "4.0.0"
+  rest_contract_version: "1.0.0"
+  mcp_contract_version: "1.0.0"
+harness:
+  ref: "ephemeral:rest_launcher.py + public-surface clients"
+  sha256: "11b7a215f1d7a6c443a51e44b808c472a78ecadcb4da94528a77e1ad0d664d44"
+control_packet:
+  ref: null
+  sha256: null
+corpus:
+  research_context_fingerprint: "sha256:8d04a82e190fc10e022e56095a2a2b9ac87ca487013c72135798dbfd1b644877"
+  database_snapshot_ref: "isolated-sqlite-copy:sha256:8d04a82e190fc10e022e56095a2a2b9ac87ca487013c72135798dbfd1b644877"
+runtime:
+  profile: "case-validation-reference-v2"
+  image_digest: "sha256:46d4ea6c7e021e8aebfa1ac27fe4c78aca7828f244a7ec269e1a3a53cbbd894f"
+  provider: "local-llama-cpp"
+  model: "gemma-4-E2B-it-Q4_K_M"
+  model_sha256: "740185b21d22ceb83a11c3aa62ad5842ef32c70f6096d756bbee85a1e4ec34b8"
+satisfied_blockers: []
+origin: scheduled_sweep
+source_refs:
+  - "github:issue/223"

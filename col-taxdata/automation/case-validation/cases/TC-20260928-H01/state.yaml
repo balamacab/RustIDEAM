@@ -1,10 +1,11 @@
 schema_version: 1
 kind: case_state
 case_id: TC-20260928-H01
-generation: 2
-state: READY
-last_run_id: R-20260928T014935Z-H01
-blocking_issues: []
-ready_reason: "NOT_EXECUTED pre-product harness dependency failure in SW-20260928T014005Z-ct; retry only in a later sweep"
-updated_at: "2026-09-28T01:50:25Z"
+generation: 3
+state: BLOCKED
+last_run_id: R-20260928T031000Z-H01
+blocking_issues:
+  - 221
+ready_reason: null
+updated_at: "2026-09-28T03:35:45Z"
 updated_by: case-tester

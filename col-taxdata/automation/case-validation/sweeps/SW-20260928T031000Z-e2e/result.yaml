@@ -1,0 +1,29 @@
+schema_version: 1
+kind: sweep_result
+sweep_id: SW-20260928T031000Z-e2e
+completed_at: "2026-09-28T03:35:45Z"
+candidate_results:
+  - case_id: TC-0142-A
+    disposition: executed
+    run_id: R-20260928T031000Z-A
+    skip_reason: null
+  - case_id: TC-0142-B
+    disposition: executed
+    run_id: R-20260928T031000Z-B
+    skip_reason: null
+  - case_id: TC-0142-C
+    disposition: executed
+    run_id: R-20260928T031000Z-C
+    skip_reason: null
+  - case_id: TC-20260928-H01
+    disposition: executed
+    run_id: R-20260928T031000Z-H01
+    skip_reason: null
+  - case_id: TC-20260928-M01
+    disposition: executed
+    run_id: R-20260928T031000Z-M01
+    skip_reason: null
+  - case_id: TC-20260928-S01
+    disposition: executed
+    run_id: R-20260928T031000Z-S01
+    skip_reason: null

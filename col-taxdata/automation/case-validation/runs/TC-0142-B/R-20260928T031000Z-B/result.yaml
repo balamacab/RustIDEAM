@@ -1,0 +1,15 @@
+schema_version: 1
+kind: run_result
+run_id: R-20260928T031000Z-B
+case_id: TC-0142-B
+completed_at: "2026-09-28T03:35:45Z"
+outcome: FAIL
+classification: "product_failure:web_gateway_timeout"
+evidence_refs:
+  - "github:issue/222"
+defect_issues:
+  - 222
+notes: "One scored E2E submission through required outer surface; no retry. Response artifact SHA-256 9cebb18ec83c041ca090386bdfa87f4a8d925f142ce00ba7f48b1e4331a0322e."
+origin: scheduled_sweep
+reported_at: "2026-09-28T03:35:45Z"
+artifact_sha256: "9cebb18ec83c041ca090386bdfa87f4a8d925f142ce00ba7f48b1e4331a0322e"

@@ -1,12 +1,12 @@
 schema_version: 1
 kind: case_state
 case_id: TC-0142-C
-generation: 0
+generation: 1
 state: BLOCKED
-last_run_id: R-ISSUE142-98495-C
+last_run_id: R-20260928T031000Z-C
 blocking_issues:
   - 188
-  - 189
+  - 221
 ready_reason: null
-updated_at: "2026-09-28T00:10:09Z"
-updated_by: controller-monitor
+updated_at: "2026-09-28T03:35:45Z"
+updated_by: case-tester

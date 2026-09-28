@@ -1,10 +1,11 @@
 schema_version: 1
 kind: case_state
 case_id: TC-20260928-S01
-generation: 2
-state: READY
-last_run_id: R-20260928T015159Z-S01
-blocking_issues: []
-ready_reason: "NOT_EXECUTED for current validation contract: Tester admission selected historical v3 compatibility adapter in SW-20260928T014005Z-ct; retry only in a later sweep with verified v4 REST runtime"
-updated_at: "2026-09-28T01:57:19Z"
+generation: 3
+state: BLOCKED
+last_run_id: R-20260928T031000Z-S01
+blocking_issues:
+  - 221
+ready_reason: null
+updated_at: "2026-09-28T03:35:45Z"
 updated_by: case-tester

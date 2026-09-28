@@ -1,0 +1,15 @@
+schema_version: 1
+kind: run_result
+run_id: R-20260928T031000Z-M01
+case_id: TC-20260928-M01
+completed_at: "2026-09-28T03:35:45Z"
+outcome: FAIL
+classification: "product_failure:web_upstream_internal_error"
+evidence_refs:
+  - "github:issue/221"
+defect_issues:
+  - 221
+notes: "One scored E2E submission through required outer surface; no retry. Response artifact SHA-256 289e7a417db6a410390210bf143ee71963b81b8792df8bd7702c5d2c75a9a386."
+origin: scheduled_sweep
+reported_at: "2026-09-28T03:35:45Z"
+artifact_sha256: "289e7a417db6a410390210bf143ee71963b81b8792df8bd7702c5d2c75a9a386"
