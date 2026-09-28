@@ -1,0 +1,27 @@
+schema_version: 1
+kind: case_definition
+case_id: TC-0142-B
+created_at: "2026-09-28T00:10:09Z"
+created_by: controller-monitor
+origin: imported_historical_validation
+source_refs:
+  - "github:issue/142"
+  - "github:pull/179"
+  - "git:agent/issue-142-e2e-validation@c3e44ea0a4294f6fe1a67eec9f0248c111b749e0:col-taxdata/validation/issue-0142/phase1-recovery-98495-report.md"
+  - "git:agent/issue-142-e2e-validation@c3e44ea0a4294f6fe1a67eec9f0248c111b749e0:col-taxdata/validation/issue-0142/control-plan.json#cases.B"
+title: "Export-of-services IVA compatibility regression"
+complexity: medium
+domains:
+  - "vat"
+  - "export-of-services"
+problem_text: |-
+  Una SAS colombiana responsable del IVA presta desde Bogotá servicios de analítica y optimización de campañas digitales a una sociedad domiciliada en Canadá. El cliente extranjero no tiene domicilio, sucursal, establecimiento permanente, empleados ni activos en Colombia. El trabajo se ejecuta desde Colombia, pero los informes, tableros y recomendaciones se usan exclusivamente por el cliente para campañas dirigidas a Canadá y Chile; no se usan ni se explotan en Colombia. La SAS conserva contrato escrito, facturas, comprobantes bancarios, entregables y constancias de aceptación del cliente. En agosto de 2026 factura y recibe el pago del servicio. A 27 de septiembre de 2026 pregunta si el servicio puede tratarse como exportación de servicios para efectos del IVA y qué requisitos, autoridades y soportes deben revisarse para sustentar ese tratamiento.
+problem_text_sha256: "79acbbc54bdb4e4970ae90e2cf775852a2d050fb417b29fd4a5d16963f564458"
+control_sha256: "7ddf7098a2c76e149abdb36ed825c1f37c42f12e3167d4099a718dcb578c1c01"
+as_of_date: "2026-09-27"
+acceptance:
+  required_surfaces:
+    - web
+    - rest
+  control_packet_ref: "git:agent/issue-142-e2e-validation@c3e44ea0a4294f6fe1a67eec9f0248c111b749e0:col-taxdata/validation/issue-0142/control-plan.json#cases.B.control"
+supersedes_case_id: null
