@@ -47,7 +47,7 @@ class WorkflowStructureTests(unittest.TestCase):
         text = self.read("col-taxdata-ci.yml")
         self.assertIn("name: Complete dispatched lifecycle", text)
         self.assertIn(
-            "if: needs.gate.result == 'success' && needs.policy.outputs.applicable == 'true'",
+            "if: always() && needs.gate.result == 'success' && needs.policy.outputs.applicable == 'true'",
             text,
         )
         self.assertIn("pr_number: ${{ steps.resolve.outputs.pr_number }}", text)
