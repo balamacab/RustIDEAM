@@ -1,7 +1,7 @@
 ---
 id: DEF-0005
 type: defect
-status: specified
+status: verified
 priority: P2
 area: retrieval
 baseline: 2026-09-22-corpus-audit
