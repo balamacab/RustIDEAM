@@ -1,5 +1,14 @@
 schema_version: 1
 kind: case_pool
 pool_id: col-taxdata-case-validation
-generation: 0
-cases: []
+generation: 1
+cases:
+  - case_id: TC-0142-A
+    definition_path: col-taxdata/automation/case-validation/cases/TC-0142-A/case.yaml
+    state_path: col-taxdata/automation/case-validation/cases/TC-0142-A/state.yaml
+  - case_id: TC-0142-B
+    definition_path: col-taxdata/automation/case-validation/cases/TC-0142-B/case.yaml
+    state_path: col-taxdata/automation/case-validation/cases/TC-0142-B/state.yaml
+  - case_id: TC-0142-C
+    definition_path: col-taxdata/automation/case-validation/cases/TC-0142-C/case.yaml
+    state_path: col-taxdata/automation/case-validation/cases/TC-0142-C/state.yaml
