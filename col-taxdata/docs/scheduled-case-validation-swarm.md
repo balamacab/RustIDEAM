@@ -298,10 +298,11 @@ It MUST inspect:
 - existing run snapshot/result records needed to understand any `RUNNING` state;
 - GitHub live for blocker issues and any issue-specific convergence/acceptance evidence.
 
-A new sweep MUST NOT begin when either of these conditions exists:
+A new sweep MUST NOT begin when any of these conditions exists:
 
-1. any prior sweep has an immutable `discovery.yaml` but no corresponding final `result.yaml`; or
-2. any case is still `RUNNING`.
+1. any prior sweep has an immutable `discovery.yaml` but no corresponding final `result.yaml`;
+2. any case is still `RUNNING`; or
+3. GitHub live contains an open Tester sweep branch/PR whose metadata identifies an earlier sweep as active or not yet durably integrated.
 
 Those states mean that a previous Tester execution is active, incomplete or ambiguous. The new invocation must terminate without creating another discovery snapshot, without executing any case and without guessing that the prior work is stale.
 
@@ -334,7 +335,20 @@ If the eligible set is empty, the invocation is a **NO-OP**:
 - report zero eligible cases;
 - terminate.
 
-If at least one candidate exists, create one immutable discovery snapshot containing the complete candidate frontier observed at that moment.
+If at least one candidate exists, the Tester first establishes an externally visible **sweep claim** before executing a case:
+
+1. allocate the unique sweep ID;
+2. create a dedicated Tester sweep branch from the exact protected `main` observed for the claim;
+3. open a draft sweep PR (or equivalent repository workflow record) immediately, carrying machine-readable Tester/sweep identity;
+4. only after that claim is visible may the Tester persist the immutable discovery snapshot and begin candidate execution.
+
+The sweep branch/PR is the GitHub-visible mutual-exclusion signal for later hourly activations while the sweep's repository-backed state has not yet converged to protected `main`.
+
+The Tester MUST NOT execute a scored case first and create its sweep claim afterward.
+
+If the claim cannot be established unambiguously, the invocation terminates without executing a case.
+
+The immutable discovery snapshot then records the complete candidate frontier observed for that claimed sweep.
 
 For deterministic processing, candidates should be processed by stable `case_id` ordering unless a later explicit contract defines another deterministic order.
 
@@ -437,7 +451,9 @@ The final immutable sweep result is then persisted.
 
 Repository-backed coordination changes must follow the established optimistic-concurrency and integration workflow. An unmerged working branch is not authoritative current case state merely because the Tester wrote it.
 
-After the sweep is durably recorded, the Tester terminates.
+The sweep claim remains active until the sweep state/evidence is durably integrated according to repository policy. If the sweep PR cannot yet converge, leave that claim observable and terminate; the next scheduled Tester activation must see it and must not start another sweep.
+
+After the sweep is durably recorded on protected `main` and its claim is no longer active, the Tester terminates.
 
 The Tester never continues into Developer work and never waits for blockers to be fixed inside the same invocation.
 
