@@ -32,7 +32,7 @@ SIMPLE_RELEVANT = (
 SIMPLE_DISTRACTOR = (
     "Qué efecto puede tener el régimen tributario sobre otros temas: la "
     "tributación simple regula declaración con anticipos en este comentario "
-    "general, sin describir el régimen SIMPLE como concepto conjunto."
+    "general, sin describir esos términos como un concepto conjunto."
 )
 
 PENALTY_QUERY = "declaración tardía"
