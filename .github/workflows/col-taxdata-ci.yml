@@ -139,7 +139,7 @@ jobs:
   complete-dispatched-lifecycle:
     name: Complete dispatched lifecycle
     needs: [policy, gate]
-    if: needs.gate.result == 'success' && needs.policy.outputs.applicable == 'true'
+    if: always() && needs.gate.result == 'success' && needs.policy.outputs.applicable == 'true'
     permissions:
       actions: write
       contents: write
