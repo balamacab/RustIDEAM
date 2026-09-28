@@ -1,0 +1,16 @@
+CM1|S|C260928T161639Z00|20260928T161639Z|9a9e4666c30e8cef155ef376dcb061be921e7492|C260928T040719Z00
+F|gh|i256|closed-done-562a5de|i256,p263|i256,p263,tcase,truntime
+D|27|2|mcp-timeout|5|7260-default-bounds-7201-86400|i256|d27,i256,tmcp,truntime
+F|gh|i254|closed-done-071f38e|i254,p264|i254,p264,tcase
+D|28|3|intake-v4|5|exact-source-bounded-recovery-real-provider-variants|i254|d28,i254,tcase
+F|gh|i255|closed-done-9a9e466|i255,p265|i255,p265,tcase,truntime
+D|29|2|case-bootstrap|5|migrate-isolated-db-before-rest-bind|i255|d29,i255,tcase,truntime
+F|diag|i255|source-db-through-015-v4-tables-from-016|i140,i255|i140,i255,truntime
+F|val|i142-r5|a-b-intake-fail-c-pass-historical|i142,i254|i142,i254,tcase,tgonogo
+F|gh|i142|closed-not-planned-user-retest-later|i142|i142,tcase,tgonogo
+D|30|1|retest|5|i254-i255-i256-converged-new-clean-main-e2e-next|i254,i255,i256|d30,i254,i255,i256,tcase,tgonogo
+A|1|fresh-e2e|user-authorizes-retest|i142,i254,i255,i256|i142,i254,i255,i256,tcase,tgonogo
+F|gh|i257|open-pr261-invalid-branch-policy|i257,p261|i257,p261,tctl
+D|31|0|automation-debt|6|not-product-retest-prerequisite|i257|d31,i257,tctl
+F|plan|dev-backlog-seed|168-53-258-259-58-6-260-59-60-61|i257|i257,tctl
+D|32|1|e2e-diagnosis|5|latent-intake-bootstrap-timeout-not-recent-product-regression|i254,i255,i256|d32,i254,i255,i256,tcase,truntime
