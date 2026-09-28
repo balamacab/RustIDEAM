@@ -188,3 +188,34 @@ the normal v3 identity semantics would produce.
 Issue #95 may use only synthetic non-CASE-0003 requests for runtime smoke
 testing. The first provider exposure to the frozen CASE-0003 input remains
 owned by issue #94.
+
+## Writable CASE v4 REST schema bootstrap
+
+A writable CASE v4 REST process must not accept requests against a database that
+has merely been copied from an older corpus snapshot. The canonical runtime
+entry point is:
+
+```bash
+python3 tools/case_rest_runtime.py \
+  --db /path/to/isolated-state.sqlite \
+  --case-root /path/to/isolated-case-root \
+  --config config/llm/case-validation-reference-v2.yaml
+```
+
+Before it constructs/binds the REST server, the entry point runs the exact
+migration engine exported by `tools/init_db.py`. That engine preserves the
+append-only migration contract and checks every already-applied migration
+against its registered SHA-256. Startup additionally requires
+`016_case_v4_bundle_persistence.sql`, `case_v4_bundles`, and
+`case_v4_artifacts`.
+
+If migration integrity or required schema verification fails, the process exits
+non-zero with `CASE_REST_RUNTIME_STARTUP_FAILURE` and
+`stage=schema_migration`; no REST socket is opened and no case request is
+consumed.
+
+For controlled validation, first create the writable SQLite copy using the
+online backup API, then point this runtime at that copy. The source corpus
+remains read-only. Schema bootstrap is not authorization to migrate or otherwise
+mutate production state.
+

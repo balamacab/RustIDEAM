@@ -6,6 +6,7 @@ import argparse
 import hashlib
 import sqlite3
 from pathlib import Path
+from typing import Callable
 
 
 def sha256_file(path: Path) -> str:
@@ -16,31 +17,26 @@ def sha256_file(path: Path) -> str:
     return h.hexdigest()
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser(
-        description="Initialize or migrate the col-taxdata SQLite database."
-    )
-    parser.add_argument(
-        "--db",
-        default="data/state/taxdata.sqlite",
-        help="SQLite database path.",
-    )
-    parser.add_argument(
-        "--schema-dir",
-        default="schema",
-        help="Directory containing ordered *.sql migrations.",
-    )
-    args = parser.parse_args()
+def migrate_database(
+    *,
+    db_path: Path,
+    schema_dir: Path,
+    emit: Callable[[str], None] | None = print,
+) -> dict[str, tuple[str, ...]]:
+    """Apply every repository migration in order with immutable hash checks.
 
-    db_path = Path(args.db)
-    schema_dir = Path(args.schema_dir)
-
+    This is the single migration engine used by both the standalone initializer
+    and writable CASE runtime bootstrap. Existing migration rows are accepted
+    only when their recorded SHA-256 still matches the migration file on disk.
+    """
     migrations = sorted(schema_dir.glob("*.sql"))
     if not migrations:
-        raise SystemExit(f"No SQL migrations found in: {schema_dir}")
+        raise RuntimeError(f"No SQL migrations found in: {schema_dir}")
 
     db_path.parent.mkdir(parents=True, exist_ok=True)
 
+    applied: list[str] = []
+    already_applied: list[str] = []
     con = sqlite3.connect(db_path)
     try:
         con.execute("PRAGMA foreign_keys = ON")
@@ -73,7 +69,9 @@ def main() -> int:
                     raise RuntimeError(
                         f"Applied migration changed on disk: {migration.name}"
                     )
-                print(f"already applied: {migration.name}")
+                already_applied.append(migration.name)
+                if emit is not None:
+                    emit(f"already applied: {migration.name}")
                 continue
 
             con.executescript(migration.read_text(encoding="utf-8"))
@@ -88,10 +86,37 @@ def main() -> int:
                 (migration.name, schema_hash),
             )
             con.commit()
-            print(f"applied: {migration.name}")
-
+            applied.append(migration.name)
+            if emit is not None:
+                emit(f"applied: {migration.name}")
     finally:
         con.close()
+
+    return {
+        "applied": tuple(applied),
+        "already_applied": tuple(already_applied),
+    }
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(
+        description="Initialize or migrate the col-taxdata SQLite database."
+    )
+    parser.add_argument(
+        "--db",
+        default="data/state/taxdata.sqlite",
+        help="SQLite database path.",
+    )
+    parser.add_argument(
+        "--schema-dir",
+        default="schema",
+        help="Directory containing ordered *.sql migrations.",
+    )
+    args = parser.parse_args()
+
+    db_path = Path(args.db)
+    schema_dir = Path(args.schema_dir)
+    migrate_database(db_path=db_path, schema_dir=schema_dir)
 
     print(f"database ready: {db_path}")
     return 0
