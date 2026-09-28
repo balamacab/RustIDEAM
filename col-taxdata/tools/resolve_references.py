@@ -13,6 +13,62 @@ RESOLVER_NAME = "canonical_reference_resolver"
 RESOLVER_VERSION = "2"
 RESOLUTION_METHOD = f"{RESOLVER_NAME}:{RESOLVER_VERSION}"
 
+REFERENCE_REVIEW_REASONS = (
+    "TARGET_DOCUMENT_NOT_FOUND",
+    "AMBIGUOUS_DOCUMENT_ID",
+    "TARGET_PROVISION_NOT_FOUND",
+    "AMBIGUOUS_PROVISION_DESIGNATION",
+)
+
+
+def close_obsolete_reference_reviews(
+    con: sqlite3.Connection,
+    *,
+    mention_id: str,
+    now: str,
+    current_reason: str | None,
+) -> int:
+    """Resolve review reasons that no longer describe the current resolution.
+
+    Acquiring a missing document can legitimately change an article reference
+    from TARGET_DOCUMENT_NOT_FOUND to TARGET_PROVISION_NOT_FOUND. Keeping both
+    reviews open would make corpus-coverage metrics stale even though the
+    document gap has been closed.
+    """
+
+    placeholders = ",".join("?" for _ in REFERENCE_REVIEW_REASONS)
+    sql = f"""
+        SELECT review_id
+        FROM review_queue
+        WHERE entity_type = 'reference_mention'
+          AND entity_id = ?
+          AND resolved_at IS NULL
+          AND reason_code IN ({placeholders})
+    """
+    params: list[object] = [mention_id, *REFERENCE_REVIEW_REASONS]
+    if current_reason is not None:
+        sql += " AND reason_code <> ?"
+        params.append(current_reason)
+
+    rows = con.execute(sql, params).fetchall()
+    resolution = (
+        f"Resolved by {RESOLUTION_METHOD}"
+        if current_reason is None
+        else f"Superseded by {current_reason} via {RESOLUTION_METHOD}"
+    )
+    for (review_id,) in rows:
+        con.execute(
+            """
+            UPDATE review_queue
+            SET resolved_at = ?,
+                resolution = ?,
+                reviewer = 'system'
+            WHERE review_id = ?
+            """,
+            (now, resolution, review_id),
+        )
+    return len(rows)
+
 
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
@@ -157,6 +213,7 @@ def resolve_references(
     detection_run_id: str,
     db_path: Path,
     relations_only: bool,
+    target_document_key: str | None = None,
 ) -> dict[str, object]:
     con = sqlite3.connect(db_path)
     con.execute("PRAGMA foreign_keys = ON")
@@ -206,6 +263,13 @@ def resolve_references(
                 """,
                 (detection_run_id,),
             ).fetchall()
+
+        if target_document_key is not None:
+            rows = [
+                row
+                for row in rows
+                if row[2] == target_document_key
+            ]
 
         now = utc_now()
         counts = {
@@ -304,6 +368,12 @@ def resolve_references(
 
                 if reason_code is not None:
                     reason_code = str(reason_code)
+                    review_items_closed += close_obsolete_reference_reviews(
+                        con,
+                        mention_id=mention_id,
+                        now=now,
+                        current_reason=reason_code,
+                    )
                     reason_counts[reason_code] = (
                         reason_counts.get(reason_code, 0) + 1
                     )
@@ -328,37 +398,12 @@ def resolve_references(
                     if review.rowcount:
                         review_items_inserted += 1
                 else:
-                    open_reviews = con.execute(
-                        """
-                        SELECT review_id
-                        FROM review_queue
-                        WHERE entity_type = 'reference_mention'
-                          AND entity_id = ?
-                          AND resolved_at IS NULL
-                          AND reason_code IN (
-                              'TARGET_DOCUMENT_NOT_FOUND',
-                              'AMBIGUOUS_DOCUMENT_ID',
-                              'TARGET_PROVISION_NOT_FOUND',
-                              'AMBIGUOUS_PROVISION_DESIGNATION'
-                          )
-                        """,
-                        (mention_id,),
-                    ).fetchall()
-                    for (review_id,) in open_reviews:
-                        con.execute(
-                            """
-                            UPDATE review_queue
-                            SET resolved_at = ?,
-                                resolution = ?
-                            WHERE review_id = ?
-                            """,
-                            (
-                                now,
-                                f"Resolved by {RESOLUTION_METHOD}",
-                                review_id,
-                            ),
-                        )
-                        review_items_closed += 1
+                    review_items_closed += close_obsolete_reference_reviews(
+                        con,
+                        mention_id=mention_id,
+                        now=now,
+                        current_reason=None,
+                    )
 
         return {
             "resolver_name": RESOLVER_NAME,
@@ -367,6 +412,7 @@ def resolve_references(
             "detection_run_id": detection_run_id,
             "extraction_id": run[1],
             "relations_only": relations_only,
+            "target_document_key": target_document_key,
             "mentions_processed": len(rows),
             "resolved": counts["resolved"],
             "unresolved": counts["unresolved"],
@@ -398,12 +444,19 @@ def main() -> int:
         ),
     )
     parser.add_argument("--db", default="data/state/taxdata.sqlite")
+    parser.add_argument(
+        "--target-document-key",
+        help=(
+            "Optionally reconcile only mentions for one canonical target key."
+        ),
+    )
     args = parser.parse_args()
 
     result = resolve_references(
         detection_run_id=args.detection_run_id,
         db_path=Path(args.db),
         relations_only=args.relations_only,
+        target_document_key=args.target_document_key,
     )
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0

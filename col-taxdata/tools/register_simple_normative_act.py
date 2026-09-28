@@ -177,6 +177,7 @@ def register_simple_act(
     *,
     extraction_id: str,
     db_path: Path,
+    expected_canonical_key: str | None = None,
 ) -> dict[str, object]:
     con = sqlite3.connect(db_path)
     con.execute("PRAGMA foreign_keys = ON")
@@ -231,6 +232,29 @@ def register_simple_act(
             raise RuntimeError("document heading not found")
 
         assessment = assess_generic_normative_identity(source_url, heading[3])
+
+        if (
+            assessment.accepted
+            and expected_canonical_key is not None
+            and assessment.content is not None
+            and assessment.content.canonical_key != expected_canonical_key
+        ):
+            # A demand-driven adapter may know which canonical target it
+            # requested, but that request is not evidence. Refuse a mismatched
+            # page before persisting any identity decision.
+            return {
+                "parser_name": PARSER_NAME,
+                "parser_version": PARSER_VERSION,
+                "status": "unresolved",
+                "reason_code": "EXPECTED_CANONICAL_KEY_MISMATCH",
+                "source_family": assessment.source.family,
+                "manifestation_id": manifestation_id,
+                "extraction_id": extraction_id,
+                "document_id": existing_document_id,
+                "expected_canonical_key": expected_canonical_key,
+                "observed_canonical_key": assessment.content.canonical_key,
+            }
+
         with con:
             review_id = persist_assessment(
                 con,
@@ -609,11 +633,19 @@ def main() -> int:
     )
     parser.add_argument("--extraction-id", required=True)
     parser.add_argument("--db", default="data/state/taxdata.sqlite")
+    parser.add_argument(
+        "--expected-canonical-key",
+        help=(
+            "Optional fail-closed identity constraint used by an approved "
+            "official-source acquisition adapter."
+        ),
+    )
     args = parser.parse_args()
 
     result = register_simple_act(
         extraction_id=args.extraction_id,
         db_path=Path(args.db),
+        expected_canonical_key=args.expected_canonical_key,
     )
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0

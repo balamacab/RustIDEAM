@@ -1,7 +1,7 @@
 ---
 id: GAP-0001
 type: coverage-gap
-status: specified
+status: verified
 priority: P2
 area: corpus-coverage
 baseline: 2026-09-22-corpus-audit

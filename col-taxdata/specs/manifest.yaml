@@ -144,7 +144,7 @@ items:
   - id: GAP-0001
     type: coverage-gap
     priority: P2
-    status: specified
+    status: verified
     area: corpus-coverage
     spec: specs/gaps/GAP-0001-referenced-documents-outside-current-corpus.md
     github_issue: 8
