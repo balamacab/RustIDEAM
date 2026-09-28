@@ -11,6 +11,7 @@ import uuid
 
 
 NORMATIVE_ACT = "NORMATIVE_ACT"
+FUNCION_PUBLICA_NORMATIVE_ACT = "FUNCION_PUBLICA_NORMATIVE_ACT"
 DIAN_CONCEPTO = "DIAN_CONCEPTO"
 DIAN_OFICIO = "DIAN_OFICIO"
 CORTE_CONSTITUCIONAL_SENTENCIA_C = "CORTE_CONSTITUCIONAL_SENTENCIA_C"
@@ -180,7 +181,20 @@ def issuer_from_normative_filename(name: str, document_type: str) -> str | None:
 
 
 def classify_source_url(source_url: str) -> IdentitySignal:
-    name = Path(urllib.parse.unquote(urllib.parse.urlparse(source_url).path)).name.lower()
+    parsed = urllib.parse.urlparse(source_url)
+    path = urllib.parse.unquote(parsed.path)
+    host = (parsed.hostname or "").lower().rstrip(".")
+
+    # Gestor Normativo uses opaque numeric page IDs rather than legal identity
+    # in the URL. Treat the official norma.php endpoint as its own family so
+    # only the family parser may derive Ley/Decreto identity from front matter.
+    if (
+        (host == "funcionpublica.gov.co" or host.endswith(".funcionpublica.gov.co"))
+        and path.rstrip("/") == "/eva/gestornormativo/norma.php"
+    ):
+        return IdentitySignal(FUNCION_PUBLICA_NORMATIVE_ACT, source_url)
+
+    name = Path(path).name.lower()
 
     prefix = NORMATIVE_PREFIX_RE.match(name)
     if prefix:
