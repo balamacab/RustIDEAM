@@ -6,6 +6,7 @@ services:
     container_name: col-taxdata-web-console
     environment:
       CASE_API_UPSTREAM: ${CASE_API_UPSTREAM:?Set CASE_API_UPSTREAM to the CASE REST origin}
+      CASE_API_READ_TIMEOUT_SECONDS: ${CASE_API_READ_TIMEOUT_SECONDS:-7260}
     ports:
       - "${CASE_CONSOLE_PORT:-8080}:8080"
     restart: unless-stopped
