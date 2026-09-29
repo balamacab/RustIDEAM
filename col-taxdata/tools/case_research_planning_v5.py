@@ -318,9 +318,14 @@ def _profile_matches(profile: dict[str, Any], seed_text: str) -> bool:
     seed_tokens = _tokens(seed_text)
     match = profile["match"]
 
-    phrase_match = any(
-        _fold_text(phrase) in folded for phrase in match["any_phrases"]
-    )
+    def alias_matches(phrase: str) -> bool:
+        folded_phrase = _fold_text(phrase).strip()
+        phrase_tokens = _tokens(phrase)
+        if len(phrase_tokens) == 1 and " " not in folded_phrase:
+            return next(iter(phrase_tokens)) in seed_tokens
+        return folded_phrase in folded
+
+    phrase_match = any(alias_matches(phrase) for phrase in match["any_phrases"])
     groups = match["all_token_groups"]
     group_match = bool(groups) and all(
         bool(seed_tokens.intersection(_tokens(" ".join(group))))
