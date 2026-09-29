@@ -13,12 +13,18 @@ from case_contract_validation_v4 import (
     validate_intake_draft as validate_v4_intake_draft,
     validate_legal_research_bundle as validate_v4_legal_research_bundle,
 )
+from case_contract_validation_v5 import (
+    validate_case_input as validate_v5_case_input,
+    validate_intake_draft as validate_v5_intake_draft,
+    validate_legal_research_bundle as validate_v5_legal_research_bundle,
+)
 
 
 V3_CONTRACT_VERSION = "3.0.0"
 V4_CONTRACT_VERSION = "4.0.0"
+V5_CONTRACT_VERSION = "5.0.0"
 SUPPORTED_CONTRACT_VERSIONS = frozenset(
-    {V3_CONTRACT_VERSION, V4_CONTRACT_VERSION}
+    {V3_CONTRACT_VERSION, V4_CONTRACT_VERSION, V5_CONTRACT_VERSION}
 )
 
 UNSUPPORTED_CASE_CONTRACT_VERSION = "UNSUPPORTED_CASE_CONTRACT_VERSION"
@@ -58,8 +64,10 @@ def validate_case_input(case_input: dict[str, Any]) -> str:
         )
     if version == V3_CONTRACT_VERSION:
         validate_v3_case_input(case_input)
-    else:
+    elif version == V4_CONTRACT_VERSION:
         validate_v4_case_input(case_input)
+    else:
+        validate_v5_case_input(case_input)
     return version
 
 
@@ -67,10 +75,10 @@ def validate_structured_intake(
     case_input: dict[str, Any],
     structured_intake: dict[str, Any],
 ) -> str:
-    """Validate the model-owned intake object for the input's explicit version.
+    """Validate model-owned intake under the caller's explicit CASE version.
 
-    v3 remains CaseDraft. v4 is IntakeDraft. A version or kind mismatch is never
-    repaired or relabeled across this compatibility boundary.
+    v3 remains CaseDraft. v4/v5 are IntakeDraft. A version or kind mismatch is
+    never repaired or relabeled across this compatibility boundary.
     """
     version = validate_case_input(case_input)
     structured_version = _version(structured_intake)
@@ -85,9 +93,7 @@ def validate_structured_intake(
         )
 
     expected_kind = (
-        "case_draft"
-        if version == V3_CONTRACT_VERSION
-        else "intake_draft"
+        "case_draft" if version == V3_CONTRACT_VERSION else "intake_draft"
     )
     if structured_intake.get("kind") != expected_kind:
         _fail(
@@ -101,23 +107,23 @@ def validate_structured_intake(
 
     if version == V3_CONTRACT_VERSION:
         validate_v3_case_draft(case_input, structured_intake)
-    else:
+    elif version == V4_CONTRACT_VERSION:
         validate_v4_intake_draft(case_input, structured_intake)
+    else:
+        validate_v5_intake_draft(case_input, structured_intake)
     return version
 
 
 def validate_analysis_result(result: dict[str, Any]) -> str:
-    """Validate a frozen v3 CaseResult or a v4 LegalResearchBundle.
+    """Validate a frozen v3 result or versioned v4/v5 research bundle.
 
-    The function is intentionally version-driven rather than shape-driven: old
-    CASE artifacts remain interpretable under their original contract, while a
-    relabeled object cannot acquire v4 semantics.
+    Dispatch is intentionally version-driven rather than shape-driven. A stored
+    historical object remains governed by the semantics it declares, and a
+    breaking v5 graph cannot acquire v4 meaning by relabeling its version.
     """
     version = _version(result)
     expected_kind = (
-        "case_result"
-        if version == V3_CONTRACT_VERSION
-        else "legal_research_bundle"
+        "case_result" if version == V3_CONTRACT_VERSION else "legal_research_bundle"
     )
     if result.get("kind") != expected_kind:
         _fail(
@@ -131,6 +137,8 @@ def validate_analysis_result(result: dict[str, Any]) -> str:
 
     if version == V3_CONTRACT_VERSION:
         validate_v3_case_result(result)
-    else:
+    elif version == V4_CONTRACT_VERSION:
         validate_v4_legal_research_bundle(result)
+    else:
+        validate_v5_legal_research_bundle(result)
     return version
