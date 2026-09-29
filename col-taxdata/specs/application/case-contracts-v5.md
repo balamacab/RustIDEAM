@@ -746,6 +746,46 @@ A graph endpoint materialized solely for closure does not gain aspect coverage m
 
 #284 owns implementation of this selection boundary.
 
+### 21.1 Relationship-selection implementation boundary
+
+Issue #284 implements this boundary as a read-only v5 selector plus a selected-subgraph
+support-closure seam. It does not activate v5 public transport or change historical
+v4 bundle materialization.
+
+The implementation follows these additional rules:
+
+1. Complete canonical relationship classification remains upstream and unchanged.
+   Case-specific selection consumes that classified candidate set; it never deletes
+   or rewrites canonical relationship rows.
+2. Selected exact EvidenceSpan provision refs define the strongest structural
+   relevance boundary. A relationship that directly touches a selected provision is
+   eligible without query-text similarity or a legal-validity score.
+3. Amendment/modification, repeal/supersession, exception, definition, temporal and
+   explicit conflict dependency classes remain eligible when they affect selected
+   support even if endpoint text has low query similarity.
+4. A mandatory dependency expressed only at document scope is retained
+   conservatively and its document-scope uncertainty is recorded in the deterministic
+   selection reason. A provision-scoped relationship for a different known provision
+   of the same high-degree document is not admitted merely because that document was
+   researched.
+5. Relationship work uses the support budget
+   `max_relationships_per_aspect`, not research-query or display budgets. Stable
+   canonical-ref ordering is only deterministic work ordering; it is not legal
+   precedence. If required relevant relationships exceed the support budget, the
+   overflow becomes required support OmittedWork and the aspect cannot claim complete
+   closure.
+6. Endpoint and evidence-owner closure runs only after selection and reuses the
+   existing first-order evidence-owner integrity rules. Closure-only authorities
+   remain distinguishable from researched/selected authorities and do not acquire
+   aspect coverage.
+7. Every selected relationship, endpoint and required evidence ref must resolve in
+   the selected support graph. Missing canonical ownership/provenance is an integrity
+   failure rather than a dangling selected ref.
+8. Selection/closure is deterministic and read-only. Display/pagination policy is
+   not consulted and cannot change canonical selected content.
+
+The initial deterministic selector version is `v5-graph-selection-1`.
+
 ## 22. Persistence and REST/Web/MCP rollout
 
 ### Phase A — contract primitives
