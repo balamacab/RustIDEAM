@@ -52,8 +52,9 @@ def _intake(
     *,
     facts: list[dict] | None = None,
     intake_ref: str = "intake:issue283",
+    as_of_date: str | None = None,
 ) -> dict:
-    return {
+    value = {
         "kind": "intake_draft",
         "contract_version": "5.0.0",
         "intake_ref": intake_ref,
@@ -74,6 +75,9 @@ def _intake(
             "structured_generation_mechanism": "fixture",
         },
     }
+    if as_of_date is not None:
+        value["as_of_date"] = as_of_date
+    return value
 
 
 def _profile(*dimensions: tuple[str, list[str], bool]) -> object:
@@ -116,6 +120,7 @@ def _plan(
         problem,
         [_question("question:q1", "What support should the coverage fixture research?")],
         facts=facts,
+        as_of_date=as_of_date,
     )
     plan = build_research_plan_v5(
         case_input,
@@ -482,6 +487,7 @@ class Issue0283CaseV5CoverageTests(unittest.TestCase):
             [_question("question:filing", "¿Quién debe presentar renta y qué topes aplican?")],
             facts=[missing_fact],
             intake_ref="intake:filing-283",
+            as_of_date="2025-12-31",
         )
         plan = build_research_plan_v5(case_input, intake, generated_at=NOW)
         tasks = _task_by_dimension(plan)
