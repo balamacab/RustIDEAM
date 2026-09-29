@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 import sqlite3
@@ -243,7 +244,7 @@ def load_legal_research_bundle(
             raise BundleIntegrityError(
                 f"ownership/trust mismatch for {artifact_kind}:{artifact_ref}"
             )
-        actual_payload_sha256 = __import__("hashlib").sha256(
+        actual_payload_sha256 = hashlib.sha256(
             payload_json.encode("utf-8")
         ).hexdigest()
         if actual_payload_sha256 != expected_payload_sha256:
