@@ -199,6 +199,29 @@ class Issue281CaseV5PlanningTests(unittest.TestCase):
             {aspect["dimension_key"] for aspect in plan["aspects"]},
         )
 
+    def test_single_token_profile_alias_does_not_match_inside_another_word(self):
+        problem = "Se consulta un acditivo contractual de alcance desconocido."
+        intake = _intake(
+            problem,
+            [
+                _question(
+                    "question:unknown-alias",
+                    "¿Qué reglas deben investigarse para este acditivo contractual?",
+                )
+            ],
+        )
+        plan = build_research_plan_v5(
+            _case_input(problem),
+            intake,
+            generated_at=GENERATED_AT,
+        )
+
+        self.assertEqual(plan["aspects"][0]["origin"], "generic_fallback")
+        self.assertNotIn(
+            "tax.treaty",
+            {aspect.get("profile_id") for aspect in plan["aspects"]},
+        )
+
     def test_unknown_topic_gets_explicit_generic_limited_plan(self):
         problem = "Se consulta una servidumbre minera contractual atípica."
         intake = _intake(
