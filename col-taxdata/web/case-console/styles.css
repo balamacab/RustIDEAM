@@ -244,3 +244,69 @@ button.secondary { background: #172335; border-color: #3c526f; }
 }
 
 .local-error-boundary { color: #8da2bd; }
+
+/* Issue #286: human-readable CASE v5 coverage projection. */
+.result-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.date-input-hint { max-width: 33rem; line-height: 1.4; }
+.coverage-panel { padding: 14px; }
+
+.coverage-summary {
+  margin-bottom: 14px;
+  padding: 13px 14px;
+  border: 1px solid #2b3b51;
+  border-radius: 8px;
+  background: #101824;
+}
+
+.coverage-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+.coverage-chip { display: inline-flex; border: 1px solid #3a4b61; border-radius: 999px; padding: 4px 8px; color: #b9c6d6; background: #111925; font-size: .7rem; }
+.coverage-chip-good { border-color: #3e6e57; color: #a9d9bc; background: #102017; }
+.coverage-chip-attention { border-color: #705d3e; color: #e2c894; background: #211a10; }
+.date-policy-note, .coverage-boundary-note, .synthesis-note { margin: 8px 0 0; color: #aebed0; font-size: .78rem; line-height: 1.45; }
+.coverage-boundary-note { color: #8da2bd; }
+.synthesis-note { padding: 9px 10px; border-left: 3px solid #6f83ae; background: #111a2a; color: #c0cce0; }
+
+.question-card { margin-bottom: 14px; border: 1px solid #29374b; border-radius: 8px; background: #0b111a; padding: 14px; }
+.question-card > h3 { margin-bottom: 10px; font-size: 1rem; color: #eef3f9; }
+.question-meta, .evidence-meta { display: grid; gap: 4px; }
+.question-meta { margin-bottom: 12px; }
+.coverage-definition { display: grid; grid-template-columns: minmax(100px, 150px) 1fr; gap: 8px; font-size: .73rem; line-height: 1.4; }
+.coverage-definition-key { color: #7f91a8; }
+.coverage-definition-value { color: #c7d2df; overflow-wrap: anywhere; }
+
+.aspect-card { margin-top: 10px; padding: 12px; border: 1px solid #25354a; border-radius: 7px; background: #0e1621; }
+.aspect-heading { display: flex; align-items: center; gap: 8px; justify-content: space-between; }
+.aspect-heading h4 { margin-bottom: 7px; font-size: .88rem; color: #dbe5f1; }
+.required-marker { border: 1px solid #525f75; border-radius: 999px; padding: 2px 6px; color: #9eb0c7; font-size: .63rem; text-transform: uppercase; letter-spacing: .06em; }
+.research-goal { margin-bottom: 10px; color: #9fb0c3; font-size: .76rem; line-height: 1.45; }
+.coverage-subheading { margin: 13px 0 7px; color: #aebed0; font-size: .73rem; letter-spacing: .03em; text-transform: uppercase; }
+.warning-list { margin: 0; padding-left: 19px; color: #d2bd8d; font-size: .75rem; line-height: 1.45; }
+.coverage-warning + .coverage-warning { margin-top: 4px; }
+.coverage-warning-fact, .coverage-warning-context, .coverage-warning-corpus { color: #d9bd86; }
+.coverage-warning-conflict, .coverage-warning-integrity, .coverage-warning-authority { color: #e2a3a3; }
+.coverage-warning-temporal, .coverage-warning-budget, .coverage-warning-scope, .coverage-warning-research, .coverage-warning-evidence { color: #c8b88f; }
+.coverage-warning-synthesis { color: #aebce0; }
+
+.evidence-list { display: grid; gap: 9px; }
+.evidence-card { padding: 11px; border: 1px solid #26374d; border-radius: 7px; background: #090f17; }
+.evidence-exact-text { margin: 0 0 10px; padding: 9px 11px; border-left: 3px solid #607fa5; background: #101925; color: #d9e3ee; font: 12px/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
+.authority-metadata-warning, .source-unavailable { margin: 9px 0 0; color: #d3aa83; font-size: .73rem; line-height: 1.4; }
+.official-source-link { display: inline-block; margin-top: 9px; color: #9fc4ef; font-size: .75rem; overflow-wrap: anywhere; }
+.official-source-link:focus { outline: 2px solid #7d9bc2; outline-offset: 2px; }
+.coverage-version-message { padding: 15px; }
+.coverage-version-message h3 { margin-bottom: 8px; font-size: .95rem; color: #d8e1ec; }
+.coverage-version-message p { color: #9caec3; font-size: .8rem; line-height: 1.5; }
+.coverage-empty { padding: 0; margin: 8px 0 0; }
+
+@media (max-width: 600px) {
+  .section-heading { flex-direction: column; }
+  .result-actions { justify-content: flex-start; }
+  .coverage-definition { grid-template-columns: 1fr; gap: 1px; }
+}

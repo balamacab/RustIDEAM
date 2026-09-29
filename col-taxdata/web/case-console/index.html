@@ -29,7 +29,7 @@
       </div>
 
       <div class="fixture-row">
-        <label for="fixture-select">Approved fixture</label>
+        <label for="fixture-select">Approved request fixture</label>
         <div class="inline">
           <select id="fixture-select" aria-label="Approved request fixture"></select>
           <button id="load-fixture" type="button" class="secondary" disabled>Load</button>
@@ -43,8 +43,9 @@
 
         <div class="two-columns">
           <div>
-            <label for="as-of-date">as_of_date</label>
-            <input id="as-of-date" type="date">
+            <label for="as-of-date">as_of_date <span class="optional">optional</span></label>
+            <input id="as-of-date" type="date" aria-describedby="as-of-date-hint">
+            <p id="as-of-date-hint" class="hint date-input-hint">If blank, no date is sent. Temporal applicability must remain explicitly unassessed.</p>
           </div>
           <div>
             <label for="client-reference">client_reference</label>
@@ -71,17 +72,21 @@
           <p class="eyebrow">Inspection</p>
           <h2 id="result-title">LegalResearchBundle</h2>
         </div>
-        <span class="boundary">No browser synthesis</span>
+        <div class="result-actions">
+          <button id="export-raw" type="button" class="secondary" disabled>Export raw JSON</button>
+          <span class="boundary">No browser synthesis</span>
+        </div>
       </div>
 
       <div class="trust-note">
         <strong>Authority boundary.</strong>
-        The console displays the public REST response verbatim. It does not validate
-        canonical evidence, calculate legal/tax results, infer missing state, or turn
-        provider metadata into legal authority.
+        The console presents the public REST response and a read-only projection of its
+        research coverage. It does not validate canonical evidence, infer legal conclusions,
+        fill missing authority or temporal facts, call a model, or write back canonical state.
       </div>
 
       <nav class="tabs" aria-label="Result views">
+        <button type="button" data-view="coverage" aria-selected="false">Coverage</button>
         <button type="button" data-view="result" aria-selected="true">Result</button>
         <button type="button" data-view="intake" aria-selected="false">Intake</button>
         <button type="button" data-view="research" aria-selected="false">Research</button>
@@ -92,6 +97,7 @@
         <button type="button" data-view="raw" aria-selected="false">Raw JSON</button>
       </nav>
 
+      <div class="panel coverage-panel" data-view-panel="coverage" hidden></div>
       <div class="panel" data-view-panel="result"></div>
       <div class="panel" data-view-panel="intake" hidden></div>
       <div class="panel" data-view-panel="research" hidden></div>

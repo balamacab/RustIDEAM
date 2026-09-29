@@ -1,4 +1,5 @@
-import { buildRequest, buildViewModels } from "./app-core.mjs";
+import { buildRawExport, buildRequest, buildViewModels } from "./app-core.mjs";
+import { renderCoverage } from "./coverage-renderer.mjs";
 
 const form = document.querySelector("#case-form");
 const problemText = document.querySelector("#problem-text");
@@ -8,6 +9,7 @@ const callerMetadata = document.querySelector("#caller-metadata");
 const fixtureSelect = document.querySelector("#fixture-select");
 const loadFixtureButton = document.querySelector("#load-fixture");
 const submitButton = document.querySelector("#submit-case");
+const exportRawButton = document.querySelector("#export-raw");
 const requestState = document.querySelector("#request-state");
 const elapsed = document.querySelector("#elapsed");
 const contractBadge = document.querySelector("#contract-badge");
@@ -22,6 +24,7 @@ let contract;
 let fixtures = [];
 let timerId = null;
 let startedAt = 0;
+let rawPayload = null;
 
 function setText(node, value) {
   node.textContent = value;
@@ -51,9 +54,15 @@ function renderJson(panel, value, emptyMessage) {
   panel.append(pre);
 }
 
+function setRawPayload(payload) {
+  rawPayload = payload;
+  exportRawButton.disabled = rawPayload === null;
+}
+
 function renderViews(payload) {
   const views = buildViewModels(payload);
   renderJson(viewPanels.get("result"), views.result, "No result.");
+  renderCoverage(document, viewPanels.get("coverage"), views.coverage);
   renderJson(viewPanels.get("intake"), views.intake, "No intake data exposed.");
   renderJson(viewPanels.get("research"), views.research, "No research data exposed.");
   renderJson(viewPanels.get("evidence"), views.evidence, "No public evidence data exposed.");
@@ -73,10 +82,17 @@ function renderViews(payload) {
     "No public diagnostics exposed.",
   );
   renderJson(viewPanels.get("raw"), views.raw, "No response.");
+  setRawPayload(views.raw);
+  return views;
 }
 
 function renderLocalTransportError(message) {
+  setRawPayload(null);
   for (const [name, panel] of viewPanels) {
+    if (name === "coverage") {
+      renderCoverage(document, panel, null);
+      continue;
+    }
     renderJson(
       panel,
       null,
@@ -144,6 +160,18 @@ loadFixtureButton.addEventListener("click", () => {
   problemText.focus();
 });
 
+exportRawButton.addEventListener("click", () => {
+  if (rawPayload === null) return;
+  const exported = buildRawExport(rawPayload);
+  const blob = new Blob([exported.text], { type: "application/json" });
+  const objectUrl = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = objectUrl;
+  link.download = exported.filename;
+  link.click();
+  URL.revokeObjectURL(objectUrl);
+});
+
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
   let request;
@@ -159,6 +187,7 @@ form.addEventListener("submit", async (event) => {
     return;
   }
 
+  setRawPayload(null);
   submitButton.disabled = true;
   showState("CASE request running…", "running");
   startElapsed();
@@ -182,12 +211,13 @@ form.addEventListener("submit", async (event) => {
     }
 
     const payload = await response.json();
-    renderViews(payload);
-    activateTab("result");
+    const views = renderViews(payload);
 
     if (response.ok) {
+      activateTab(views.coverage?.available ? "coverage" : "result");
       showState("Public CASE response received.", "success");
     } else {
+      activateTab("result");
       const code =
         payload &&
         payload.error &&
@@ -207,6 +237,7 @@ form.addEventListener("submit", async (event) => {
 });
 
 async function initialize() {
+  setRawPayload(null);
   try {
     const [contractResponse, fixtureResponse] = await Promise.all([
       fetch("./public-contract.json", { cache: "no-store" }),
@@ -219,7 +250,10 @@ async function initialize() {
     const fixtureDocument = await fixtureResponse.json();
     fixtures = fixtureDocument.fixtures ?? [];
 
-    setText(contractBadge, `${contract.contract_name} · ${contract.api_version}`);
+    setText(
+      contractBadge,
+      `${contract.contract_name} · REST ${contract.api_version} · CASE ${contract.application_contract_version}`,
+    );
     fixtureSelect.replaceChildren();
     for (const fixture of fixtures) {
       const option = document.createElement("option");
