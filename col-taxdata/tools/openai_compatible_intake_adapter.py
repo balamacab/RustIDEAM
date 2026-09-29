@@ -23,7 +23,10 @@ from case_contract_validation import (
 )
 from case_contract_validation_v4 import (
     INVALID_INTAKE_DRAFT,
-    intake_draft_generation_schema,
+    intake_draft_generation_schema as v4_intake_draft_generation_schema,
+)
+from case_contract_validation_v5 import (
+    intake_draft_generation_schema as v5_intake_draft_generation_schema,
 )
 from llm_client import (
     CASE_PROVIDER_TIMEOUT,
@@ -35,6 +38,8 @@ from llm_client import (
     ModelRoute,
     OutputLimitError,
     StructuredGenerationCapability,
+    V4_CONTRACT_VERSION,
+    V5_CONTRACT_VERSION,
     _compact_json,
     _estimate_request_tokens,
     _materialize_client_owned_fields,
@@ -88,11 +93,20 @@ class OpenAICompatibleIntakeAdapter:
         profile = _structuring_contract_profile(case_input)
         if profile.invalid_output_code == INVALID_CASE_DRAFT:
             response_schema = case_draft_generation_schema(case_input)
-        elif profile.invalid_output_code == INVALID_INTAKE_DRAFT:
-            response_schema = intake_draft_generation_schema(case_input)
+        elif (
+            profile.invalid_output_code == INVALID_INTAKE_DRAFT
+            and profile.contract_version == V4_CONTRACT_VERSION
+        ):
+            response_schema = v4_intake_draft_generation_schema(case_input)
+        elif (
+            profile.invalid_output_code == INVALID_INTAKE_DRAFT
+            and profile.contract_version == V5_CONTRACT_VERSION
+        ):
+            response_schema = v5_intake_draft_generation_schema(case_input)
         else:
             raise AssertionError(
-                f"unsupported structured intake code {profile.invalid_output_code!r}"
+                "unsupported structured intake profile "
+                f"{profile.contract_version!r}/{profile.invalid_output_code!r}"
             )
         response_schema_sha256 = sha256_hex(canonical_json_bytes(response_schema))
         model_input = _model_input_context(case_input)
