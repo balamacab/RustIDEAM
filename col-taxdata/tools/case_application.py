@@ -15,6 +15,8 @@ import uuid
 from case_contract_dispatch import (
     V3_CONTRACT_VERSION,
     V4_CONTRACT_VERSION,
+    V5_CONTRACT_VERSION,
+    validate_analysis_result,
     validate_case_input as validate_dispatched_case_input,
 )
 from case_contract_validation import (
@@ -37,6 +39,7 @@ from case_bundle_persistence_v4 import (
     BundlePersistenceError as V4BundlePersistenceError,
     persist_and_materialize_legal_research_bundle,
 )
+from case_bundle_persistence import persist_and_materialize_versioned_bundle
 from case_research import (
     PlatformResearchService,
     ResearchIntegrityError,
@@ -168,6 +171,71 @@ class ResearchAnalysisOutcome:
     persistence: dict[str, Any]
     materialization: dict[str, Any]
     persistence_mode: str
+
+
+@dataclass(frozen=True)
+class V5BundlePublicationOutcome:
+    """Durable/publication outcome for an already-produced valid CASE v5 bundle.
+
+    #285 owns this publication seam, not v5 research or graph-selection policy.
+    Upstream producers must supply the complete LegalResearchBundle; this
+    boundary validates it before any persistence or external transport.
+    """
+
+    case_ref: str
+    bundle: dict[str, Any]
+    persistence: dict[str, Any]
+    materialization: dict[str, Any]
+    persistence_mode: str
+
+
+def publish_v5_legal_research_bundle(
+    *,
+    case_ref: str,
+    bundle: dict[str, Any],
+    db_path: Path,
+    case_root: Path,
+    dry_run: bool,
+) -> V5BundlePublicationOutcome:
+    """Validate and durably publish one complete CASE v5 research bundle.
+
+    Consumer inference and incomplete/masquerading versions fail at the closed
+    v5 contract before persistence.  Historical v4 bundles remain on their own
+    frozen application/persistence path.
+    """
+    try:
+        version = validate_analysis_result(bundle)
+    except (CaseContractError, TypeError, ValueError, KeyError) as exc:
+        raise CaseAnalysisIntegrityError(
+            "CASE v5 publication rejected a contract-invalid bundle"
+        ) from exc
+    if version != V5_CONTRACT_VERSION:
+        raise CaseAnalysisIntegrityError(
+            f"CASE v5 publication requires {V5_CONTRACT_VERSION}, got {version!r}"
+        )
+    if not isinstance(case_ref, str) or not case_ref:
+        raise CasePersistenceError("case_ref must be a non-empty server-owned ref")
+
+    try:
+        persistence, materialization = persist_and_materialize_versioned_bundle(
+            db_path=Path(db_path),
+            case_root=Path(case_root),
+            case_ref=case_ref,
+            bundle=bundle,
+            dry_run=dry_run,
+        )
+    except V4BundlePersistenceError as exc:
+        raise CasePersistenceError(str(exc)) from exc
+    except V4BundleMaterializationError as exc:
+        raise CaseMaterializationError(str(exc)) from exc
+
+    return V5BundlePublicationOutcome(
+        case_ref=case_ref,
+        bundle=deepcopy(bundle),
+        persistence=persistence,
+        materialization=materialization,
+        persistence_mode="preview" if dry_run else "write",
+    )
 
 
 def utc_now() -> str:
