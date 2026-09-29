@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import ast
 import fnmatch
 import json
 import os
@@ -295,6 +296,169 @@ def scan_secrets(repo_root: Path, paths: Iterable[str]) -> list[str]:
     return findings
 
 
+def is_production_python_path(path: str) -> bool:
+    """Return whether a path is production Python covered by documentation policy."""
+    return (
+        path.startswith("col-taxdata/")
+        and path.endswith(".py")
+        and not path.startswith("col-taxdata/tests/")
+    )
+
+
+def _public_definitions(tree: ast.AST) -> dict[str, tuple[ast.AST, str]]:
+    """Collect mechanically public definitions without treating local functions as API."""
+    definitions: dict[str, tuple[ast.AST, str]] = {}
+
+    def visit_class_body(body: list[ast.stmt], prefix: str) -> None:
+        for node in body:
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                if node.name.startswith("_"):
+                    continue
+                qualified = f"{prefix}.{node.name}"
+                definitions[qualified] = (node, "method")
+                continue
+            if isinstance(node, ast.ClassDef):
+                if node.name.startswith("_"):
+                    continue
+                qualified = f"{prefix}.{node.name}"
+                definitions[qualified] = (node, "class")
+                visit_class_body(node.body, qualified)
+
+    module_body = getattr(tree, "body", [])
+    for node in module_body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            if not node.name.startswith("_"):
+                definitions[node.name] = (node, "function")
+            continue
+        if isinstance(node, ast.ClassDef):
+            if node.name.startswith("_"):
+                continue
+            definitions[node.name] = (node, "class")
+            visit_class_body(node.body, node.name)
+    return definitions
+
+
+def _definition_fingerprint(node: ast.AST) -> str:
+    return ast.dump(node, annotate_fields=True, include_attributes=False)
+
+
+def _has_docstring(node: ast.AST) -> bool:
+    value = ast.get_docstring(node, clean=False)
+    return bool(value and value.strip())
+
+
+def _module_requires_docstring(tree: ast.Module) -> bool:
+    """Classify a new module as substantial using stable structure, not line counts."""
+    public_classes = 0
+    public_callables = 0
+    for node in tree.body:
+        if isinstance(node, ast.ClassDef) and not node.name.startswith("_"):
+            public_classes += 1
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and not node.name.startswith("_"):
+            public_callables += 1
+    return public_classes > 0 or public_callables >= 2
+
+
+def _optional_git_file(repo_root: Path, base: str, path: str) -> str | None:
+    """Read a file from the accepted base without treating absence as a Git failure."""
+    proc = subprocess.run(
+        ["git", "show", f"{base}:{path}"],
+        cwd=repo_root,
+        check=False,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    if proc.returncode != 0:
+        return None
+    return proc.stdout
+
+
+def _production_python_transitions(
+    changes: Iterable[tuple[str, list[str]]],
+) -> list[tuple[str, str | None]]:
+    """Map current production Python paths to their comparison path on the base."""
+    transitions: dict[str, str | None] = {}
+    for status, paths in changes:
+        if status.startswith("D"):
+            continue
+        if status.startswith("R") and len(paths) == 2:
+            old_path, new_path = paths
+            if is_production_python_path(new_path):
+                transitions[new_path] = old_path
+            continue
+        if status.startswith("C") and len(paths) == 2:
+            new_path = paths[-1]
+            if is_production_python_path(new_path):
+                transitions[new_path] = None
+            continue
+        for path in paths:
+            if not is_production_python_path(path):
+                continue
+            transitions[path] = None if status.startswith("A") else path
+    return sorted(transitions.items())
+
+
+def documentation_policy_violations(
+    repo_root: Path,
+    base: str,
+    changes: Iterable[tuple[str, list[str]]],
+) -> list[str]:
+    """Enforce incremental docstrings for new/materially modified production Python.
+
+    Legacy debt is compared structurally against the accepted base revision. Only
+    new or AST-changed public definitions enter the mechanical gate; private
+    rationale remains a mandatory static-review responsibility under issue #58.
+    """
+    violations: list[str] = []
+    for path, base_path in _production_python_transitions(changes):
+        current_path = repo_root / path
+        if not current_path.is_file():
+            continue
+        try:
+            current_tree = ast.parse(current_path.read_text(encoding="utf-8"), filename=path)
+        except (OSError, UnicodeDecodeError, SyntaxError) as exc:
+            violations.append(f"{path}: unable to parse production Python: {exc}")
+            continue
+
+        new_production_module = base_path is None or not is_production_python_path(base_path)
+        previous_definitions: dict[str, tuple[ast.AST, str]] = {}
+        if not new_production_module and base_path is not None:
+            previous_text = _optional_git_file(repo_root, base, base_path)
+            if previous_text is None:
+                new_production_module = True
+            else:
+                try:
+                    previous_tree = ast.parse(previous_text, filename=base_path)
+                except SyntaxError as exc:
+                    violations.append(f"{path}: unable to parse base production Python: {exc}")
+                    continue
+                previous_definitions = _public_definitions(previous_tree)
+
+        if (
+            new_production_module
+            and _module_requires_docstring(current_tree)
+            and not _has_docstring(current_tree)
+        ):
+            violations.append(
+                f"{path}: missing module docstring for new substantial production module"
+            )
+
+        for qualified_name, (node, kind) in _public_definitions(current_tree).items():
+            previous = previous_definitions.get(qualified_name)
+            materially_modified = (
+                new_production_module
+                or previous is None
+                or _definition_fingerprint(node) != _definition_fingerprint(previous[0])
+            )
+            if materially_modified and not _has_docstring(node):
+                violations.append(
+                    f"{path}:{qualified_name}: missing docstring for "
+                    f"new/modified public {kind}"
+                )
+    return sorted(violations)
+
+
 def git_output(args: list[str], cwd: Path) -> str:
     proc = subprocess.run(["git", *args], cwd=cwd, check=True, text=True, stdout=subprocess.PIPE)
     return proc.stdout
@@ -358,6 +522,7 @@ def cmd_metadata_domains(args: argparse.Namespace) -> int:
 
 
 def cmd_validate(args: argparse.Namespace) -> int:
+    """Validate one autonomous PR against the durable col-taxdata repository policy."""
     root = Path(args.repo_root).resolve()
     pr = load_json(args.pr_json)
     issue = load_json(args.issue_json)
@@ -406,6 +571,9 @@ def cmd_validate(args: argparse.Namespace) -> int:
     secrets = scan_secrets(root, paths)
     if secrets:
         raise PolicyError("high-confidence secret material detected: " + ", ".join(secrets))
+    documentation = documentation_policy_violations(root, args.base, changes)
+    if documentation:
+        raise PolicyError("code documentation policy violations: " + "; ".join(documentation))
 
     write_output("issue_number", str(issue_number))
     write_output("semantic_domains", json.dumps(metadata["semantic_domains"], separators=(",", ":")))
