@@ -145,6 +145,8 @@ def _startup_failure(stage: str, exc: Exception) -> int:
 
 
 def main() -> int:
+    """Parse runtime configuration, verify persistence, then serve REST v2."""
+
     parser = argparse.ArgumentParser(
         description=(
             "Start the CASE v5 / REST v2 runtime after applying and verifying "
