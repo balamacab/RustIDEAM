@@ -93,6 +93,42 @@ class CanonicalTargetLookup:
 
 
 @dataclass(frozen=True)
+class CitableContextGap:
+    """One explicit reason verified context could not be completed safely."""
+
+    reason: str
+    source_segment_id: str
+    reference_mention_id: str | None = None
+    target_document_id: str | None = None
+    target_provision_id: str | None = None
+
+
+@dataclass(frozen=True)
+class CitableContextHit:
+    """One independently citable segment admitted as bounded context."""
+
+    hit: RetrievalHit
+    provision_id: str
+    bases: tuple[str, ...]
+    source_segment_ids: tuple[str, ...]
+    reference_mention_ids: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class CitableContextResult:
+    """Read-only context expansion outcome for one exact source segment."""
+
+    anchor_segment_id: str
+    document_id: str | None
+    provision_id: str | None
+    context_status: str
+    hits: tuple[CitableContextHit, ...] = ()
+    gaps: tuple[CitableContextGap, ...] = ()
+    budget_exhausted: bool = False
+    verified_candidate_count: int = 0
+
+
+@dataclass(frozen=True)
 class ThematicQueryStage:
     """One generated, injection-safe thematic FTS stage."""
 
@@ -1158,6 +1194,445 @@ class CorpusRetrievalService:
             )
             if item["resolution_state"] == "resolved"
         ]
+
+    def _hit_for_segment(
+        self,
+        extracted_segment_id: str,
+    ) -> RetrievalHit | None:
+        """Materialize one verified segment without using thematic retrieval."""
+        rows = self.con.execute(
+            """
+            SELECT es.rowid
+            FROM extracted_segments es
+            JOIN text_extractions te
+              ON te.extraction_id = es.extraction_id
+             AND te.status = 'success'
+            WHERE es.extracted_segment_id = ?
+            """,
+            (extracted_segment_id,),
+        ).fetchall()
+        if not rows:
+            return None
+        if len(rows) != 1:
+            raise RetrievalIntegrityError(
+                "extracted segment identity is not unique: "
+                f"{extracted_segment_id}"
+            )
+        row = self._candidate_row(int(rows[0][0]))
+        if row is None:
+            return None
+        return self._materialize_hit(row, rank=0.0)
+
+    def _sequence_neighbor(
+        self,
+        *,
+        extraction_id: str,
+        sequence_no: int,
+    ) -> tuple[str, RetrievalHit | None]:
+        """Resolve one sequence position without guessing across ambiguity."""
+        rows = self.con.execute(
+            """
+            SELECT es.rowid
+            FROM extracted_segments es
+            WHERE es.extraction_id = ?
+              AND es.sequence_no = ?
+            ORDER BY es.extracted_segment_id
+            """,
+            (extraction_id, sequence_no),
+        ).fetchall()
+        if not rows:
+            return "missing", None
+        if len(rows) != 1:
+            return "ambiguous", None
+        row = self._candidate_row(int(rows[0][0]))
+        if row is None:
+            return "missing", None
+        return "resolved", self._materialize_hit(row, rank=0.0)
+
+    def _citable_provision_target_hits(
+        self,
+        *,
+        target_document_id: str,
+        target_provision_id: str,
+        limit: int,
+    ) -> list[RetrievalHit]:
+        """Return bounded target hits that retain an exact provision anchor."""
+        if limit <= 0:
+            return []
+
+        hits: list[RetrievalHit] = []
+        seen_equivalents: set[tuple[str, str]] = set()
+        offset = 0
+        batch_size = max(limit, _FTS_SCAN_BATCH_SIZE)
+
+        while len(hits) < limit:
+            rows = self.con.execute(
+                """
+                SELECT DISTINCT es.rowid
+                FROM provision_observations po
+                JOIN provisions p
+                  ON p.provision_id = po.provision_id
+                JOIN extracted_segments es
+                  ON es.extracted_segment_id = po.extracted_segment_id
+                JOIN text_extractions te
+                  ON te.extraction_id = es.extraction_id
+                 AND te.status = 'success'
+                JOIN manifestations m
+                  ON m.manifestation_id = te.manifestation_id
+                WHERE p.provision_id = ?
+                  AND p.document_id = ?
+                  AND m.document_id = ?
+                ORDER BY es.extraction_id, es.sequence_no, es.extracted_segment_id
+                LIMIT ? OFFSET ?
+                """,
+                (
+                    target_provision_id,
+                    target_document_id,
+                    target_document_id,
+                    batch_size,
+                    offset,
+                ),
+            ).fetchall()
+            if not rows:
+                break
+
+            for (rowid,) in rows:
+                row = self._candidate_row(int(rowid))
+                if row is None:
+                    continue
+                if str(row[12]) != target_document_id:
+                    raise RetrievalIntegrityError(
+                        "context target lookup escaped owning document: "
+                        f"expected={target_document_id} actual={row[12]}"
+                    )
+                provision = self.provision_for_segment(str(row[0]))
+                if (
+                    provision is None
+                    or str(provision["provision_id"]) != target_provision_id
+                ):
+                    continue
+                equivalence_key = (str(row[1]), str(row[4]))
+                if equivalence_key in seen_equivalents:
+                    continue
+                hits.append(self._materialize_hit(row, rank=0.0))
+                seen_equivalents.add(equivalence_key)
+                if len(hits) >= limit:
+                    break
+
+            if len(hits) >= limit or len(rows) < batch_size:
+                break
+            offset += len(rows)
+
+        return hits
+
+    def retrieve_citable_context(
+        self,
+        extracted_segment_id: str,
+        *,
+        provision_id: str | None = None,
+        max_context_hits: int = 4,
+        include_resolved_references: bool = True,
+    ) -> CitableContextResult:
+        """Retrieve only structurally verified context for one citable segment.
+
+        Context is intentionally opt-in. Same-provision expansion walks only
+        contiguous positions in the same extraction/document and stops at a
+        verified different provision or any unverified boundary. Explicit
+        references expand only to uniquely resolved provision targets. Each
+        returned hit remains an independent exact source segment; materializers
+        must preserve separate EvidenceSpan anchors rather than concatenate text.
+        """
+        if max_context_hits < 0:
+            raise ValueError("max_context_hits must be non-negative")
+
+        anchor = self._hit_for_segment(extracted_segment_id)
+        if anchor is None:
+            gap = CitableContextGap(
+                reason="anchor_missing",
+                source_segment_id=extracted_segment_id,
+            )
+            return CitableContextResult(
+                anchor_segment_id=extracted_segment_id,
+                document_id=None,
+                provision_id=provision_id,
+                context_status="incomplete",
+                gaps=(gap,),
+            )
+
+        if anchor.document_id is None:
+            gap = CitableContextGap(
+                reason="anchor_document_unresolved",
+                source_segment_id=extracted_segment_id,
+            )
+            return CitableContextResult(
+                anchor_segment_id=extracted_segment_id,
+                document_id=None,
+                provision_id=provision_id,
+                context_status="incomplete",
+                gaps=(gap,),
+            )
+
+        anchor_provision = self.provision_for_segment(extracted_segment_id)
+        if anchor_provision is None:
+            gap = CitableContextGap(
+                reason="anchor_provision_not_citable",
+                source_segment_id=extracted_segment_id,
+            )
+            return CitableContextResult(
+                anchor_segment_id=extracted_segment_id,
+                document_id=anchor.document_id,
+                provision_id=provision_id,
+                context_status="incomplete",
+                gaps=(gap,),
+            )
+
+        resolved_provision_id = str(anchor_provision["provision_id"])
+        if provision_id is not None and provision_id != resolved_provision_id:
+            gap = CitableContextGap(
+                reason="anchor_provision_mismatch",
+                source_segment_id=extracted_segment_id,
+                target_document_id=anchor.document_id,
+                target_provision_id=provision_id,
+            )
+            return CitableContextResult(
+                anchor_segment_id=extracted_segment_id,
+                document_id=anchor.document_id,
+                provision_id=provision_id,
+                context_status="incomplete",
+                gaps=(gap,),
+            )
+
+        provision_id = resolved_provision_id
+        sentinel_limit = max_context_hits + 1
+        ordered_keys: list[tuple[str, str]] = []
+        candidates: dict[tuple[str, str], dict[str, Any]] = {}
+        gaps: list[CitableContextGap] = []
+        seen_gaps: set[tuple[object, ...]] = set()
+        budget_exhausted = False
+
+        def add_gap(
+            reason: str,
+            *,
+            source_segment_id: str,
+            reference_mention_id: str | None = None,
+            target_document_id: str | None = None,
+            target_provision_id: str | None = None,
+        ) -> None:
+            key = (
+                reason,
+                source_segment_id,
+                reference_mention_id,
+                target_document_id,
+                target_provision_id,
+            )
+            if key in seen_gaps:
+                return
+            seen_gaps.add(key)
+            gaps.append(
+                CitableContextGap(
+                    reason=reason,
+                    source_segment_id=source_segment_id,
+                    reference_mention_id=reference_mention_id,
+                    target_document_id=target_document_id,
+                    target_provision_id=target_provision_id,
+                )
+            )
+
+        def add_candidate(
+            hit: RetrievalHit,
+            *,
+            candidate_provision_id: str,
+            basis: str,
+            source_segment_id: str,
+            reference_mention_id: str | None = None,
+        ) -> bool:
+            nonlocal budget_exhausted
+            if hit.extracted_segment_id == extracted_segment_id:
+                return True
+            key = (hit.extracted_segment_id, candidate_provision_id)
+            existing = candidates.get(key)
+            if existing is None:
+                if len(candidates) >= sentinel_limit:
+                    budget_exhausted = True
+                    return False
+                existing = {
+                    "hit": hit,
+                    "provision_id": candidate_provision_id,
+                    "bases": set(),
+                    "source_segment_ids": set(),
+                    "reference_mention_ids": set(),
+                }
+                candidates[key] = existing
+                ordered_keys.append(key)
+            existing["bases"].add(basis)
+            existing["source_segment_ids"].add(source_segment_id)
+            if reference_mention_id is not None:
+                existing["reference_mention_ids"].add(reference_mention_id)
+            if len(candidates) > max_context_hits:
+                budget_exhausted = True
+            return not budget_exhausted
+
+        # Verified contiguous parts are collected forward first because headings
+        # and amendment introductions conventionally depend on following text.
+        # Preceding parts are considered second, but never by skipping a gap.
+        contiguous_source_ids: list[str] = [extracted_segment_id]
+        for direction in (1, -1):
+            next_sequence = anchor.sequence_no + direction
+            while next_sequence > 0 and not budget_exhausted:
+                state, neighbor = self._sequence_neighbor(
+                    extraction_id=anchor.extraction_id,
+                    sequence_no=next_sequence,
+                )
+                if state == "missing":
+                    break
+                if state == "ambiguous":
+                    add_gap(
+                        "ambiguous_contiguous_sequence",
+                        source_segment_id=extracted_segment_id,
+                    )
+                    break
+                assert neighbor is not None
+                if neighbor.document_id != anchor.document_id:
+                    add_gap(
+                        "document_boundary_mismatch",
+                        source_segment_id=neighbor.extracted_segment_id,
+                        target_document_id=neighbor.document_id,
+                    )
+                    break
+
+                neighbor_provision = self.provision_for_segment(
+                    neighbor.extracted_segment_id
+                )
+                if neighbor_provision is None:
+                    add_gap(
+                        "unverified_contiguous_boundary",
+                        source_segment_id=neighbor.extracted_segment_id,
+                    )
+                    break
+                neighbor_provision_id = str(
+                    neighbor_provision["provision_id"]
+                )
+                if neighbor_provision_id != provision_id:
+                    # A different exact provision is a verified hard boundary,
+                    # not itself a context failure.
+                    break
+
+                contiguous_source_ids.append(neighbor.extracted_segment_id)
+                if not add_candidate(
+                    neighbor,
+                    candidate_provision_id=provision_id,
+                    basis="contiguous_provision",
+                    source_segment_id=extracted_segment_id,
+                ):
+                    break
+                next_sequence += direction
+
+        if include_resolved_references and not budget_exhausted:
+            for source_segment_id in contiguous_source_ids:
+                states = self.reference_resolution_states_for_segment(
+                    source_segment_id
+                )
+                for reference in states:
+                    if budget_exhausted:
+                        break
+                    reference_mention_id = str(
+                        reference["reference_mention_id"]
+                    )
+                    target_document_id = reference["target_document_id"]
+                    target_provision_id = reference["target_provision_id"]
+                    if reference["resolution_state"] != "resolved":
+                        add_gap(
+                            "reference_resolution_incomplete",
+                            source_segment_id=source_segment_id,
+                            reference_mention_id=reference_mention_id,
+                            target_document_id=target_document_id,
+                            target_provision_id=target_provision_id,
+                        )
+                        continue
+                    if (
+                        target_document_id is None
+                        or target_provision_id is None
+                    ):
+                        add_gap(
+                            "reference_without_provision_target",
+                            source_segment_id=source_segment_id,
+                            reference_mention_id=reference_mention_id,
+                            target_document_id=target_document_id,
+                            target_provision_id=target_provision_id,
+                        )
+                        continue
+
+                    remaining = max(
+                        1,
+                        sentinel_limit - len(candidates),
+                    )
+                    target_hits = self._citable_provision_target_hits(
+                        target_document_id=str(target_document_id),
+                        target_provision_id=str(target_provision_id),
+                        limit=remaining,
+                    )
+                    if not target_hits:
+                        add_gap(
+                            "reference_target_context_unavailable",
+                            source_segment_id=source_segment_id,
+                            reference_mention_id=reference_mention_id,
+                            target_document_id=str(target_document_id),
+                            target_provision_id=str(target_provision_id),
+                        )
+                        continue
+                    for target_hit in target_hits:
+                        if not add_candidate(
+                            target_hit,
+                            candidate_provision_id=str(target_provision_id),
+                            basis="explicit_cross_reference",
+                            source_segment_id=source_segment_id,
+                            reference_mention_id=reference_mention_id,
+                        ):
+                            break
+
+        if budget_exhausted:
+            add_gap(
+                "budget_exhausted",
+                source_segment_id=extracted_segment_id,
+            )
+
+        admitted_keys = ordered_keys[:max_context_hits]
+        hits = tuple(
+            CitableContextHit(
+                hit=candidates[key]["hit"],
+                provision_id=candidates[key]["provision_id"],
+                bases=tuple(sorted(candidates[key]["bases"])),
+                source_segment_ids=tuple(
+                    sorted(candidates[key]["source_segment_ids"])
+                ),
+                reference_mention_ids=tuple(
+                    sorted(candidates[key]["reference_mention_ids"])
+                ),
+            )
+            for key in admitted_keys
+        )
+
+        if not hits and not gaps:
+            add_gap(
+                "no_verified_context",
+                source_segment_id=extracted_segment_id,
+            )
+
+        context_status = (
+            "expanded_verified"
+            if hits and not gaps and not budget_exhausted
+            else "incomplete"
+        )
+        return CitableContextResult(
+            anchor_segment_id=extracted_segment_id,
+            document_id=anchor.document_id,
+            provision_id=provision_id,
+            context_status=context_status,
+            hits=hits,
+            gaps=tuple(gaps),
+            budget_exhausted=budget_exhausted,
+            verified_candidate_count=len(candidates),
+        )
 
     def query_for_document(self, document_id: str) -> str | None:
         """Return human-readable canonical vocabulary for reference expansion.
