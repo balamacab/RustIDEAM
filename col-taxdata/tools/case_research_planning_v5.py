@@ -266,6 +266,20 @@ def load_planner_profile_set(
     return planner_profile_set_from_data(payload)
 
 
+def _confirmed_fact_refs(
+    intake_draft: dict[str, Any],
+    fact_refs: Iterable[str],
+) -> list[str]:
+    facts = {fact["fact_ref"]: fact for fact in intake_draft["facts"]}
+    return sorted(
+        {
+            ref
+            for ref in fact_refs
+            if ref in facts and facts[ref]["state"] == "user_provided"
+        }
+    )
+
+
 def _confirmed_fact_parts(
     intake_draft: dict[str, Any],
     fact_refs: Iterable[str],
@@ -784,7 +798,9 @@ def build_research_plan_v5(
                     intake_draft, question, aspect, profiles
                 ),
                 profile_set=profiles,
-                fact_refs=aspect["fact_refs"],
+                fact_refs=_confirmed_fact_refs(
+                    intake_draft, aspect["fact_refs"]
+                ),
             )
         )
 
