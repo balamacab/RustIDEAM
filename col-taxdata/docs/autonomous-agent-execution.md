@@ -34,6 +34,21 @@ Normal col-taxdata issues may change only `col-taxdata/**`. Dedicated `.github/w
 
 The durable gate also rejects modification/deletion/renaming of already-present SQL migrations, committed runtime/database artifacts, and high-confidence credential material. New migrations remain append-only. Existing raw evidence and production state are outside repository-CD authority.
 
+## Code documentation and implementation-point rationale
+
+All implementation work must follow the durable [code documentation and rationale standard](../specs/architecture/code-documentation.md).
+
+Completion requires both:
+
+- the objective changed-code docstring policy enforced by `ci/policy.py`; and
+- static review that non-obvious domain/safety decisions are explained at the implementation point.
+
+The mechanical policy is intentionally incremental. Untouched legacy debt does not block unrelated work, while new or materially modified public production Python definitions become subject to the current docstring contract. Tests are excluded from that mechanical rule, and no comment-density or complexity-score threshold is used.
+
+Mechanical success is not sufficient evidence that rationale is useful. Before a task is ready for merge, changed production code must be reviewed for undocumented legal-data assumptions, ambiguity/provenance/identity/temporal decisions, deterministic identifier/hash inputs, read-only versus mutating boundaries, transaction-sensitive behavior, conservative rejection/preservation rules, and deliberate compatibility behavior.
+
+GitHub issue/PR comments remain the chronological engineering audit trail, but they must not be the sole place where a future maintainer can learn why non-obvious production code behaves as it does.
+
 ## CI and current-base validation
 
 `col-taxdata CI` is started explicitly by the trusted PR-lifecycle controller through `workflow_dispatch`; it does not listen directly to `pull_request`. The workflow definition comes from the default branch, resolves the exact PR head through the GitHub API, checks that candidate SHA out separately, and runs trusted default-branch policy code against the candidate checkout. For applicable changes it always runs repository-control regression tests. It runs the complete col-taxdata suite when product, schema, test, configuration, or CI-control code changes; documentation-only changes can skip the heavy suite.
