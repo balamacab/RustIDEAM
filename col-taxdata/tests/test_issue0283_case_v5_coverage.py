@@ -316,6 +316,53 @@ class Issue0283CaseV5CoverageTests(unittest.TestCase):
         )
         self.assertEqual(coverage["exception_scope"]["selection_refs"], [])
 
+    def test_no_hits_and_unexecuted_required_work_remain_distinct(self):
+        case_input, intake, plan = _plan(
+            (
+                ("searched_missing", [], False),
+                ("not_researched", [], False),
+            )
+        )
+        tasks = _task_by_dimension(plan)
+        trace = _trace(
+            tasks["searched_missing"],
+            "no-hits",
+            outcome="no_hits",
+        )
+
+        result = build_research_result_v5(
+            plan,
+            case_input=case_input,
+            trace=[trace],
+            selection_inputs=[],
+            authorities=[],
+            evidence_spans=[],
+            unresolved=[],
+            facts=intake["facts"],
+            research_context=_context(plan),
+            generated_at=NOW,
+        )
+
+        coverage = _coverage_by_dimension(plan, result)
+        searched = coverage["searched_missing"]
+        untouched = coverage["not_researched"]
+
+        self.assertEqual(result["status"], "partial")
+        self.assertEqual(searched["execution_status"], "complete")
+        self.assertEqual(searched["evidence_status"], "none_found")
+        self.assertIn("no_evidence", searched["limitation_codes"])
+
+        self.assertEqual(untouched["execution_status"], "not_started")
+        self.assertEqual(untouched["evidence_status"], "not_assessed")
+        untouched_omissions = [
+            item
+            for item in result["omitted_work"]
+            if item["aspect_ref"] == untouched["aspect_ref"]
+        ]
+        self.assertTrue(
+            any(item["reason"] == "not_planned" for item in untouched_omissions)
+        )
+
     def test_context_incomplete_selection_is_visible_and_cannot_close(self):
         case_input, intake, plan = _plan(
             (("heading_context", [], False),),
