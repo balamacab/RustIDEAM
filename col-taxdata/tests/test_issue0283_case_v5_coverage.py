@@ -468,8 +468,8 @@ class Issue0283CaseV5CoverageTests(unittest.TestCase):
 
     def test_missing_personal_fact_blocks_only_affected_aspects(self):
         problem = (
-            "La persona consulta si debe presentar renta, pero falta el dato de "
-            "ingresos brutos necesario para evaluar los topes."
+            "La persona consulta si debe presentar renta, pero falta uno de los "
+            "datos cuantitativos necesarios para evaluar los topes."
         )
         missing_fact = {
             "kind": "intake_fact",
