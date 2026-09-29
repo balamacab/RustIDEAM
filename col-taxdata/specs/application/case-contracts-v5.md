@@ -475,6 +475,49 @@ blocked means the platform cannot safely continue or materialize the required re
 
 A missing personal fact alone does not make the whole bundle blocked while unaffected general research remains possible.
 
+
+### 12.4 Per-aspect coverage implementation boundary
+
+Issue #283 implements the read-only producer for EvidenceSelection, OmittedWork,
+AspectCoverage and ResearchResult status. This boundary does not activate CASE v5
+public transport, persistence or relationship-selection policy.
+
+The producer follows these additional rules:
+
+1. A retrieval hit is only a candidate. It does not create EvidenceSelection or
+   support closure unless a platform-owned execution trace explicitly selects
+   the authority and exact evidence with one declared selection basis.
+2. Selected evidence is resolved against the final supplied materialized
+   EvidenceSpan registry. Deduplication or later graph materialization may not
+   leave dangling selection/coverage refs, and graph-only endpoint authorities
+   do not acquire aspect coverage merely by being reachable.
+3. Required tasks that were not executed, were budget-exhausted, were blocked
+   by required facts, or failed integrity are represented as required
+   OmittedWork. Context-incomplete selected evidence creates required support
+   omitted work rather than being treated as a usable quotation.
+4. Coverage remains multidimensional. Candidate-only evidence, context gaps,
+   authority conflict, missing/ambiguous facts, temporal uncertainty and
+   unsupported scope remain separate states; no one-dimensional supported flag
+   is reintroduced.
+5. generic_limited and unknown_unplanned aspects remain unsupported_scope and
+   prevent a complete ResearchResult even if useful exact evidence was found.
+6. With no caller as_of_date, temporal coverage remains unassessed and carries
+   temporal_unassessed. With a supplied date, ambiguous, historical-only or
+   not-effective selected support cannot silently close current support.
+7. requires_interpretive_synthesis is a valid handoff state and does not by
+   itself prevent complete bounded support closure. Research coverage is not a
+   legal opinion or deterministic evaluator.
+8. Coverage and support-selection identities are deterministic for unchanged
+   plan/context/materialized refs and bind the active coverage/support policy
+   versions. generated_at is not identity material.
+9. Relationship relevance/selection remains owned by #284. The #283 producer
+   consumes only the refs explicitly selected by its caller and does not infer
+   legal dependency from graph reachability.
+
+The initial implementation policy identifiers are
+`v5-coverage-1` and `v5-support-selection-1`. They are recorded through the
+ResearchContextFingerprint fields already defined by this contract.
+
 ## 13. Temporal semantics
 
 CaseInput.as_of_date is optional and caller-owned.
