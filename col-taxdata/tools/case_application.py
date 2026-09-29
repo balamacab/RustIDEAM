@@ -224,10 +224,10 @@ def publish_v5_legal_research_bundle(
             bundle=bundle,
             dry_run=dry_run,
         )
-    except V4BundlePersistenceError as exc:
-        raise CasePersistenceError(str(exc)) from exc
     except V4BundleMaterializationError as exc:
         raise CaseMaterializationError(str(exc)) from exc
+    except V4BundlePersistenceError as exc:
+        raise CasePersistenceError(str(exc)) from exc
 
     return V5BundlePublicationOutcome(
         case_ref=case_ref,
