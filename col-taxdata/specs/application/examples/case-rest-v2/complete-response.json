@@ -44,7 +44,8 @@
         "generated_at": "2026-09-29T18:00:00Z",
         "routing_role": "intake_structuring",
         "structured_generation_mechanism": "fixture"
-      }
+      },
+      "client_reference": "rest-v2-example"
     },
     "research_plan": {
       "kind": "research_plan",
