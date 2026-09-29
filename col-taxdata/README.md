@@ -55,6 +55,51 @@ Successful responses include the normal deterministic `CASE-<hash>`, the v3 Case
 
 The server defaults to loopback. A deployment that binds it to another interface is responsible for its surrounding network/authentication controls; those controls are not encoded in CaseInput.
 
+## CASE v5 / REST v2 executable runtime
+
+CASE v5 is served independently from the historical REST v1 / CASE v4 path. The
+v2 runtime composes the accepted intake-only model boundary, v5 research planner,
+canonical bounded retrieval/context, evidence coverage, relationship selection,
+selected-subgraph closure, semantic bundle validation and versioned v5
+publication. It does not permit model-authored canonical evidence or legal
+conclusions.
+
+Run directly:
+
+```bash
+python3 tools/case_rest_runtime_v2.py \
+  --host 127.0.0.1 \
+  --port 8766 \
+  --config config/llm/local-platform.yaml
+```
+
+Or run the container entrypoint from this repository revision:
+
+```bash
+docker compose up --build case-rest-v2
+```
+
+Submit the same caller-owned surface to `POST /v2/cases`:
+
+```bash
+curl --fail-with-body -sS \
+  -H 'Content-Type: application/json' \
+  -X POST http://127.0.0.1:8766/v2/cases \
+  --data-binary '{"problem_text":"Investigar la regla tributaria aplicable.","client_reference":"matter-v5"}'
+```
+
+Runtime configuration is external to CaseInput. The existing
+`COL_TAXDATA_LLM_CONFIG`, `COL_TAXDATA_DB`, `COL_TAXDATA_CASE_ROOT` and
+`COL_TAXDATA_SCHEMA_DIR` variables remain available; REST-v2 bind/request
+settings use `COL_TAXDATA_REST_V2_HOST`, `COL_TAXDATA_REST_V2_PORT` and
+`COL_TAXDATA_REST_V2_MAX_REQUEST_BYTES`. Startup applies the repository's
+append-only migration chain and verifies migration
+`017_case_v5_bundle_persistence.sql`; it never rewrites historical migrations.
+`--dry-run` previews CASE v5 publication/materialization, while schema bootstrap
+still requires a writable configured database.
+
+REST v1 and CASE v4 keep their separate existing entrypoints and contracts.
+
 ## Independent MCP legal-research gateway
 
 Issue #145 provides an independently deployable `col-taxdata-mcp` adapter under [`mcp_gateway/`](mcp_gateway/README.md). It communicates with CASE only through the published REST v1 contract and exposes semantic research/evidence tools to external MCP-capable LLMs/agents.
