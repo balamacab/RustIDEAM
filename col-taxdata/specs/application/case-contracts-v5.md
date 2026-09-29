@@ -302,6 +302,19 @@ Examples requiring contextual treatment include:
 
 Expanded context must remain separate exact spans with their own source/hash/anchor provenance. Do not fabricate a synthetic exact quotation by concatenating unrelated passages.
 
+### 8.2 Bounded context retrieval implementation boundary
+
+Issue #282 implements the context rule above as a read-only retrieval/materialization primitive. This implementation boundary does not activate the full v5 orchestration path and does not alter historical v4 bundle semantics.
+
+The bounded implementation obeys these additional rules:
+
+1. Context expansion is explicit. A valid concise provision remains concise merely because it was selected; adjacent text is not appended automatically.
+2. Contiguous context may be admitted only from the same extraction and canonical document when every crossed segment is independently verified as one uniquely citable observation of the same canonical provision. A different provision or an unverified/ambiguous segment is a hard boundary.
+3. Explicit cross-reference context may be admitted only for a review-free, uniquely resolved canonical **provision** target whose exact citable observation is present in the corpus. A document-only, missing, ambiguous or review-required target produces a context gap; it does not trigger thematic broadening or redownload.
+4. Every admitted context part remains its own exact EvidenceSpan with its own source/hash/anchor provenance. Context retrieval never creates one synthetic quote by concatenating parts.
+5. Context work is bounded independently from quote length. When verified candidate context exceeds the declared context-hit budget, the result remains incomplete and exposes budget exhaustion rather than silently truncating canonical support.
+6. Missing or structurally unverifiable context remains an explicit gap. The primitive does not infer omitted statutory text, definitions, exceptions or article membership from wording alone.
+
 ## 9. OmittedWork
 
 OmittedWork makes unfinished canonical research/support work explicit.

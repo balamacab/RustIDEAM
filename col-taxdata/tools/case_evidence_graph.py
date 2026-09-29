@@ -14,7 +14,11 @@ from case_contract_validation_v4 import (
 )
 from case_evaluators import evaluate_supported_rules
 from case_research import ResearchExecution
-from case_retrieval import exact_unambiguous_substring_offset
+from case_retrieval import (
+    CitableContextHit,
+    CitableContextResult,
+    exact_unambiguous_substring_offset,
+)
 from legal_authority_classification import (
     AuthorityClassificationError,
     classify_canonical_authority,
@@ -705,6 +709,70 @@ def _candidate_span(
         "evidence_ref": evidence_ref,
         "provision": provision_meta,
     }
+
+
+def _context_candidate(hit: CitableContextHit) -> dict[str, Any]:
+    """Project one verified context hit into the existing span materializer."""
+    source = hit.hit
+    if source.document_id is None:
+        raise EvidenceGraphIntegrityError(
+            "citable context hit has unresolved document identity"
+        )
+    return {
+        "extracted_segment_id": source.extracted_segment_id,
+        "extraction_id": source.extraction_id,
+        "sequence_no": source.sequence_no,
+        "text": source.text,
+        "text_sha256": source.text_sha256,
+        "manifestation_id": source.manifestation_id,
+        "manifestation_sha256": source.manifestation_sha256,
+        "source_ref": f"source:{source.source_id}",
+        "source_url": source.source_url,
+        "retrieved_at": source.retrieved_at,
+        "document_ref": f"document:{source.document_id}",
+        "authority_ref": f"authority:{source.document_id}",
+        "provision_ref": f"provision:{hit.provision_id}",
+    }
+
+
+def materialize_citable_context_spans(
+    con: sqlite3.Connection,
+    context: CitableContextResult,
+) -> tuple[dict[str, Any], ...]:
+    """Materialize verified context as separate exact EvidenceSpan objects.
+
+    The retrieval primitive owns bounded structural selection. This helper
+    deliberately reuses the normal exact-span verifier so context cannot bypass
+    #183 ambiguity safeguards or create a synthetic concatenated quotation.
+    """
+    spans: list[dict[str, Any]] = []
+    seen_evidence: dict[str, dict[str, Any]] = {}
+    for item in context.hits:
+        span, statement = _candidate_span(con, _context_candidate(item))
+        if span is None or statement is None:
+            raise EvidenceGraphIntegrityError(
+                "verified context could not be materialized as citable evidence"
+            )
+        expected_provision_ref = f"provision:{item.provision_id}"
+        if (
+            span.get("provision_ref") != expected_provision_ref
+            or statement.get("provision") is None
+            or statement["provision"]["provision_ref"]
+            != expected_provision_ref
+        ):
+            raise EvidenceGraphIntegrityError(
+                "verified context lost its exact provision anchor"
+            )
+        prior = seen_evidence.get(span["evidence_ref"])
+        if prior is not None:
+            if prior != span:
+                raise EvidenceGraphIntegrityError(
+                    "deterministic context evidence-ref collision"
+                )
+            continue
+        seen_evidence[span["evidence_ref"]] = span
+        spans.append(span)
+    return tuple(spans)
 
 
 def _canonical_evidence_span(
