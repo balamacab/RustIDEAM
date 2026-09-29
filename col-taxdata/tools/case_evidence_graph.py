@@ -470,6 +470,156 @@ def _close_evidence_owners(
 
     return required_refs
 
+
+def materialize_selected_relationship_support(
+    *,
+    authorities: Iterable[dict[str, Any]],
+    relationships: Iterable[dict[str, Any]],
+    unresolved: Iterable[dict[str, Any]],
+    db_path: Path,
+    as_of_date: str | None = None,
+) -> dict[str, Any]:
+    """Close one already-selected relationship subgraph without graph walking.
+
+    This is the v5 #284 integration seam. Relationship relevance is decided
+    before this function is called; the existing #180 endpoint/evidence-owner
+    closure is then applied exactly once to that selected subgraph. Canonical
+    relationship rows and authority classification remain read-only.
+    """
+
+    def registry(
+        items: Iterable[dict[str, Any]],
+        ref_field: str,
+        *,
+        label: str,
+    ) -> dict[str, dict[str, Any]]:
+        output: dict[str, dict[str, Any]] = {}
+        for raw in items:
+            item = deepcopy(raw)
+            ref = item.get(ref_field)
+            if not isinstance(ref, str) or not ref:
+                raise EvidenceGraphIntegrityError(
+                    f"{label} is missing {ref_field}"
+                )
+            prior = output.get(ref)
+            if prior is not None and prior != item:
+                raise EvidenceGraphIntegrityError(
+                    f"conflicting duplicate {label}: {ref}"
+                )
+            output[ref] = item
+        return output
+
+    db_path = Path(db_path)
+    authority_registry = registry(
+        authorities, "authority_ref", label="authority"
+    )
+    relationship_registry = registry(
+        relationships, "relationship_ref", label="relationship"
+    )
+    unresolved_registry = registry(
+        unresolved, "unresolved_ref", label="unresolved"
+    )
+    initial_authority_refs = set(authority_registry)
+    selected_relationship_refs = set(relationship_registry)
+
+    con = _readonly(db_path)
+    try:
+        # Research authorities arrive from complete canonical classification,
+        # whose aggregate relationship/evidence refs intentionally include all
+        # validated relationships touching the document.  Project those
+        # starting authorities onto the already-selected subgraph before
+        # support closure so evidence that belongs only to an excluded edge
+        # cannot pull its owner back into the case graph.
+        for authority_ref in sorted(initial_authority_refs):
+            authority_registry[authority_ref] = (
+                _project_relationship_endpoint_authority(
+                    con,
+                    authority=authority_registry[authority_ref],
+                    classified_relationships=relationship_registry.values(),
+                    included_relationships=relationship_registry,
+                )
+            )
+
+        _close_relationship_endpoints(
+            con=con,
+            db_path=db_path,
+            authorities=authority_registry,
+            relationships=relationship_registry,
+            unresolved=unresolved_registry,
+            as_of_date=as_of_date,
+        )
+        after_endpoint_refs = set(authority_registry)
+        required_evidence_refs = _close_evidence_owners(
+            con=con,
+            db_path=db_path,
+            authorities=authority_registry,
+            relationships=relationship_registry,
+            unresolved=unresolved_registry,
+            as_of_date=as_of_date,
+        )
+
+        # A v5 selector must never return a relationship ref that disappears
+        # during closure. Treat missing owner/provenance as integrity failure
+        # instead of producing dangling selected-support references.
+        missing_selected = selected_relationship_refs - set(relationship_registry)
+        if missing_selected:
+            raise EvidenceGraphIntegrityError(
+                "selected relationship lost during evidence-owner closure: "
+                + ", ".join(sorted(missing_selected))
+            )
+
+        spans = {
+            evidence_ref: _canonical_evidence_span(
+                con,
+                evidence_ref=evidence_ref,
+                authorities=authority_registry,
+            )
+            for evidence_ref in required_evidence_refs
+        }
+    finally:
+        con.close()
+
+    for collection in (
+        authority_registry.values(),
+        relationship_registry.values(),
+        spans.values(),
+        unresolved_registry.values(),
+    ):
+        for item in collection:
+            validate_contract_object(item)
+
+    endpoint_added = after_endpoint_refs - initial_authority_refs
+    evidence_owner_added = set(authority_registry) - after_endpoint_refs
+    support_only = set(authority_registry) - initial_authority_refs
+
+    return {
+        "authorities": [
+            deepcopy(authority_registry[ref])
+            for ref in sorted(authority_registry)
+        ],
+        "normative_relationships": [
+            deepcopy(relationship_registry[ref])
+            for ref in sorted(relationship_registry)
+        ],
+        "evidence_spans": [
+            deepcopy(spans[ref]) for ref in sorted(spans)
+        ],
+        "unresolved": [
+            deepcopy(unresolved_registry[ref])
+            for ref in sorted(unresolved_registry)
+        ],
+        "support_only_authority_refs": sorted(support_only),
+        "metrics": {
+            "selected_relationship_count": len(relationship_registry),
+            "starting_authority_count": len(initial_authority_refs),
+            "endpoint_authorities_added": len(endpoint_added),
+            "evidence_owner_authorities_added": len(evidence_owner_added),
+            "support_only_authority_count": len(support_only),
+            "required_evidence_span_count": len(spans),
+        },
+    }
+
+
 def _verified_candidate_row(
     con: sqlite3.Connection,
     candidate: dict[str, Any],
