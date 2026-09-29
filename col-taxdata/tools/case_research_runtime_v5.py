@@ -1,4 +1,4 @@
-from __future__ import annotations
+"""Executable CASE v5 research orchestration over existing canonical primitives.\n\nThis module composes intake, planning, bounded retrieval/context, support\nselection, coverage and publication without becoming a new legal-authority layer.\n"""\n\nfrom __future__ import annotations
 
 from copy import deepcopy
 from dataclasses import dataclass
