@@ -554,7 +554,9 @@ class Issue0134CaseV4ContractTests(unittest.TestCase):
 
     def test_unsupported_major_version_is_explicit(self):
         case_input = v4_case_input()
-        case_input["contract_version"] = "5.0.0"
+        # v5 became an admitted successor in #280; the preservation contract
+        # still requires unknown future majors to fail explicitly.
+        case_input["contract_version"] = "6.0.0"
         with self.assertRaises(CaseContractError) as raised:
             dispatch_case_input(case_input)
         self.assertEqual(
