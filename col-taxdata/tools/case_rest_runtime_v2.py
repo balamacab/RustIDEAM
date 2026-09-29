@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
-"""Executable REST v2 runtime composition for CASE 5.0.0.\n\nStartup verifies the append-only v5 persistence schema before exposing the\nexisting REST-v2 transport over the product-owned CASE v5 orchestrator.\n"""\n\nfrom __future__ import annotations
+"""Executable REST v2 runtime composition for CASE 5.0.0.
+
+Startup verifies the append-only v5 persistence schema before exposing the
+existing REST-v2 transport over the product-owned CASE v5 orchestrator.
+"""
+
+from __future__ import annotations
 
 import argparse
 import json
