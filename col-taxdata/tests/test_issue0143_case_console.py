@@ -1,30 +1,26 @@
 from __future__ import annotations
 
-import contextlib
 import hashlib
-import http.client
-import importlib.util
 import json
 from pathlib import Path
 import shutil
 import socket
 import subprocess
 import sys
-import tempfile
 import threading
 import time
 import unittest
-from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 
 ROOT = Path(__file__).resolve().parents[1]
 CONSOLE = ROOT / "web" / "case-console"
 TOOLS = ROOT / "tools"
-REST_SCHEMA = ROOT / "specs" / "application" / "schemas" / "case-rest-api-v1.schema.json"
-V4_SCHEMA = ROOT / "specs" / "application" / "schemas" / "case-contracts-v4.schema.json"
-OPENAPI = ROOT / "specs" / "application" / "openapi" / "case-rest-api-v1.openapi.json"
-REST_EXAMPLES = ROOT / "specs" / "application" / "examples" / "case-rest-v1"
+REST_SCHEMA = ROOT / "specs" / "application" / "schemas" / "case-rest-api-v2.schema.json"
+V5_SCHEMA = ROOT / "specs" / "application" / "schemas" / "case-contracts-v5.schema.json"
+OPENAPI = ROOT / "specs" / "application" / "openapi" / "case-rest-api-v2.openapi.json"
+REST_V1_EXAMPLES = ROOT / "specs" / "application" / "examples" / "case-rest-v1"
+REST_V2_EXAMPLES = ROOT / "specs" / "application" / "examples" / "case-rest-v2"
 DEF0015 = ROOT / "tests" / "fixtures" / "def0015_webcam_authority_inversion.json"
 ISSUE67 = ROOT / "config" / "benchmarks" / "issue65" / "request.json"
 
@@ -38,17 +34,18 @@ class CaseConsoleContractTests(unittest.TestCase):
         self.contract = load_json(CONSOLE / "public-contract.json")
         self.fixture_document = load_json(CONSOLE / "fixtures" / "index.json")
 
-    def test_client_projection_matches_authoritative_rest_contract(self):
+    def test_client_projection_matches_authoritative_active_rest_contract(self):
         rest = load_json(REST_SCHEMA)
-        v4 = load_json(V4_SCHEMA)
+        v5 = load_json(V5_SCHEMA)
         openapi = load_json(OPENAPI)
 
         request_fields = set(rest["$defs"]["CaseSubmissionRequest"]["properties"])
         success_fields = set(rest["$defs"]["CaseResearchResponse"]["properties"])
         error_fields = set(rest["$defs"]["ErrorResponse"]["properties"])
-        bundle_fields = set(v4["$defs"]["LegalResearchBundle"]["properties"])
+        bundle_fields = set(v5["$defs"]["LegalResearchBundle"]["properties"])
 
-        self.assertEqual(self.contract["api_version"], "1.0.0")
+        self.assertEqual(self.contract["api_version"], "2.0.0")
+        self.assertEqual(self.contract["application_contract_version"], "5.0.0")
         self.assertEqual(self.contract["method"], "POST")
         self.assertIn(self.contract["api_path"], openapi["paths"])
         self.assertIn("post", openapi["paths"][self.contract["api_path"]])
@@ -57,6 +54,7 @@ class CaseConsoleContractTests(unittest.TestCase):
         self.assertEqual(set(self.contract["error_top_level_fields"]), error_fields)
         self.assertEqual(set(self.contract["bundle_fields"]), bundle_fields)
         self.assertEqual(self.contract["proxy_path"], "/api" + self.contract["api_path"])
+        self.assertIn("/api/v1/cases", self.contract["historical_proxy_paths"])
 
     def test_fixture_loader_contains_only_caller_owned_fields(self):
         allowed = set(self.contract["request_fields"])
@@ -86,10 +84,7 @@ class CaseConsoleContractTests(unittest.TestCase):
 
     def test_def0015_and_issue67_fixture_inputs_are_exact_repository_lineage(self):
         fixtures = {item["id"]: item["request"] for item in self.fixture_document["fixtures"]}
-        self.assertEqual(
-            fixtures["def0015-webcam-natural-person"],
-            load_json(DEF0015)["case_input"],
-        )
+        self.assertEqual(fixtures["def0015-webcam-natural-person"], load_json(DEF0015)["case_input"])
         self.assertEqual(fixtures["issue67-historical"], load_json(ISSUE67))
 
     def test_case0002_fixture_is_frozen_caller_input_not_internal_state(self):
@@ -105,7 +100,8 @@ class CaseConsoleContractTests(unittest.TestCase):
     def test_frontend_has_no_unsafe_html_secret_storage_or_backend_address(self):
         app = (CONSOLE / "app.js").read_text(encoding="utf-8")
         core = (CONSOLE / "app-core.mjs").read_text(encoding="utf-8")
-        combined = app + "\n" + core
+        renderer = (CONSOLE / "coverage-renderer.mjs").read_text(encoding="utf-8")
+        combined = app + "\n" + core + "\n" + renderer
         for forbidden in (
             "innerHTML",
             "outerHTML",
@@ -125,19 +121,17 @@ class CaseConsoleContractTests(unittest.TestCase):
         self.assertIn("local console state, not a CASE REST response", app)
 
     def test_proxy_and_container_are_strictly_independent(self):
-        template = (CONSOLE / "nginx" / "case-console.conf.template").read_text(
-            encoding="utf-8"
-        )
-        entrypoint = (CONSOLE / "nginx" / "20-configure-case-upstream.sh").read_text(
-            encoding="utf-8"
-        )
+        template = (CONSOLE / "nginx" / "case-console.conf.template").read_text(encoding="utf-8")
+        entrypoint = (CONSOLE / "nginx" / "20-configure-case-upstream.sh").read_text(encoding="utf-8")
         dockerfile = (CONSOLE / "Dockerfile").read_text(encoding="utf-8")
         compose = (CONSOLE / "compose.yaml").read_text(encoding="utf-8")
 
+        self.assertIn("location = /api/v2/cases", template)
+        self.assertIn("proxy_pass __CASE_API_UPSTREAM__/v2/cases;", template)
         self.assertIn("location = /api/v1/cases", template)
-        self.assertIn("limit_except POST", template)
         self.assertIn("proxy_pass __CASE_API_UPSTREAM__/v1/cases;", template)
         self.assertNotIn("location /api/", template)
+        self.assertIn("limit_except POST", template)
         self.assertIn("CASE_API_UPSTREAM", entrypoint)
         self.assertIn("without a path, query or fragment", entrypoint)
         self.assertIn("Content-Security-Policy", template)
@@ -152,7 +146,7 @@ class CaseConsoleContractTests(unittest.TestCase):
         if node is None:
             self.skipTest("node is unavailable for ES-module contract fixture smoke")
 
-        script = r"""
+        script = r'''
 import fs from "node:fs";
 import { pathToFileURL } from "node:url";
 const moduleUrl = pathToFileURL(process.argv[1]).href;
@@ -171,13 +165,12 @@ for (const fixturePath of process.argv.slice(3)) {
     throw new Error("fixture did not render required views: " + fixturePath);
   }
 }
-"""
+'''
         fixtures = [
-            REST_EXAMPLES / "complete-response.json",
-            REST_EXAMPLES / "partial-response.json",
-            REST_EXAMPLES / "unresolved-response.json",
-            REST_EXAMPLES / "invalid-request-error.json",
-            REST_EXAMPLES / "service-unavailable-error.json",
+            REST_V2_EXAMPLES / "complete-response.json",
+            REST_V2_EXAMPLES / "invalid-request-error.json",
+            REST_V2_EXAMPLES / "service-unavailable-error.json",
+            REST_V1_EXAMPLES / "complete-response.json",
         ]
         subprocess.run(
             [
@@ -197,14 +190,14 @@ for (const fixturePath of process.argv.slice(3)) {
 
     def test_malicious_public_text_can_only_reach_text_content_renderer(self):
         app = (CONSOLE / "app.js").read_text(encoding="utf-8")
+        renderer = (CONSOLE / "coverage-renderer.mjs").read_text(encoding="utf-8")
         malicious = '<img src=x onerror="globalThis.pwned=true">'
-        # Regression intent: external values are JSON-serialized and assigned to
-        # textContent; there is no HTML parser sink in the frontend.
         rendered = json.dumps({"exact_text": malicious}, ensure_ascii=False, indent=2)
         self.assertEqual(json.loads(rendered)["exact_text"], malicious)
         self.assertIn("<img src=x onerror=", rendered)
         self.assertIn("pre.textContent = JSON.stringify(value, null, 2);", app)
-        self.assertNotIn("innerHTML", app)
+        self.assertIn("node.textContent = String(text);", renderer)
+        self.assertNotIn("innerHTML", app + renderer)
 
 
 class CaseConsoleContainerTests(unittest.TestCase):
@@ -214,11 +207,7 @@ class CaseConsoleContainerTests(unittest.TestCase):
     def setUpClass(cls):
         if shutil.which("docker") is None:
             raise unittest.SkipTest("docker is unavailable")
-        probe = subprocess.run(
-            ["docker", "info"],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
+        probe = subprocess.run(["docker", "info"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         if probe.returncode != 0:
             raise unittest.SkipTest("docker daemon is unavailable")
 
@@ -227,15 +216,15 @@ class CaseConsoleContainerTests(unittest.TestCase):
             sock.bind(("127.0.0.1", 0))
             return sock.getsockname()[1]
 
-    def test_image_health_independence_and_real_rest_adapter_proxy(self):
+    def test_image_health_independence_and_historical_v1_proxy(self):
         sys.path.insert(0, str(TOOLS))
         try:
             from case_rest_api import CaseRESTApplication, CaseRESTServer
         finally:
             sys.path.pop(0)
 
-        request_payload = load_json(REST_EXAMPLES / "request.json")
-        complete = load_json(REST_EXAMPLES / "complete-response.json")
+        request_payload = load_json(REST_V1_EXAMPLES / "request.json")
+        complete = load_json(REST_V1_EXAMPLES / "complete-response.json")
         bundle = complete["bundle"]
         observed = {}
 
@@ -262,18 +251,10 @@ class CaseConsoleContainerTests(unittest.TestCase):
         try:
             run = subprocess.run(
                 [
-                    "docker",
-                    "run",
-                    "-d",
-                    "--name",
-                    name,
-                    "--add-host",
-                    "host.docker.internal:host-gateway",
-                    "-e",
-                    f"CASE_API_UPSTREAM=http://host.docker.internal:{api_port}",
-                    "-p",
-                    f"127.0.0.1:{console_port}:8080",
-                    self.image,
+                    "docker", "run", "-d", "--name", name,
+                    "--add-host", "host.docker.internal:host-gateway",
+                    "-e", f"CASE_API_UPSTREAM=http://host.docker.internal:{api_port}",
+                    "-p", f"127.0.0.1:{console_port}:8080", self.image,
                 ],
                 check=True,
                 capture_output=True,
@@ -284,9 +265,7 @@ class CaseConsoleContainerTests(unittest.TestCase):
             deadline = time.monotonic() + 20
             while True:
                 try:
-                    with urlopen(
-                        f"http://127.0.0.1:{console_port}/healthz", timeout=1
-                    ) as response:
+                    with urlopen(f"http://127.0.0.1:{console_port}/healthz", timeout=1) as response:
                         self.assertEqual(response.status, 200)
                         break
                 except Exception:
@@ -294,11 +273,7 @@ class CaseConsoleContainerTests(unittest.TestCase):
                         self.fail("console did not become healthy")
                     time.sleep(0.25)
 
-            body = json.dumps(
-                request_payload,
-                ensure_ascii=False,
-                separators=(",", ":"),
-            ).encode("utf-8")
+            body = json.dumps(request_payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
             req = Request(
                 f"http://127.0.0.1:{console_port}/api/v1/cases",
                 data=body,
@@ -312,27 +287,15 @@ class CaseConsoleContainerTests(unittest.TestCase):
             self.assertEqual(observed["case_input"]["problem_text"], request_payload["problem_text"])
             self.assertEqual(observed["case_input"].get("as_of_date"), request_payload.get("as_of_date"))
 
-            inspect = subprocess.run(
-                ["docker", "inspect", name],
-                check=True,
-                capture_output=True,
-                text=True,
-            )
+            inspect = subprocess.run(["docker", "inspect", name], check=True, capture_output=True, text=True)
             data = json.loads(inspect.stdout)[0]
             self.assertEqual(data["Mounts"], [])
-            self.assertIn(
-                data["State"]["Health"]["Status"],
-                {"starting", "healthy"},
-            )
+            self.assertIn(data["State"]["Health"]["Status"], {"starting", "healthy"})
 
-            # Backend lifecycle is independent: stopping the CASE adapter must not
-            # make the static console health endpoint fail.
             server.shutdown()
             server.server_close()
             thread.join(timeout=2)
-            with urlopen(
-                f"http://127.0.0.1:{console_port}/healthz", timeout=2
-            ) as response:
+            with urlopen(f"http://127.0.0.1:{console_port}/healthz", timeout=2) as response:
                 self.assertEqual(response.status, 200)
         finally:
             server.shutdown()

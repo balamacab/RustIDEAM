@@ -4,6 +4,7 @@ COPY index.html /usr/share/nginx/html/index.html
 COPY styles.css /usr/share/nginx/html/styles.css
 COPY app.js /usr/share/nginx/html/app.js
 COPY app-core.mjs /usr/share/nginx/html/app-core.mjs
+COPY coverage-renderer.mjs /usr/share/nginx/html/coverage-renderer.mjs
 COPY public-contract.json /usr/share/nginx/html/public-contract.json
 COPY fixtures/ /usr/share/nginx/html/fixtures/
 COPY nginx/case-console.conf.template /etc/nginx/case-console.conf.template

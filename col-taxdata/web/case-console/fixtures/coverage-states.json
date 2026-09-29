@@ -1,0 +1,847 @@
+{
+  "description": "Synthetic browser-presentation fixtures for issue #286. These exercise public CASE v5 coverage states without asserting legal conclusions.",
+  "cases": [
+    {
+      "id": "complete",
+      "expected_text": [
+        "Bundle: complete",
+        "Support closure: complete",
+        "Effective as of caller date",
+        "Interpretive synthesis remains external",
+        "Exact synthetic legal evidence.",
+        "Congreso de Colombia"
+      ],
+      "expected_source_uri": "https://example.invalid/official",
+      "payload": {
+        "api_version": "2.0.0",
+        "request_fingerprints": {
+          "raw_request_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+          "case_input_sha256": "2222222222222222222222222222222222222222222222222222222222222222"
+        },
+        "bundle": {
+          "kind": "legal_research_bundle",
+          "contract_version": "5.0.0",
+          "bundle_ref": "bundle:complete",
+          "status": "complete",
+          "case_input": {
+            "kind": "case_input",
+            "contract_version": "5.0.0",
+            "problem_text": "Synthetic complete research question.",
+            "as_of_date": "2026-09-29"
+          },
+          "intake_draft": {
+            "questions": [
+              {
+                "question_ref": "question:complete",
+                "text": "Synthetic complete question",
+                "category": "legal",
+                "status": "open"
+              }
+            ]
+          },
+          "research_plan": {
+            "aspects": [
+              {
+                "aspect_ref": "aspect:complete",
+                "question_ref": "question:complete",
+                "origin": "explicit_scope",
+                "scope_status": "explicit_finite",
+                "dimension_key": "complete",
+                "research_goal": "Research complete.",
+                "required": true,
+                "fact_refs": [],
+                "sequence": 0,
+                "decomposition_status": "certain"
+              }
+            ],
+            "tasks": [
+              {
+                "task_ref": "task:complete",
+                "question_ref": "question:complete",
+                "aspect_ref": "aspect:complete",
+                "required": true
+              }
+            ]
+          },
+          "research_result": {
+            "status": "complete",
+            "evidence_selections": [
+              {
+                "selection_ref": "selection:complete",
+                "aspect_ref": "aspect:complete",
+                "task_ref": "task:complete",
+                "authority_ref": "authority:complete",
+                "evidence_refs": [
+                  "evidence:complete"
+                ],
+                "basis": "exact_target",
+                "context_status": "exact_sufficient",
+                "authority_status": "resolved",
+                "temporal_status": "effective_as_of"
+              }
+            ],
+            "aspect_coverage": [
+              {
+                "coverage_ref": "coverage:complete",
+                "aspect_ref": "aspect:complete",
+                "task_refs": [
+                  "task:complete"
+                ],
+                "selection_refs": [
+                  "selection:complete"
+                ],
+                "omission_refs": [],
+                "unresolved_refs": [],
+                "execution_status": "complete",
+                "evidence_status": "context_ready",
+                "authority_status": "resolved",
+                "temporal_status": "assessed",
+                "fact_status": "not_required",
+                "synthesis_status": "requires_interpretive_synthesis",
+                "support_closure": "complete",
+                "limitation_codes": []
+              }
+            ],
+            "omitted_work": [],
+            "unresolved_refs": [],
+            "research_context": {
+              "as_of_date": "2026-09-29",
+              "unavailable_fields": []
+            }
+          },
+          "sources": [
+            {
+              "source_ref": "source:complete",
+              "authority": "Synthetic official authority",
+              "source_uri": "https://example.invalid/official",
+              "title": "Synthetic official source"
+            }
+          ],
+          "authorities": [
+            {
+              "authority_ref": "authority:complete",
+              "display_name": "Synthetic Law 1",
+              "document_type": "Ley",
+              "issuer": "Congreso de Colombia",
+              "jurisdiction_scope": "Colombia",
+              "classification_state": "resolved",
+              "temporal_state": {
+                "resolution_state": "resolved",
+                "effective": true
+              }
+            }
+          ],
+          "evidence_spans": [
+            {
+              "evidence_ref": "evidence:complete",
+              "authority_ref": "authority:complete",
+              "document_ref": "document:complete",
+              "provision_ref": "provision:complete",
+              "exact_text": "Exact synthetic legal evidence.",
+              "source_ref": "source:complete"
+            }
+          ],
+          "normative_relationships": [],
+          "rule_fragments": [],
+          "deterministic_evaluations": [],
+          "calculation_traces": [],
+          "unresolved": [],
+          "generated_at": "2026-09-29T20:00:00Z"
+        }
+      }
+    },
+    {
+      "id": "partial-limited",
+      "expected_text": [
+        "Bundle: partial",
+        "Context gap",
+        "Authority conflict",
+        "Budget exhausted",
+        "Historical as of caller date",
+        "Issuer:Not provided",
+        "Authority metadata ambiguous"
+      ],
+      "expected_source_uri": "https://example.invalid/historical",
+      "payload": {
+        "api_version": "2.0.0",
+        "request_fingerprints": {
+          "raw_request_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+          "case_input_sha256": "2222222222222222222222222222222222222222222222222222222222222222"
+        },
+        "bundle": {
+          "kind": "legal_research_bundle",
+          "contract_version": "5.0.0",
+          "bundle_ref": "bundle:partial-limited",
+          "status": "partial",
+          "case_input": {
+            "kind": "case_input",
+            "contract_version": "5.0.0",
+            "problem_text": "Synthetic partial-limited research question.",
+            "as_of_date": "2020-01-01"
+          },
+          "intake_draft": {
+            "questions": [
+              {
+                "question_ref": "question:partial-limited",
+                "text": "Synthetic partial-limited question",
+                "category": "legal",
+                "status": "open"
+              }
+            ]
+          },
+          "research_plan": {
+            "aspects": [
+              {
+                "aspect_ref": "aspect:partial-limited",
+                "question_ref": "question:partial-limited",
+                "origin": "explicit_scope",
+                "scope_status": "explicit_finite",
+                "dimension_key": "partial-limited",
+                "research_goal": "Research partial-limited.",
+                "required": true,
+                "fact_refs": [],
+                "sequence": 0,
+                "decomposition_status": "certain"
+              }
+            ],
+            "tasks": [
+              {
+                "task_ref": "task:partial-limited",
+                "question_ref": "question:partial-limited",
+                "aspect_ref": "aspect:partial-limited",
+                "required": true
+              }
+            ]
+          },
+          "research_result": {
+            "status": "partial",
+            "evidence_selections": [
+              {
+                "selection_ref": "selection:partial",
+                "aspect_ref": "aspect:partial-limited",
+                "task_ref": "task:partial-limited",
+                "authority_ref": "authority:partial",
+                "evidence_refs": [
+                  "evidence:partial"
+                ],
+                "basis": "thematic_relevance",
+                "context_status": "incomplete",
+                "authority_status": "conflicting",
+                "temporal_status": "historical_as_of"
+              }
+            ],
+            "aspect_coverage": [
+              {
+                "coverage_ref": "coverage:partial-limited",
+                "aspect_ref": "aspect:partial-limited",
+                "task_refs": [
+                  "task:partial-limited"
+                ],
+                "selection_refs": [
+                  "selection:partial"
+                ],
+                "omission_refs": [
+                  "omission:partial-budget",
+                  "omission:partial-context"
+                ],
+                "unresolved_refs": [
+                  "unresolved:partial-conflict"
+                ],
+                "execution_status": "budget_exhausted",
+                "evidence_status": "context_incomplete",
+                "authority_status": "conflicting",
+                "temporal_status": "mixed",
+                "fact_status": "sufficient",
+                "synthesis_status": "requires_interpretive_synthesis",
+                "support_closure": "incomplete",
+                "limitation_codes": [
+                  "context_gap",
+                  "authority_conflict",
+                  "budget_exhausted"
+                ]
+              }
+            ],
+            "omitted_work": [
+              {
+                "omission_ref": "omission:partial-budget",
+                "aspect_ref": "aspect:partial-limited",
+                "task_ref": "task:partial-limited",
+                "class": "research",
+                "reason": "budget_exhausted",
+                "required": true,
+                "description": "Research budget exhausted."
+              },
+              {
+                "omission_ref": "omission:partial-context",
+                "aspect_ref": "aspect:partial-limited",
+                "task_ref": "task:partial-limited",
+                "class": "support",
+                "reason": "context_unavailable",
+                "required": true,
+                "description": "Required context unavailable."
+              }
+            ],
+            "unresolved_refs": [
+              "unresolved:partial-conflict"
+            ],
+            "research_context": {
+              "as_of_date": "2020-01-01",
+              "unavailable_fields": []
+            }
+          },
+          "sources": [
+            {
+              "source_ref": "source:partial",
+              "authority": "Synthetic official authority",
+              "source_uri": "https://example.invalid/historical",
+              "title": "Historical official source"
+            }
+          ],
+          "authorities": [
+            {
+              "authority_ref": "authority:partial",
+              "display_name": "Ambiguous authority",
+              "classification_state": "ambiguous",
+              "temporal_state": {
+                "resolution_state": "ambiguous",
+                "effective": null
+              }
+            }
+          ],
+          "evidence_spans": [
+            {
+              "evidence_ref": "evidence:partial",
+              "authority_ref": "authority:partial",
+              "document_ref": "document:partial",
+              "exact_text": "Historical evidence with incomplete context.",
+              "source_ref": "source:partial"
+            }
+          ],
+          "normative_relationships": [],
+          "rule_fragments": [],
+          "deterministic_evaluations": [],
+          "calculation_traces": [],
+          "unresolved": [
+            {
+              "unresolved_ref": "unresolved:partial-conflict",
+              "category": "conflicting_authority",
+              "description": "Authorities conflict.",
+              "next_action": "external_interpretive_synthesis",
+              "related_aspect_refs": [
+                "aspect:partial-limited"
+              ]
+            }
+          ],
+          "generated_at": "2026-09-29T20:00:00Z"
+        }
+      }
+    },
+    {
+      "id": "blocked",
+      "expected_text": [
+        "Bundle: blocked",
+        "Integrity failure",
+        "Temporal applicability unassessed"
+      ],
+      "payload": {
+        "api_version": "2.0.0",
+        "request_fingerprints": {
+          "raw_request_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+          "case_input_sha256": "2222222222222222222222222222222222222222222222222222222222222222"
+        },
+        "bundle": {
+          "kind": "legal_research_bundle",
+          "contract_version": "5.0.0",
+          "bundle_ref": "bundle:blocked",
+          "status": "blocked",
+          "case_input": {
+            "kind": "case_input",
+            "contract_version": "5.0.0",
+            "problem_text": "Synthetic blocked research question."
+          },
+          "intake_draft": {
+            "questions": [
+              {
+                "question_ref": "question:blocked",
+                "text": "Synthetic blocked question",
+                "category": "legal",
+                "status": "open"
+              }
+            ]
+          },
+          "research_plan": {
+            "aspects": [
+              {
+                "aspect_ref": "aspect:blocked",
+                "question_ref": "question:blocked",
+                "origin": "explicit_scope",
+                "scope_status": "explicit_finite",
+                "dimension_key": "blocked",
+                "research_goal": "Research blocked.",
+                "required": true,
+                "fact_refs": [],
+                "sequence": 0,
+                "decomposition_status": "certain"
+              }
+            ],
+            "tasks": [
+              {
+                "task_ref": "task:blocked",
+                "question_ref": "question:blocked",
+                "aspect_ref": "aspect:blocked",
+                "required": true
+              }
+            ]
+          },
+          "research_result": {
+            "status": "blocked",
+            "evidence_selections": [],
+            "aspect_coverage": [
+              {
+                "coverage_ref": "coverage:blocked",
+                "aspect_ref": "aspect:blocked",
+                "task_refs": [
+                  "task:blocked"
+                ],
+                "selection_refs": [],
+                "omission_refs": [
+                  "omission:blocked"
+                ],
+                "unresolved_refs": [
+                  "unresolved:blocked"
+                ],
+                "execution_status": "blocked",
+                "evidence_status": "not_assessed",
+                "authority_status": "unassessed",
+                "temporal_status": "unassessed",
+                "fact_status": "not_required",
+                "synthesis_status": "unsupported",
+                "support_closure": "incomplete",
+                "limitation_codes": []
+              }
+            ],
+            "omitted_work": [
+              {
+                "omission_ref": "omission:blocked",
+                "aspect_ref": "aspect:blocked",
+                "task_ref": "task:blocked",
+                "class": "research",
+                "reason": "integrity_failure",
+                "required": true,
+                "description": "Integrity check failed."
+              }
+            ],
+            "unresolved_refs": [
+              "unresolved:blocked"
+            ],
+            "research_context": {
+              "as_of_date": null,
+              "unavailable_fields": [
+                "as_of_date"
+              ]
+            }
+          },
+          "sources": [],
+          "authorities": [],
+          "evidence_spans": [],
+          "normative_relationships": [],
+          "rule_fragments": [],
+          "deterministic_evaluations": [],
+          "calculation_traces": [],
+          "unresolved": [
+            {
+              "unresolved_ref": "unresolved:blocked",
+              "category": "integrity_failure",
+              "description": "Integrity failure blocks research.",
+              "next_action": "human_review",
+              "related_aspect_refs": [
+                "aspect:blocked"
+              ]
+            }
+          ],
+          "generated_at": "2026-09-29T20:00:00Z"
+        }
+      }
+    },
+    {
+      "id": "not-researched",
+      "expected_text": [
+        "Not researched",
+        "No as_of_date was submitted",
+        "Temporal applicability unassessed"
+      ],
+      "payload": {
+        "api_version": "2.0.0",
+        "request_fingerprints": {
+          "raw_request_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+          "case_input_sha256": "2222222222222222222222222222222222222222222222222222222222222222"
+        },
+        "bundle": {
+          "kind": "legal_research_bundle",
+          "contract_version": "5.0.0",
+          "bundle_ref": "bundle:not-researched",
+          "status": "partial",
+          "case_input": {
+            "kind": "case_input",
+            "contract_version": "5.0.0",
+            "problem_text": "Synthetic not-researched research question."
+          },
+          "intake_draft": {
+            "questions": [
+              {
+                "question_ref": "question:not-researched",
+                "text": "Synthetic not-researched question",
+                "category": "legal",
+                "status": "open"
+              }
+            ]
+          },
+          "research_plan": {
+            "aspects": [
+              {
+                "aspect_ref": "aspect:not-researched",
+                "question_ref": "question:not-researched",
+                "origin": "explicit_scope",
+                "scope_status": "explicit_finite",
+                "dimension_key": "not-researched",
+                "research_goal": "Research not-researched.",
+                "required": true,
+                "fact_refs": [],
+                "sequence": 0,
+                "decomposition_status": "certain"
+              }
+            ],
+            "tasks": [
+              {
+                "task_ref": "task:not-researched",
+                "question_ref": "question:not-researched",
+                "aspect_ref": "aspect:not-researched",
+                "required": true
+              }
+            ]
+          },
+          "research_result": {
+            "status": "partial",
+            "evidence_selections": [],
+            "aspect_coverage": [
+              {
+                "coverage_ref": "coverage:not-researched",
+                "aspect_ref": "aspect:not-researched",
+                "task_refs": [
+                  "task:not-researched"
+                ],
+                "selection_refs": [],
+                "omission_refs": [
+                  "omission:not-researched"
+                ],
+                "unresolved_refs": [],
+                "execution_status": "not_started",
+                "evidence_status": "not_assessed",
+                "authority_status": "unassessed",
+                "temporal_status": "unassessed",
+                "fact_status": "not_required",
+                "synthesis_status": "unsupported",
+                "support_closure": "incomplete",
+                "limitation_codes": []
+              }
+            ],
+            "omitted_work": [
+              {
+                "omission_ref": "omission:not-researched",
+                "aspect_ref": "aspect:not-researched",
+                "task_ref": "task:not-researched",
+                "class": "research",
+                "reason": "not_planned",
+                "required": true,
+                "description": "Work was not researched."
+              }
+            ],
+            "unresolved_refs": [],
+            "research_context": {
+              "as_of_date": null,
+              "unavailable_fields": [
+                "as_of_date"
+              ]
+            }
+          },
+          "sources": [],
+          "authorities": [],
+          "evidence_spans": [],
+          "normative_relationships": [],
+          "rule_fragments": [],
+          "deterministic_evaluations": [],
+          "calculation_traces": [],
+          "unresolved": [],
+          "generated_at": "2026-09-29T20:00:00Z"
+        }
+      }
+    },
+    {
+      "id": "unknown-profile",
+      "expected_text": [
+        "Unknown/unplanned scope",
+        "Unsupported scope",
+        "Unsupported topic",
+        "No evidence found"
+      ],
+      "payload": {
+        "api_version": "2.0.0",
+        "request_fingerprints": {
+          "raw_request_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+          "case_input_sha256": "2222222222222222222222222222222222222222222222222222222222222222"
+        },
+        "bundle": {
+          "kind": "legal_research_bundle",
+          "contract_version": "5.0.0",
+          "bundle_ref": "bundle:unknown-profile",
+          "status": "partial",
+          "case_input": {
+            "kind": "case_input",
+            "contract_version": "5.0.0",
+            "problem_text": "Synthetic unknown-profile research question."
+          },
+          "intake_draft": {
+            "questions": [
+              {
+                "question_ref": "question:unknown-profile",
+                "text": "Synthetic unknown-profile question",
+                "category": "legal",
+                "status": "open"
+              }
+            ]
+          },
+          "research_plan": {
+            "aspects": [
+              {
+                "aspect_ref": "aspect:unknown-profile",
+                "question_ref": "question:unknown-profile",
+                "origin": "generic_fallback",
+                "scope_status": "unknown_unplanned",
+                "dimension_key": "unknown-profile",
+                "research_goal": "Research unknown-profile.",
+                "required": true,
+                "fact_refs": [],
+                "sequence": 0,
+                "decomposition_status": "uncertain"
+              }
+            ],
+            "tasks": [
+              {
+                "task_ref": "task:unknown-profile",
+                "question_ref": "question:unknown-profile",
+                "aspect_ref": "aspect:unknown-profile",
+                "required": true
+              }
+            ]
+          },
+          "research_result": {
+            "status": "partial",
+            "evidence_selections": [],
+            "aspect_coverage": [
+              {
+                "coverage_ref": "coverage:unknown-profile",
+                "aspect_ref": "aspect:unknown-profile",
+                "task_refs": [
+                  "task:unknown-profile"
+                ],
+                "selection_refs": [],
+                "omission_refs": [
+                  "omission:unknown-profile"
+                ],
+                "unresolved_refs": [
+                  "unresolved:unknown-profile"
+                ],
+                "execution_status": "partial",
+                "evidence_status": "none_found",
+                "authority_status": "unassessed",
+                "temporal_status": "unassessed",
+                "fact_status": "not_required",
+                "synthesis_status": "unsupported",
+                "support_closure": "unsupported_scope",
+                "limitation_codes": [
+                  "unplanned_scope",
+                  "unsupported_topic",
+                  "no_evidence"
+                ]
+              }
+            ],
+            "omitted_work": [
+              {
+                "omission_ref": "omission:unknown-profile",
+                "aspect_ref": "aspect:unknown-profile",
+                "task_ref": "task:unknown-profile",
+                "class": "research",
+                "reason": "unsupported_scope",
+                "required": true,
+                "description": "No safe profile covers this scope."
+              }
+            ],
+            "unresolved_refs": [
+              "unresolved:unknown-profile"
+            ],
+            "research_context": {
+              "as_of_date": null,
+              "unavailable_fields": [
+                "as_of_date"
+              ]
+            }
+          },
+          "sources": [],
+          "authorities": [],
+          "evidence_spans": [],
+          "normative_relationships": [],
+          "rule_fragments": [],
+          "deterministic_evaluations": [],
+          "calculation_traces": [],
+          "unresolved": [
+            {
+              "unresolved_ref": "unresolved:unknown-profile",
+              "category": "unsupported_topic",
+              "description": "Topic is outside planned profiles.",
+              "next_action": "expand_research",
+              "related_aspect_refs": [
+                "aspect:unknown-profile"
+              ]
+            }
+          ],
+          "generated_at": "2026-09-29T20:00:00Z"
+        }
+      }
+    },
+    {
+      "id": "requires-facts",
+      "expected_text": [
+        "Requires facts",
+        "Missing fact",
+        "Income amount is missing."
+      ],
+      "payload": {
+        "api_version": "2.0.0",
+        "request_fingerprints": {
+          "raw_request_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+          "case_input_sha256": "2222222222222222222222222222222222222222222222222222222222222222"
+        },
+        "bundle": {
+          "kind": "legal_research_bundle",
+          "contract_version": "5.0.0",
+          "bundle_ref": "bundle:requires-facts",
+          "status": "partial",
+          "case_input": {
+            "kind": "case_input",
+            "contract_version": "5.0.0",
+            "problem_text": "Synthetic requires-facts research question."
+          },
+          "intake_draft": {
+            "questions": [
+              {
+                "question_ref": "question:requires-facts",
+                "text": "Synthetic requires-facts question",
+                "category": "legal",
+                "status": "open"
+              }
+            ]
+          },
+          "research_plan": {
+            "aspects": [
+              {
+                "aspect_ref": "aspect:requires-facts",
+                "question_ref": "question:requires-facts",
+                "origin": "explicit_scope",
+                "scope_status": "explicit_finite",
+                "dimension_key": "requires-facts",
+                "research_goal": "Research requires-facts.",
+                "required": true,
+                "fact_refs": [
+                  "fact:income"
+                ],
+                "sequence": 0,
+                "decomposition_status": "certain"
+              }
+            ],
+            "tasks": [
+              {
+                "task_ref": "task:requires-facts",
+                "question_ref": "question:requires-facts",
+                "aspect_ref": "aspect:requires-facts",
+                "required": true
+              }
+            ]
+          },
+          "research_result": {
+            "status": "partial",
+            "evidence_selections": [],
+            "aspect_coverage": [
+              {
+                "coverage_ref": "coverage:requires-facts",
+                "aspect_ref": "aspect:requires-facts",
+                "task_refs": [
+                  "task:requires-facts"
+                ],
+                "selection_refs": [],
+                "omission_refs": [
+                  "omission:requires-facts"
+                ],
+                "unresolved_refs": [
+                  "unresolved:requires-facts"
+                ],
+                "execution_status": "partial",
+                "evidence_status": "candidate_only",
+                "authority_status": "unassessed",
+                "temporal_status": "unassessed",
+                "fact_status": "missing",
+                "synthesis_status": "requires_facts",
+                "support_closure": "incomplete",
+                "limitation_codes": [
+                  "missing_facts"
+                ]
+              }
+            ],
+            "omitted_work": [
+              {
+                "omission_ref": "omission:requires-facts",
+                "aspect_ref": "aspect:requires-facts",
+                "task_ref": "task:requires-facts",
+                "class": "research",
+                "reason": "blocked_by_facts",
+                "required": true,
+                "description": "Personalized evaluation requires an income fact."
+              }
+            ],
+            "unresolved_refs": [
+              "unresolved:requires-facts"
+            ],
+            "research_context": {
+              "as_of_date": null,
+              "unavailable_fields": [
+                "as_of_date"
+              ]
+            }
+          },
+          "sources": [],
+          "authorities": [],
+          "evidence_spans": [],
+          "normative_relationships": [],
+          "rule_fragments": [],
+          "deterministic_evaluations": [],
+          "calculation_traces": [],
+          "unresolved": [
+            {
+              "unresolved_ref": "unresolved:requires-facts",
+              "category": "missing_fact",
+              "description": "Income amount is missing.",
+              "needed_information": "Confirmed income amount.",
+              "next_action": "ask_client",
+              "related_fact_refs": [
+                "fact:income"
+              ],
+              "related_aspect_refs": [
+                "aspect:requires-facts"
+              ]
+            }
+          ],
+          "generated_at": "2026-09-29T20:00:00Z"
+        }
+      }
+    }
+  ]
+}

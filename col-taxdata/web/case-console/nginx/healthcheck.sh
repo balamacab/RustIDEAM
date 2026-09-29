@@ -26,7 +26,8 @@ require_content_type() {
     echo "CASE console readiness failed to fetch $path" >&2
     return 1
   }
-  printf '%s\n' "$headers" | grep -Eiq     "^[[:space:]]*Content-Type:[[:space:]]*${expected}([;[:space:]]|$)" || {
+  printf '%s\n' "$headers" | grep -Eiq \
+    "^[[:space:]]*Content-Type:[[:space:]]*${expected}([;[:space:]]|$)" || {
       echo "CASE console readiness received an invalid Content-Type for $path" >&2
       return 1
     }
@@ -35,5 +36,7 @@ require_content_type() {
 require_status_ok "/healthz"
 require_content_type "/app.js" '(application|text)/javascript'
 require_content_type "/app-core.mjs" '(application|text)/javascript'
+require_content_type "/coverage-renderer.mjs" '(application|text)/javascript'
 require_content_type "/public-contract.json" 'application/json'
 require_content_type "/fixtures/index.json" 'application/json'
+require_content_type "/fixtures/coverage-states.json" 'application/json'

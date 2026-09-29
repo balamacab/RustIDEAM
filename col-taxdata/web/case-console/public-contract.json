@@ -1,9 +1,13 @@
 {
-  "contract_name": "CASE REST API v1",
-  "api_version": "1.0.0",
+  "contract_name": "CASE REST API v2",
+  "api_version": "2.0.0",
+  "application_contract_version": "5.0.0",
   "method": "POST",
-  "api_path": "/v1/cases",
-  "proxy_path": "/api/v1/cases",
+  "api_path": "/v2/cases",
+  "proxy_path": "/api/v2/cases",
+  "historical_proxy_paths": [
+    "/api/v1/cases"
+  ],
   "request_fields": [
     "problem_text",
     "as_of_date",
