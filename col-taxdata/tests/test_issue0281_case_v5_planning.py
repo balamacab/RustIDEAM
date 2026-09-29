@@ -222,6 +222,36 @@ class Issue281CaseV5PlanningTests(unittest.TestCase):
             {aspect.get("profile_id") for aspect in plan["aspects"]},
         )
 
+    def test_supported_single_token_aliases_match_as_tokens(self):
+        cases = [
+            (
+                "La sociedad pregunta por el RST tributario.",
+                "¿Qué reglas del RST tributario deben investigarse?",
+                "tax.simple",
+            ),
+            (
+                "La sociedad pregunta por un CDI tributario.",
+                "¿Qué dimensiones del CDI tributario deben investigarse?",
+                "tax.treaty",
+            ),
+        ]
+        for index, (problem, question_text, expected_profile) in enumerate(cases):
+            with self.subTest(expected_profile=expected_profile):
+                intake = _intake(
+                    problem,
+                    [_question(f"question:alias-{index}", question_text)],
+                    intake_ref=f"intake:alias-{index}",
+                )
+                plan = build_research_plan_v5(
+                    _case_input(problem),
+                    intake,
+                    generated_at=GENERATED_AT,
+                )
+                self.assertIn(
+                    expected_profile,
+                    {aspect.get("profile_id") for aspect in plan["aspects"]},
+                )
+
     def test_unknown_topic_gets_explicit_generic_limited_plan(self):
         problem = "Se consulta una servidumbre minera contractual atípica."
         intake = _intake(
@@ -515,6 +545,32 @@ class Issue281CaseV5PlanningTests(unittest.TestCase):
         )
         self.assertEqual(context["as_of_date"], "2025-12-31")
         self.assertNotIn("as_of_date", context["unavailable_fields"])
+
+    def test_plan_identity_and_order_ignore_generated_at_timestamp(self):
+        problem = "La sociedad pregunta por el régimen SIMPLE de tributación."
+        intake = _intake(
+            problem,
+            [_question("question:simple-time", "¿Qué reglas del régimen SIMPLE deben investigarse?")],
+            intake_ref="intake:stable-time",
+        )
+        case_input = _case_input(problem)
+        first = build_research_plan_v5(
+            case_input,
+            intake,
+            generated_at="2026-09-28T22:30:00Z",
+        )
+        second = build_research_plan_v5(
+            case_input,
+            deepcopy(intake),
+            generated_at="2026-09-28T22:31:00Z",
+        )
+
+        self.assertNotEqual(first["generated_at"], second["generated_at"])
+        self.assertEqual(first["plan_ref"], second["plan_ref"])
+        self.assertEqual(first["aspects"], second["aspects"])
+        self.assertEqual(first["tasks"], second["tasks"])
+        self.assertEqual(first["budgets"], second["budgets"])
+        self.assertEqual(first["fairness_policy"], second["fairness_policy"])
 
     def test_material_profile_change_changes_policy_identity(self):
         profiles = load_planner_profile_set()
