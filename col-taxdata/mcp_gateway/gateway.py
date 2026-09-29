@@ -2,8 +2,8 @@
 
 This module intentionally uses only the Python standard library.  It does not
 import col-taxdata backend packages, access CASE storage, or know the corpus
-filesystem/SQLite layout.  Its only semantic dependency is the published CASE
-REST v1 JSON contract.
+filesystem/SQLite layout.  Its only semantic dependency is the published,
+versioned CASE REST JSON contracts.
 """
 
 from __future__ import annotations
@@ -21,10 +21,16 @@ from urllib import error as urlerror
 from urllib import parse as urlparse
 from urllib import request as urlrequest
 
+# Historical compatibility aliases remain the v4/v1 defaults for callers that
+# predate explicit contract negotiation.
 REST_API_VERSION = "1.0.0"
 CASE_CONTRACT_VERSION = "4.0.0"
-GATEWAY_CONTRACT_VERSION = "1.0.0"
+GATEWAY_CONTRACT_VERSION = "2.0.0"
 REST_CASE_PATH = "/v1/cases"
+
+V5_REST_API_VERSION = "2.0.0"
+V5_CASE_CONTRACT_VERSION = "5.0.0"
+V5_REST_CASE_PATH = "/v2/cases"
 
 DEFAULT_TIMEOUT_SECONDS = 7260.0
 MIN_TIMEOUT_SECONDS = 7201.0
@@ -117,6 +123,52 @@ class GatewayError(RuntimeError):
 
 
 @dataclass(frozen=True)
+class CaseContractBinding:
+    """Supported public REST/application-contract pairing."""
+
+    case_contract_version: str
+    rest_api_version: str
+    rest_case_path: str
+
+
+_CASE_CONTRACT_BINDINGS = {
+    CASE_CONTRACT_VERSION: CaseContractBinding(
+        case_contract_version=CASE_CONTRACT_VERSION,
+        rest_api_version=REST_API_VERSION,
+        rest_case_path=REST_CASE_PATH,
+    ),
+    V5_CASE_CONTRACT_VERSION: CaseContractBinding(
+        case_contract_version=V5_CASE_CONTRACT_VERSION,
+        rest_api_version=V5_REST_API_VERSION,
+        rest_case_path=V5_REST_CASE_PATH,
+    ),
+}
+SUPPORTED_CASE_CONTRACT_VERSIONS = tuple(_CASE_CONTRACT_BINDINGS)
+SUPPORTED_REST_API_VERSIONS = tuple(
+    binding.rest_api_version for binding in _CASE_CONTRACT_BINDINGS.values()
+)
+
+
+def _binding_for(case_contract_version: str) -> CaseContractBinding:
+    """Resolve one explicit supported version without coercion or fallback."""
+
+    if not isinstance(case_contract_version, str):
+        requested = repr(case_contract_version)
+    else:
+        requested = case_contract_version
+    try:
+        return _CASE_CONTRACT_BINDINGS[case_contract_version]
+    except (KeyError, TypeError) as exc:
+        supported = ", ".join(SUPPORTED_CASE_CONTRACT_VERSIONS)
+        raise GatewayError(
+            "MCP_CASE_UNSUPPORTED_VERSION",
+            f"Unsupported CASE contract version {requested!r}. "
+            f"Supported versions: {supported}.",
+            retryable=False,
+        ) from exc
+
+
+@dataclass(frozen=True)
 class GatewayConfig:
     """Runtime-only connection and resource bounds for the independent gateway."""
 
@@ -158,7 +210,12 @@ class GatewayConfig:
 
     @property
     def case_url(self) -> str:
-        return self.base_url.rstrip("/") + REST_CASE_PATH
+        """Historical REST v1 URL retained for v4 compatibility."""
+        return self.case_url_for(CASE_CONTRACT_VERSION)
+
+    def case_url_for(self, case_contract_version: str) -> str:
+        binding = _binding_for(case_contract_version)
+        return self.base_url.rstrip("/") + binding.rest_case_path
 
     @classmethod
     def from_env(cls) -> "GatewayConfig":
@@ -262,16 +319,18 @@ def _validate_success_envelope(
     payload: dict[str, Any],
     submitted_request: Mapping[str, Any],
     raw_request: bytes,
+    *,
+    binding: CaseContractBinding,
 ) -> None:
     if set(payload) != {"api_version", "request_fingerprints", "bundle"}:
         raise GatewayError(
             "MCP_CASE_UPSTREAM_CONTRACT_ERROR",
             "CASE REST success response has an unsupported envelope shape.",
         )
-    if payload.get("api_version") != REST_API_VERSION:
+    if payload.get("api_version") != binding.rest_api_version:
         raise GatewayError(
             "MCP_CASE_UPSTREAM_CONTRACT_ERROR",
-            "CASE REST success response uses an unsupported API version.",
+            "CASE REST success response does not match the requested API version.",
         )
 
     fingerprints = payload.get("request_fingerprints")
@@ -297,11 +356,11 @@ def _validate_success_envelope(
     if not isinstance(bundle, dict) or set(bundle) != _REQUIRED_BUNDLE_FIELDS:
         raise GatewayError(
             "MCP_CASE_UPSTREAM_CONTRACT_ERROR",
-            "CASE REST success response is not a closed LegalResearchBundle v4.",
+            "CASE REST success response is not a closed LegalResearchBundle.",
         )
     if (
         bundle.get("kind") != "legal_research_bundle"
-        or bundle.get("contract_version") != CASE_CONTRACT_VERSION
+        or bundle.get("contract_version") != binding.case_contract_version
         or bundle.get("status") not in {"complete", "partial", "blocked"}
     ):
         raise GatewayError(
@@ -327,7 +386,7 @@ def _validate_success_envelope(
 
     expected_case_input = {
         "kind": "case_input",
-        "contract_version": CASE_CONTRACT_VERSION,
+        "contract_version": binding.case_contract_version,
         **dict(submitted_request),
     }
     if bundle.get("case_input") != expected_case_input:
@@ -350,6 +409,7 @@ def _validate_error_envelope(
     payload: dict[str, Any],
     *,
     raw_request: bytes,
+    binding: CaseContractBinding,
 ) -> None:
     if not {"api_version", "error"}.issubset(payload) or not set(payload).issubset(
         {"api_version", "error", "request_fingerprints"}
@@ -358,10 +418,10 @@ def _validate_error_envelope(
             "MCP_CASE_UPSTREAM_CONTRACT_ERROR",
             "CASE REST returned a non-contract error envelope.",
         )
-    if payload.get("api_version") != REST_API_VERSION:
+    if payload.get("api_version") != binding.rest_api_version:
         raise GatewayError(
             "MCP_CASE_UPSTREAM_CONTRACT_ERROR",
-            "CASE REST error response uses an unsupported API version.",
+            "CASE REST error response does not match the requested API version.",
         )
 
     error = payload.get("error")
@@ -413,8 +473,9 @@ def _map_http_error(
     payload: dict[str, Any],
     *,
     raw_request: bytes,
+    binding: CaseContractBinding,
 ) -> GatewayError:
-    _validate_error_envelope(payload, raw_request=raw_request)
+    _validate_error_envelope(payload, raw_request=raw_request, binding=binding)
     error = payload.get("error")
     if not isinstance(error, dict):
         return GatewayError(
@@ -446,7 +507,7 @@ def _map_http_error(
 
 
 class CaseRestClient:
-    """HTTP/JSON client that knows only the published CASE REST v1 surface."""
+    """HTTP/JSON client for the explicitly supported public CASE REST surfaces."""
 
     def __init__(self, config: GatewayConfig) -> None:
         self.config = config
@@ -458,7 +519,9 @@ class CaseRestClient:
         as_of_date: str | None = None,
         client_reference: str | None = None,
         caller_metadata: Mapping[str, Any] | None = None,
+        case_contract_version: str = CASE_CONTRACT_VERSION,
     ) -> dict[str, Any]:
+        binding = _binding_for(case_contract_version)
         if not isinstance(problem_text, str) or problem_text == "":
             raise GatewayError(
                 "MCP_CASE_INVALID_REQUEST",
@@ -482,7 +545,7 @@ class CaseRestClient:
             )
 
         request = urlrequest.Request(
-            self.config.case_url,
+            self.config.case_url_for(binding.case_contract_version),
             data=raw,
             headers={
                 "Content-Type": "application/json",
@@ -514,6 +577,7 @@ class CaseRestClient:
                 int(exc.code),
                 error_payload,
                 raw_request=raw,
+                binding=binding,
             ) from None
         except (TimeoutError, socket.timeout) as exc:
             raise GatewayError(
@@ -546,7 +610,12 @@ class CaseRestClient:
             error_code="MCP_CASE_UPSTREAM_CONTRACT_ERROR",
             message="CASE REST success response is not valid JSON.",
         )
-        _validate_success_envelope(response_payload, payload, raw)
+        _validate_success_envelope(
+            response_payload,
+            payload,
+            raw,
+            binding=binding,
+        )
         return response_payload
 
 
@@ -621,6 +690,194 @@ def _by_refs(
     return [copy.deepcopy(item) for item in items if item.get(field) in refs]
 
 
+def _is_v5_bundle(bundle: Mapping[str, Any]) -> bool:
+    return bundle.get("contract_version") == V5_CASE_CONTRACT_VERSION
+
+
+def _v5_coverage_projection(
+    bundle: Mapping[str, Any],
+    *,
+    bundle_handle: str,
+) -> dict[str, Any]:
+    """Expose v5 research/support state without creating a legal verdict."""
+
+    intake = bundle.get("intake_draft", {})
+    plan = bundle.get("research_plan", {})
+    result = bundle.get("research_result", {})
+    facts = intake.get("facts", []) if isinstance(intake, dict) else []
+    missing_or_ambiguous_facts = [
+        copy.deepcopy(item)
+        for item in facts
+        if isinstance(item, dict) and item.get("state") in {"missing", "ambiguous"}
+    ]
+    return {
+        "view_kind": "mcp_research_coverage_view",
+        "bundle_handle": bundle_handle,
+        "contract_version": bundle.get("contract_version"),
+        "bundle_status": bundle.get("status"),
+        "questions": copy.deepcopy(intake.get("questions", [])),
+        "missing_or_ambiguous_facts": missing_or_ambiguous_facts,
+        "aspects": copy.deepcopy(plan.get("aspects", [])),
+        "tasks": copy.deepcopy(plan.get("tasks", [])),
+        "evidence_selections": copy.deepcopy(result.get("evidence_selections", [])),
+        "aspect_coverage": copy.deepcopy(result.get("aspect_coverage", [])),
+        "omitted_work": copy.deepcopy(result.get("omitted_work", [])),
+        "unresolved": copy.deepcopy(bundle.get("unresolved", [])),
+        "research_context": copy.deepcopy(result.get("research_context")),
+        "projection_notice": (
+            "Coverage dimensions describe platform research/support state only. "
+            "They are not a legal conclusion, do not imply applicability, and "
+            "cannot write consumer synthesis back into canonical CASE state."
+        ),
+    }
+
+
+def _v5_research_links(
+    bundle: Mapping[str, Any],
+    *,
+    authority_refs: set[str] | None = None,
+    evidence_refs: set[str] | None = None,
+) -> dict[str, Any]:
+    """Follow only explicit v5 bundle refs from an existing semantic resource."""
+
+    authority_refs = set(authority_refs or ())
+    evidence_refs = set(evidence_refs or ())
+    intake = bundle.get("intake_draft", {})
+    plan = bundle.get("research_plan", {})
+    result = bundle.get("research_result", {})
+
+    questions = intake.get("questions", []) if isinstance(intake, dict) else []
+    aspects = plan.get("aspects", []) if isinstance(plan, dict) else []
+    tasks = plan.get("tasks", []) if isinstance(plan, dict) else []
+    selections = (
+        result.get("evidence_selections", []) if isinstance(result, dict) else []
+    )
+    coverages = result.get("aspect_coverage", []) if isinstance(result, dict) else []
+    omissions = result.get("omitted_work", []) if isinstance(result, dict) else []
+    unresolved_items = bundle.get("unresolved", [])
+
+    linked_selections = [
+        item
+        for item in selections
+        if (
+            item.get("authority_ref") in authority_refs
+            or bool(set(item.get("evidence_refs", [])) & evidence_refs)
+        )
+    ]
+    selection_refs = {
+        item.get("selection_ref")
+        for item in linked_selections
+        if isinstance(item.get("selection_ref"), str)
+    }
+    aspect_refs = {
+        item.get("aspect_ref")
+        for item in linked_selections
+        if isinstance(item.get("aspect_ref"), str)
+    }
+    task_refs = {
+        item.get("task_ref")
+        for item in linked_selections
+        if isinstance(item.get("task_ref"), str)
+    }
+
+    linked_coverages = [
+        item
+        for item in coverages
+        if (
+            item.get("aspect_ref") in aspect_refs
+            or bool(set(item.get("selection_refs", [])) & selection_refs)
+        )
+    ]
+    for item in linked_coverages:
+        if isinstance(item.get("aspect_ref"), str):
+            aspect_refs.add(item["aspect_ref"])
+        task_refs.update(
+            ref for ref in item.get("task_refs", []) if isinstance(ref, str)
+        )
+
+    linked_aspects = [
+        item for item in aspects if item.get("aspect_ref") in aspect_refs
+    ]
+    question_refs = {
+        item.get("question_ref")
+        for item in linked_aspects
+        if isinstance(item.get("question_ref"), str)
+    }
+    linked_tasks = [
+        item
+        for item in tasks
+        if item.get("task_ref") in task_refs or item.get("aspect_ref") in aspect_refs
+    ]
+    linked_questions = [
+        item for item in questions if item.get("question_ref") in question_refs
+    ]
+
+    omission_refs = {
+        ref
+        for coverage in linked_coverages
+        for ref in coverage.get("omission_refs", [])
+        if isinstance(ref, str)
+    }
+    linked_omissions = [
+        item
+        for item in omissions
+        if item.get("omission_ref") in omission_refs
+        or item.get("aspect_ref") in aspect_refs
+    ]
+    omission_refs.update(
+        item.get("omission_ref")
+        for item in linked_omissions
+        if isinstance(item.get("omission_ref"), str)
+    )
+
+    coverage_refs = {
+        item.get("coverage_ref")
+        for item in linked_coverages
+        if isinstance(item.get("coverage_ref"), str)
+    }
+    unresolved_refs = {
+        ref
+        for coverage in linked_coverages
+        for ref in coverage.get("unresolved_refs", [])
+        if isinstance(ref, str)
+    }
+
+    def unresolved_is_linked(item: Mapping[str, Any]) -> bool:
+        if item.get("unresolved_ref") in unresolved_refs:
+            return True
+        links = (
+            ("related_authority_refs", authority_refs),
+            ("related_evidence_refs", evidence_refs),
+            ("related_question_refs", question_refs),
+            ("related_aspect_refs", aspect_refs),
+            ("related_task_refs", task_refs),
+            ("related_selection_refs", selection_refs),
+            ("related_coverage_refs", coverage_refs),
+            ("related_omission_refs", omission_refs),
+        )
+        return any(bool(set(item.get(field, [])) & refs) for field, refs in links)
+
+    linked_unresolved = [
+        item
+        for item in unresolved_items
+        if isinstance(item, dict) and unresolved_is_linked(item)
+    ]
+
+    return {
+        "questions": copy.deepcopy(linked_questions),
+        "aspects": copy.deepcopy(linked_aspects),
+        "tasks": copy.deepcopy(linked_tasks),
+        "evidence_selections": copy.deepcopy(linked_selections),
+        "aspect_coverage": copy.deepcopy(linked_coverages),
+        "omitted_work": copy.deepcopy(linked_omissions),
+        "unresolved": copy.deepcopy(linked_unresolved),
+        "projection_notice": (
+            "Links are joins over explicit v5 references already present in the "
+            "bundle; absence of a link is not a legal inference."
+        ),
+    }
+
+
 class GatewayService:
     """Semantic legal-research projections backed only by REST bundle content."""
 
@@ -651,31 +908,45 @@ class GatewayService:
         as_of_date: str | None = None,
         client_reference: str | None = None,
         caller_metadata: Mapping[str, Any] | None = None,
+        case_contract_version: str = CASE_CONTRACT_VERSION,
     ) -> dict[str, Any]:
         envelope = self.rest_client.research_case(
             problem_text=problem_text,
             as_of_date=as_of_date,
             client_reference=client_reference,
             caller_metadata=caller_metadata,
+            case_contract_version=case_contract_version,
         )
         handle = self.store.put(envelope)
-        return {
+        response = {
             "gateway_contract_version": GATEWAY_CONTRACT_VERSION,
             "bundle_handle": handle,
             "handle_scope": "ephemeral_noncanonical",
             "request_fingerprints": copy.deepcopy(envelope["request_fingerprints"]),
             "bundle": copy.deepcopy(envelope["bundle"]),
         }
+        if _is_v5_bundle(envelope["bundle"]):
+            response["research_coverage"] = _v5_coverage_projection(
+                envelope["bundle"],
+                bundle_handle=handle,
+            )
+        return response
 
     def get_case_research(self, *, bundle_handle: str) -> dict[str, Any]:
         envelope = self.store.get(bundle_handle)
-        return {
+        response = {
             "gateway_contract_version": GATEWAY_CONTRACT_VERSION,
             "bundle_handle": bundle_handle,
             "handle_scope": "ephemeral_noncanonical",
             "request_fingerprints": copy.deepcopy(envelope["request_fingerprints"]),
             "bundle": copy.deepcopy(envelope["bundle"]),
         }
+        if _is_v5_bundle(envelope["bundle"]):
+            response["research_coverage"] = _v5_coverage_projection(
+                envelope["bundle"],
+                bundle_handle=bundle_handle,
+            )
+        return response
 
     def get_authority(
         self,
@@ -704,7 +975,7 @@ class GatewayService:
             for item in bundle["unresolved"]
             if authority_ref in item.get("related_authority_refs", [])
         ]
-        return {
+        response = {
             "view_kind": "mcp_authority_view",
             "bundle_handle": bundle_handle,
             "authority": authority,
@@ -715,6 +986,13 @@ class GatewayService:
             "normative_relationships": relationships,
             "unresolved": unresolved,
         }
+        if _is_v5_bundle(bundle):
+            response["research_links"] = _v5_research_links(
+                bundle,
+                authority_refs={authority_ref},
+                evidence_refs=evidence_refs,
+            )
+        return response
 
     def get_provision(
         self,
@@ -738,17 +1016,33 @@ class GatewayService:
                 "MCP_PROVISION_NOT_FOUND",
                 "Provision reference was not present in the LegalResearchBundle.",
             )
-        return {
+        response = {
             "view_kind": "mcp_provision_reference_view",
             "bundle_handle": bundle_handle,
             "provision_ref": provision_ref,
             "authorities": authorities,
             "evidence_spans": evidence,
             "projection_notice": (
-                "REST v1 exposes provision references/evidence, not a standalone "
-                "canonical Provision object; this view does not infer missing metadata."
+                "The REST bundle exposes provision references/evidence, not a "
+                "standalone canonical Provision object; this view does not infer "
+                "missing metadata."
             ),
         }
+        if _is_v5_bundle(bundle):
+            response["research_links"] = _v5_research_links(
+                bundle,
+                authority_refs={
+                    item["authority_ref"]
+                    for item in authorities
+                    if isinstance(item.get("authority_ref"), str)
+                },
+                evidence_refs={
+                    item["evidence_ref"]
+                    for item in evidence
+                    if isinstance(item.get("evidence_ref"), str)
+                },
+            )
+        return response
 
     def get_evidence(
         self,
@@ -778,13 +1072,20 @@ class GatewayService:
             code="MCP_SOURCE_NOT_FOUND",
             label="Evidence source",
         )
-        return {
+        response = {
             "view_kind": "mcp_evidence_view",
             "bundle_handle": bundle_handle,
             "evidence_span": evidence,
             "authority": authority,
             "source": source,
         }
+        if _is_v5_bundle(bundle):
+            response["research_links"] = _v5_research_links(
+                bundle,
+                authority_refs={authority["authority_ref"]},
+                evidence_refs={evidence_ref},
+            )
+        return response
 
     def get_normative_relationships(
         self,
