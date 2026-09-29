@@ -761,7 +761,21 @@ A graph endpoint materialized solely for closure does not gain aspect coverage m
 
 ### Phase C — durable/public transport
 
-#285 implements v5 persistence/materialization and publishes a versioned REST boundary. Historical v4 persistence remains readable; no stored v4 bundle is silently rewritten.
+#285 implements v5 persistence/materialization and publishes REST v2. Historical v4 persistence remains readable; no stored v4 bundle is silently rewritten.
+
+#### #285 durable/public implementation boundary
+
+The v5 durable/public boundary is intentionally version-isolated:
+
+- persisted v5 bundles use append-only v5 tables rather than widening the frozen v4 table constraints;
+- the whole validated ResearchPlan and ResearchResult are immutable JSON artifacts, so aspect/task, evidence-selection, coverage, omission and unresolved references survive exact reconstruction without creating storage-derived legal identities;
+- standalone materialization is versioned under the v5 namespace and is byte-deterministic under canonical JSON;
+- REST v2.0.0 at `/v2/cases` transports only CASE 5.0.0 bundles and keeps the REST v1 caller-authority surface unchanged;
+- REST v1.0.0 at `/v1/cases` remains CASE 4.0.0 and is not widened or coerced;
+- persistence/publication accepts only a complete schema-and-semantic v5 LegalResearchBundle. It does not invent missing research, graph selection, consumer synthesis or legal conclusions;
+- `requires_interpretive_synthesis` remains a normal explicit coverage handoff and does not create a consumer write-back path.
+
+The persistence backend is not identity material. Historical v4 hashes/refs/status interpretation remain governed by v4.
 
 ### Phase D — consumers
 
