@@ -1,7 +1,8 @@
 """MCP transport adapter for the independent col-taxdata legal-research gateway.
 
 The transport layer is intentionally thin: tools delegate to GatewayService,
-which can communicate with CASE only through the published REST v1 contract.
+which can communicate with CASE only through the published versioned REST
+contracts.
 """
 
 from __future__ import annotations
@@ -16,8 +17,11 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 
 from gateway import (
+    CASE_CONTRACT_VERSION,
     GATEWAY_CONTRACT_VERSION,
     REST_API_VERSION,
+    SUPPORTED_CASE_CONTRACT_VERSIONS,
+    SUPPORTED_REST_API_VERSIONS,
     GatewayConfig,
     GatewayConfigError,
     GatewayError,
@@ -64,7 +68,7 @@ def build_server(service: GatewayService | None = None) -> MCPServer:
         title="col-taxdata Legal Research",
         description=(
             "Independent semantic MCP gateway over the published col-taxdata "
-            "CASE REST v1 LegalResearchBundle contract."
+            "versioned CASE REST LegalResearchBundle contracts."
         ),
         instructions=ORIGINATING_LLM_INSTRUCTIONS,
         version=GATEWAY_CONTRACT_VERSION,
@@ -76,11 +80,13 @@ def build_server(service: GatewayService | None = None) -> MCPServer:
         as_of_date: str | None = None,
         client_reference: str | None = None,
         caller_metadata: dict[str, str | int | float | bool | None] | None = None,
+        case_contract_version: str = CASE_CONTRACT_VERSION,
     ) -> dict[str, Any]:
-        """Research a self-contained textual case through CASE REST v1.
+        """Research a self-contained textual case through versioned CASE REST.
 
-        The caller must process any files/attachments in its own environment
-        before calling this tool. This tool accepts no binary/path/URL/OCR input.
+        CASE 4.0.0 remains the historical default. Select 5.0.0 explicitly for
+        v5 aspect/coverage semantics. The caller must process files/attachments
+        in its own environment before calling this tool.
         """
         try:
             return gateway.research_case(
@@ -88,13 +94,14 @@ def build_server(service: GatewayService | None = None) -> MCPServer:
                 as_of_date=as_of_date,
                 client_reference=client_reference,
                 caller_metadata=caller_metadata,
+                case_contract_version=case_contract_version,
             )
         except GatewayError as exc:
             raise _tool_error(exc) from exc
 
     @mcp.tool()
     def get_case_research(bundle_handle: str) -> dict[str, Any]:
-        """Return the exact cached REST LegalResearchBundle for a prior call."""
+        """Return the exact cached bundle plus any version-specific projection."""
         try:
             return gateway.get_case_research(bundle_handle=bundle_handle)
         except GatewayError as exc:
@@ -190,6 +197,12 @@ def build_server(service: GatewayService | None = None) -> MCPServer:
                 "status": "ready",
                 "gateway_contract_version": GATEWAY_CONTRACT_VERSION,
                 "case_rest_api_version": REST_API_VERSION,
+                "supported_case_contract_versions": list(
+                    SUPPORTED_CASE_CONTRACT_VERSIONS
+                ),
+                "supported_case_rest_api_versions": list(
+                    SUPPORTED_REST_API_VERSIONS
+                ),
             }
         )
 

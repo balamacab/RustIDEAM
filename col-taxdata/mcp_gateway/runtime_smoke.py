@@ -19,7 +19,9 @@ class FixtureRestClient:
         as_of_date=None,
         client_reference=None,
         caller_metadata=None,
+        case_contract_version=CASE_CONTRACT_VERSION,
     ):
+        assert case_contract_version == CASE_CONTRACT_VERSION
         external = {"problem_text": problem_text}
         if as_of_date is not None:
             external["as_of_date"] = as_of_date

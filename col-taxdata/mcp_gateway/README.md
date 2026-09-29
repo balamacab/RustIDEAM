@@ -12,11 +12,12 @@ MCP client / external LLM
 col-taxdata-mcp
         |
         | HTTP/JSON only
-        v
-CASE public REST v1
+        +----> CASE public REST v1 / CASE 4.0.0
+        |
+        +----> CASE public REST v2 / CASE 5.0.0
 ```
 
-The gateway does **not** import CASE/backend Python packages, open SQLite, read corpus/case files, mount backend storage, or call an inference provider. Its only semantic dependency is the published CASE REST v1 contract.
+The gateway does **not** import CASE/backend Python packages, open SQLite, read corpus/case files, mount backend storage, or call an inference provider. Its only semantic dependencies are the published CASE REST v1 and v2 contracts.
 
 The gateway keeps a small bounded in-memory cache so follow-up tools can address a bundle returned by `research_case`. A `mcpbundle:...` handle is an ephemeral gateway-local convenience identifier; it is not canonical legal identity and is never persisted.
 
@@ -30,21 +31,23 @@ The MCP contract intentionally has no binary upload, filesystem-path, arbitrary-
 
 The server exposes exactly these semantic tools:
 
-- `research_case` — submit caller-owned textual case fields through `POST /v1/cases`;
-- `get_case_research` — retrieve the exact cached REST bundle;
+- `research_case` — submit caller-owned textual case fields through the version selected by `case_contract_version`; CASE `4.0.0` / REST v1 remains the default and CASE `5.0.0` / REST v2 is explicit;
+- `get_case_research` — retrieve the exact cached REST bundle plus the v5 coverage projection when applicable;
 - `get_authority` — project one existing canonical authority and its bundle support;
 - `get_provision` — project an existing provision reference/evidence without inventing a standalone Provision object;
 - `get_evidence` — return an exact evidence span with authority/source;
 - `get_normative_relationships` — filter relationships already present in the bundle;
 - `get_calculation` — return a deterministic calculation trace and cited supports.
 
-There is no generic HTTP proxy, URL-fetch tool, provider tool, canonical-evidence write tool, prompt surface, or resource surface.
+There is no generic HTTP proxy, URL-fetch tool, provider tool, canonical-evidence write tool, prompt surface, pagination/window tool, or resource surface. The tool count remains exactly seven.
+
+For CASE v5, the response adds a sibling `research_coverage` view built only from exact bundle objects: questions, missing/ambiguous facts, aspects/tasks, EvidenceSelection, AspectCoverage, OmittedWork, unresolved items, and research context. Existing authority/provision/evidence getters also expose `research_links` by following explicit v5 refs. These projections never add a `supported` verdict, never infer a legal conclusion, and never write consumer synthesis back into CASE.
 
 ## Runtime configuration
 
 Required for Streamable HTTP:
 
-- `CASE_REST_BASE_URL` — base URL of a server implementing CASE REST v1;
+- `CASE_REST_BASE_URL` — base URL of a server implementing the supported CASE REST v1/v2 routes;
 - `MCP_HOST` — listen host supplied at deployment time.
 
 Optional:
@@ -89,6 +92,12 @@ No backend filesystem/SQLite volume is mounted. The container root filesystem is
 
 ## Transport and errors
 
-Deployment uses MCP Streamable HTTP. REST v1 public errors are mapped to stable `MCP_CASE_*` tool errors. Upstream exception text, URLs, provider details, stack traces, credentials, and local paths are not copied into MCP errors.
+Deployment uses MCP Streamable HTTP. REST v1/v2 public errors are mapped to the same stable `MCP_CASE_*` tool errors. Unsupported CASE contract versions fail before HTTP as non-retryable `MCP_CASE_UNSUPPORTED_VERSION` errors and list the supported versions. Upstream exception text, URLs, provider details, stack traces, credentials, and local paths are not copied into MCP errors.
 
-Exact evidence text, source/span refs, SHA-256 values, opaque provenance refs, unresolved state, and deterministic trace objects are passed through from the REST LegalResearchBundle without repair or inference.
+Exact evidence text, source/span refs, SHA-256 values, opaque provenance refs, unresolved state, coverage objects, and deterministic trace objects are passed through from the REST LegalResearchBundle without repair or inference.
+
+## Version compatibility
+
+`research_case` defaults to `case_contract_version="4.0.0"` so historical #145 callers continue to use `POST /v1/cases`. A caller selects the v5 coverage model with `case_contract_version="5.0.0"`, which uses `POST /v2/cases`. There is no fallback or relabeling between versions.
+
+Display pagination/context-window optimization remains outside this adapter and is owned by #159.
