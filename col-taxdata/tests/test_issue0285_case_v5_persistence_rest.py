@@ -13,6 +13,7 @@ import tempfile
 import threading
 import unittest
 from unittest import mock
+from urllib import error as urlerror
 from urllib import request as urlrequest
 
 
@@ -512,7 +513,7 @@ class Issue0285CaseV5PersistenceRESTTests(unittest.TestCase):
                 method="POST",
             )
             with mock.patch("case_rest_api_v2.sys.stderr", io.StringIO()):
-                with self.assertRaises(Exception) as raised:
+                with self.assertRaises(urlerror.HTTPError) as raised:
                     urlrequest.urlopen(req, timeout=3)
             error = raised.exception
             payload = json.loads(error.read())
