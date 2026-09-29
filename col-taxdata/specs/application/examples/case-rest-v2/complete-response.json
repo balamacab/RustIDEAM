@@ -1,0 +1,296 @@
+{
+  "api_version": "2.0.0",
+  "request_fingerprints": {
+    "raw_request_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+    "case_input_sha256": "2222222222222222222222222222222222222222222222222222222222222222"
+  },
+  "bundle": {
+    "kind": "legal_research_bundle",
+    "contract_version": "5.0.0",
+    "bundle_ref": "bundle:rest-v2-example",
+    "status": "complete",
+    "case_input": {
+      "kind": "case_input",
+      "contract_version": "5.0.0",
+      "problem_text": "El cliente solicita investigar una regla tributaria aplicable.",
+      "client_reference": "rest-v2-example"
+    },
+    "intake_draft": {
+      "kind": "intake_draft",
+      "contract_version": "5.0.0",
+      "intake_ref": "intake:rest-v2-example",
+      "problem_text": "El cliente solicita investigar una regla tributaria aplicable.",
+      "facts": [],
+      "questions": [
+        {
+          "kind": "case_question",
+          "contract_version": "5.0.0",
+          "question_ref": "question:q1",
+          "text": "¿Qué regla tributaria resulta relevante?",
+          "category": "legal",
+          "status": "open",
+          "depends_on_fact_refs": []
+        }
+      ],
+      "search_hints": [],
+      "model_metadata": {
+        "adapter": "deterministic-fixture",
+        "provider": "fixture-provider",
+        "model": "fixture-model",
+        "schema_version": "5.0.0",
+        "prompt_template_id": "case-intake-v5",
+        "prompt_template_version": "1",
+        "run_reference": "run:rest-v2-example",
+        "generated_at": "2026-09-29T18:00:00Z",
+        "routing_role": "intake_structuring",
+        "structured_generation_mechanism": "fixture"
+      }
+    },
+    "research_plan": {
+      "kind": "research_plan",
+      "contract_version": "5.0.0",
+      "plan_ref": "plan:rest-v2-example",
+      "intake_ref": "intake:rest-v2-example",
+      "aspects": [
+        {
+          "kind": "research_aspect",
+          "contract_version": "5.0.0",
+          "aspect_ref": "aspect:narrow-rule",
+          "question_ref": "question:q1",
+          "origin": "explicit_scope",
+          "scope_status": "explicit_finite",
+          "dimension_key": "narrow-rule",
+          "research_goal": "Localizar y contextualizar evidencia jurídica relevante.",
+          "required": true,
+          "fact_refs": [],
+          "sequence": 0,
+          "decomposition_status": "certain"
+        }
+      ],
+      "tasks": [
+        {
+          "kind": "research_task",
+          "contract_version": "5.0.0",
+          "task_ref": "task:narrow-rule",
+          "question_ref": "question:q1",
+          "aspect_ref": "aspect:narrow-rule",
+          "required": true,
+          "origin": "platform_required",
+          "purpose": "primary_research",
+          "strategy": "thematic_search",
+          "target": {
+            "kind": "query",
+            "query_text": "regla tributaria aplicable"
+          },
+          "depth": 0,
+          "sequence": 0
+        }
+      ],
+      "budgets": {
+        "research": {
+          "max_rounds": 2,
+          "max_tasks": 4,
+          "max_queries_per_aspect": 3,
+          "max_hits_per_query": 10,
+          "max_reference_depth": 2,
+          "max_total_authorities": 10
+        },
+        "support": {
+          "max_selected_evidence_per_aspect": 8,
+          "max_context_expansions_per_aspect": 4,
+          "max_relationships_per_aspect": 4,
+          "max_total_evidence_spans": 16
+        }
+      },
+      "fairness_policy": {
+        "policy": "required_aspects_round_robin",
+        "max_consecutive_optional_tasks": 0
+      },
+      "stop_conditions": [
+        "required_support_closure",
+        "bounds_exhausted"
+      ],
+      "planner_version": "planner-v5-example-1",
+      "profile_set_version": "profiles-v5-example-1",
+      "profile_set_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "generated_at": "2026-09-29T18:01:00Z"
+    },
+    "research_result": {
+      "kind": "research_result",
+      "contract_version": "5.0.0",
+      "result_ref": "research:rest-v2-example",
+      "plan_ref": "plan:rest-v2-example",
+      "status": "complete",
+      "trace": [
+        {
+          "kind": "research_trace_step",
+          "contract_version": "5.0.0",
+          "trace_ref": "trace:rest-v2-example",
+          "task_ref": "task:narrow-rule",
+          "aspect_ref": "aspect:narrow-rule",
+          "round": 1,
+          "executed_target": {
+            "kind": "query",
+            "query_text": "regla tributaria aplicable"
+          },
+          "outcome": "hits",
+          "hit_count": 1,
+          "retrieved_authority_refs": [
+            "authority:narrow-1"
+          ],
+          "selected_authority_refs": [
+            "authority:narrow-1"
+          ],
+          "selected_evidence_refs": [
+            "evidence:narrow-1"
+          ],
+          "unresolved_refs": [],
+          "stop_reason": "required_support_closure"
+        }
+      ],
+      "authority_refs": [
+        "authority:narrow-1"
+      ],
+      "evidence_selections": [
+        {
+          "kind": "evidence_selection",
+          "contract_version": "5.0.0",
+          "selection_ref": "selection:narrow-1",
+          "aspect_ref": "aspect:narrow-rule",
+          "task_ref": "task:narrow-rule",
+          "authority_ref": "authority:narrow-1",
+          "evidence_refs": [
+            "evidence:narrow-1"
+          ],
+          "basis": "thematic_relevance",
+          "context_status": "exact_sufficient",
+          "authority_status": "resolved",
+          "temporal_status": "unassessed"
+        }
+      ],
+      "aspect_coverage": [
+        {
+          "kind": "aspect_coverage",
+          "contract_version": "5.0.0",
+          "coverage_ref": "coverage:narrow-rule",
+          "aspect_ref": "aspect:narrow-rule",
+          "task_refs": [
+            "task:narrow-rule"
+          ],
+          "selection_refs": [
+            "selection:narrow-1"
+          ],
+          "omission_refs": [],
+          "unresolved_refs": [],
+          "execution_status": "complete",
+          "evidence_status": "context_ready",
+          "authority_status": "resolved",
+          "temporal_status": "unassessed",
+          "fact_status": "not_required",
+          "synthesis_status": "requires_interpretive_synthesis",
+          "support_closure": "complete",
+          "limitation_codes": [
+            "temporal_unassessed"
+          ]
+        }
+      ],
+      "omitted_work": [],
+      "unresolved_refs": [],
+      "research_context": {
+        "corpus_snapshot_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "schema_migration_fingerprint": "schema-example-1",
+        "retrieval_config_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "planner_version": "planner-v5-example-1",
+        "retrieval_version": "retrieval-example-1",
+        "profile_set_version": "profiles-v5-example-1",
+        "profile_set_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "coverage_policy_version": "coverage-example-1",
+        "support_selection_version": "support-example-1",
+        "graph_selection_version": "graph-example-1",
+        "as_of_date": null,
+        "unavailable_fields": [
+          "as_of_date"
+        ]
+      },
+      "generated_at": "2026-09-29T18:02:00Z"
+    },
+    "sources": [
+      {
+        "kind": "official_source",
+        "contract_version": "5.0.0",
+        "source_ref": "source:fixture",
+        "authority": "Autoridad oficial de prueba",
+        "source_uri": "https://example.invalid/official",
+        "source_kind": "official_publication",
+        "title": "Fuente oficial de prueba"
+      }
+    ],
+    "authorities": [
+      {
+        "kind": "canonical_authority",
+        "contract_version": "5.0.0",
+        "authority_ref": "authority:narrow-1",
+        "document_ref": "document:narrow-1",
+        "provision_refs": [
+          "provision:narrow-1"
+        ],
+        "display_name": "Autoridad narrow-1",
+        "document_type": "Ley",
+        "issuer": "Congreso de Colombia",
+        "jurisdiction_scope": "Colombia",
+        "source_family": "official",
+        "legal_function": "normative",
+        "classification_state": "resolved",
+        "temporal_state": {
+          "resolution_state": "resolved",
+          "effective": null,
+          "basis_evidence_refs": [
+            "evidence:narrow-1"
+          ]
+        },
+        "evidence_refs": [
+          "evidence:narrow-1"
+        ],
+        "relationship_refs": [],
+        "source_refs": [
+          "source:fixture"
+        ],
+        "publication_metadata": {
+          "state": "resolved",
+          "publication_dates": [
+            "2020-01-01"
+          ],
+          "promulgation_dates": [],
+          "publication_reference": "Diario Oficial de prueba",
+          "evidence_refs": [
+            "evidence:narrow-1"
+          ]
+        }
+      }
+    ],
+    "evidence_spans": [
+      {
+        "kind": "evidence_span",
+        "contract_version": "5.0.0",
+        "evidence_ref": "evidence:narrow-1",
+        "span_ref": "span:narrow-1",
+        "authority_ref": "authority:narrow-1",
+        "document_ref": "document:narrow-1",
+        "provision_ref": "provision:narrow-1",
+        "exact_text": "Artículo de prueba con texto jurídico exacto.",
+        "source_ref": "source:fixture",
+        "source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "text_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "provenance_ref": "provenance:narrow-1",
+        "anchor_version": "1",
+        "retrieved_at": "2026-09-29T18:00:00Z"
+      }
+    ],
+    "normative_relationships": [],
+    "rule_fragments": [],
+    "deterministic_evaluations": [],
+    "calculation_traces": [],
+    "unresolved": [],
+    "generated_at": "2026-09-29T18:03:00Z"
+  }
+}
