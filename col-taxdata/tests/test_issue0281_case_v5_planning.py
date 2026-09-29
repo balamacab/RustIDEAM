@@ -409,8 +409,8 @@ class Issue281CaseV5PlanningTests(unittest.TestCase):
 
     def test_missing_fact_is_local_to_matching_dimensions_and_does_not_stop_research(self):
         problem = (
-            "La persona consulta si debe presentar renta, pero no informó el valor "
-            "de sus ingresos brutos."
+            "La persona consulta si debe presentar renta, pero falta uno de los "
+            "datos cuantitativos necesarios para evaluar los topes."
         )
         missing = {
             "kind": "intake_fact",
@@ -514,6 +514,7 @@ class Issue281CaseV5PlanningTests(unittest.TestCase):
             [_question("question:simple", "¿Qué reglas del régimen SIMPLE deben investigarse?")],
         )
         case_input = _case_input(problem, as_of_date="2025-12-31")
+        intake["as_of_date"] = "2025-12-31"
         first = build_research_plan_v5(
             case_input,
             intake,
