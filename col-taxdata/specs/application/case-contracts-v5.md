@@ -525,6 +525,46 @@ If no accepted profile applies:
 
 An explicit narrow question with a finite target may use explicit_finite scope and may complete without a domain profile.
 
+### 16.1 Initial deterministic planner profile set (#281)
+
+The first executable v5 planner uses a versioned neutral profile catalog at
+`config/case-research-profiles-v5.json`. The catalog is planning configuration,
+not legal authority. Its canonical JSON SHA-256 and declared profile-set version
+are copied into every ResearchPlan and later ResearchContextFingerprint.
+
+The initial catalog covers three reusable research families:
+
+- `tax.simple` — neutral dimensions for scope/entry, compliance mechanics and
+  exclusions/changes in the SIMPLE regime;
+- `tax.treaty` — neutral treaty dimensions including treaty scope, business
+  profits, royalties/services terminology and permanent-establishment context;
+- `tax.filing-obligation` — neutral filing-duty dimensions including subject
+  scope, threshold/measurement rules and filing mechanics.
+
+Profile matching is deterministic and conservative:
+
+1. matching uses only the legal question text plus confirmed caller facts;
+2. intake search hints never select a profile and never suppress required work;
+3. missing/ambiguous fact values are never injected into research queries;
+4. profile dimensions may link only the fact refs whose declared semantic keys
+   are relevant to that dimension, so a missing personalization fact cannot
+   block unrelated general research;
+5. unusual wording is handled only through versioned neutral aliases in the
+   profile catalog; no model inference is used;
+6. if no profile matches safely, the planner emits a `generic_fallback`
+   aspect with `generic_limited` scope and `uncertain` decomposition.
+
+The `required_aspects_round_robin` scheduler orders required platform tasks
+across questions/aspects before optional hint work or reference/context
+expansion. High-fanout expansion therefore cannot consume the plan ahead of a
+different required question/aspect. Task ordering is deterministic for the same
+accepted intake and planner/profile configuration.
+
+Planner-derived `plan_ref`, `aspect_ref` and `task_ref` identity material
+includes the planner/profile versioned structural inputs required by section 20.
+Formatting-only changes to the profile file do not change its canonical JSON
+hash. Material profile/configuration changes do.
+
 ## 17. ResearchContinuationRequest
 
 A later consumer may request more research without writing inference into canonical state.
