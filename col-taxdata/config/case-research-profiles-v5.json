@@ -1,0 +1,158 @@
+{
+  "profile_set_version": "1",
+  "profiles": [
+    {
+      "profile_id": "tax.simple",
+      "profile_version": "1",
+      "match": {
+        "any_phrases": [
+          "régimen simple",
+          "regimen simple",
+          "simple de tributación",
+          "simple de tributacion",
+          "impuesto unificado bajo el simple",
+          "rst"
+        ],
+        "all_token_groups": [
+          ["simple", "rst"],
+          ["tributación", "tributacion", "tributario", "impuesto", "régimen", "regimen"]
+        ]
+      },
+      "dimensions": [
+        {
+          "dimension_key": "subject_scope",
+          "research_goal": "Investigar el ámbito subjetivo y las condiciones generales de acceso y permanencia del régimen SIMPLE.",
+          "query_terms": ["régimen SIMPLE de tributación", "sujetos", "requisitos de acceso y permanencia"],
+          "fact_semantic_keys": [],
+          "uses_question_dependency_facts": false
+        },
+        {
+          "dimension_key": "compliance_mechanics",
+          "research_goal": "Investigar las obligaciones formales, declaración, anticipos y mecánica general de cumplimiento del régimen SIMPLE.",
+          "query_terms": ["régimen SIMPLE de tributación", "declaración y anticipos", "obligaciones formales"],
+          "fact_semantic_keys": [],
+          "uses_question_dependency_facts": false
+        },
+        {
+          "dimension_key": "exclusions_and_changes",
+          "research_goal": "Investigar exclusiones, permanencia, retiro y cambios de situación relevantes dentro del régimen SIMPLE.",
+          "query_terms": ["régimen SIMPLE de tributación", "exclusiones", "permanencia y retiro"],
+          "fact_semantic_keys": [],
+          "uses_question_dependency_facts": false
+        },
+        {
+          "dimension_key": "case_specific_inputs",
+          "research_goal": "Investigar cómo los datos específicos del caso se conectan con los requisitos y límites del régimen, sin decidir el resultado.",
+          "query_terms": ["régimen SIMPLE de tributación", "requisitos y límites aplicables al caso"],
+          "fact_semantic_keys": ["tax.gross_income", "tax.activity", "tax.taxpayer_type"],
+          "uses_question_dependency_facts": true
+        }
+      ]
+    },
+    {
+      "profile_id": "tax.treaty",
+      "profile_version": "1",
+      "match": {
+        "any_phrases": [
+          "doble imposición",
+          "doble imposicion",
+          "doble tributación",
+          "doble tributacion",
+          "convenio tributario",
+          "tratado tributario",
+          "cdi"
+        ],
+        "all_token_groups": [
+          ["convenio", "tratado", "cdi"],
+          ["imposición", "imposicion", "tributación", "tributacion", "tributario", "fiscal", "renta"]
+        ]
+      },
+      "dimensions": [
+        {
+          "dimension_key": "treaty_scope",
+          "research_goal": "Investigar el ámbito y la estructura material del convenio tributario relevante sin asumir su aplicación al caso.",
+          "query_terms": ["convenio para evitar la doble imposición", "ámbito del convenio", "categorías de renta"],
+          "fact_semantic_keys": [],
+          "uses_question_dependency_facts": false
+        },
+        {
+          "dimension_key": "business_profits",
+          "research_goal": "Investigar la dimensión de beneficios empresariales y sus condiciones documentadas en el convenio.",
+          "query_terms": ["beneficios empresariales"],
+          "fact_semantic_keys": [],
+          "uses_question_dependency_facts": false
+        },
+        {
+          "dimension_key": "royalties_services",
+          "research_goal": "Investigar la terminología y reglas del convenio sobre cánones, regalías y servicios relacionados, sin caracterizar la operación.",
+          "query_terms": ["cánones regalías", "servicios técnicos consultoría"],
+          "fact_semantic_keys": [],
+          "uses_question_dependency_facts": false
+        },
+        {
+          "dimension_key": "permanent_establishment",
+          "research_goal": "Investigar la dimensión de establecimiento permanente y sus conexiones normativas dentro del convenio.",
+          "query_terms": ["establecimiento permanente"],
+          "fact_semantic_keys": [],
+          "uses_question_dependency_facts": false
+        },
+        {
+          "dimension_key": "case_characterization_inputs",
+          "research_goal": "Investigar qué hechos del caso son materialmente necesarios para una caracterización posterior bajo el convenio, sin producirla.",
+          "query_terms": ["convenio doble imposición", "caracterización de rentas y servicios"],
+          "fact_semantic_keys": ["tax.income_type", "tax.service_location", "tax.counterparty_residence"],
+          "uses_question_dependency_facts": true
+        }
+      ]
+    },
+    {
+      "profile_id": "tax.filing-obligation",
+      "profile_version": "1",
+      "match": {
+        "any_phrases": [
+          "obligado a declarar",
+          "obligación de declarar",
+          "obligacion de declarar",
+          "declaración de renta",
+          "declaracion de renta",
+          "presentar renta"
+        ],
+        "all_token_groups": [
+          ["declarar", "declaración", "declaracion", "presentar"],
+          ["renta"],
+          ["obligado", "obligación", "obligacion", "tope", "topes", "umbral", "umbrales"]
+        ]
+      },
+      "dimensions": [
+        {
+          "dimension_key": "subject_scope",
+          "research_goal": "Investigar el ámbito subjetivo de la obligación de presentar declaración de renta.",
+          "query_terms": ["obligados a declarar renta", "personas naturales", "ámbito subjetivo"],
+          "fact_semantic_keys": [],
+          "uses_question_dependency_facts": false
+        },
+        {
+          "dimension_key": "threshold_measurements",
+          "research_goal": "Investigar los conceptos, mediciones y umbrales jurídicos usados para determinar la obligación de declarar.",
+          "query_terms": ["declaración de renta", "ingresos brutos", "patrimonio", "UVT", "umbrales"],
+          "fact_semantic_keys": ["tax.gross_income", "tax.gross_assets"],
+          "uses_question_dependency_facts": true
+        },
+        {
+          "dimension_key": "filing_mechanics",
+          "research_goal": "Investigar la mecánica formal y temporal de presentación de la declaración sin decidir si el contribuyente concreto está obligado.",
+          "query_terms": ["declaración de renta", "presentación", "plazos", "obligaciones formales"],
+          "fact_semantic_keys": [],
+          "uses_question_dependency_facts": false
+        },
+        {
+          "dimension_key": "case_specific_inputs",
+          "research_goal": "Investigar cómo los datos específicos del contribuyente se relacionan con las reglas de medición para una evaluación posterior.",
+          "query_terms": ["obligación de declarar renta", "mediciones aplicables al contribuyente"],
+          "fact_semantic_keys": ["tax.gross_income", "tax.gross_assets", "tax.taxpayer_type"],
+          "uses_question_dependency_facts": true
+        }
+      ]
+    }
+  ]
+}
