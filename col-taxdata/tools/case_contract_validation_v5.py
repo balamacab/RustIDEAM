@@ -8,6 +8,8 @@ from typing import Any
 from case_contract_validation import CaseContractError, validate_schema_object
 from case_contract_validation_v4 import (
     _validate_registered_rule_fragment,
+    intake_draft_generation_schema as v4_intake_draft_generation_schema,
+    normalize_intake_draft as normalize_v4_intake_draft,
     validate_intake_draft as validate_v4_intake_draft,
 )
 
@@ -178,6 +180,75 @@ def _as_frozen_v4_copy(value: Any) -> Any:
 def validate_case_input(case_input: dict[str, Any]) -> None:
     """Validate one caller-owned v5 CaseInput without adding defaults."""
     _validate_schema(case_input, "CaseInput", INVALID_CASE_INPUT)
+
+
+def _rewrite_schema_version_literals(value: Any) -> Any:
+    """Project the unchanged v4 intake generation schema onto CASE v5.
+
+    The v5 architecture intentionally keeps CaseInput/IntakeDraft semantics
+    unchanged.  Reusing the mature v4 model-facing schema avoids a second
+    intake policy while ensuring the generated object declares the v5 boundary.
+    """
+
+    copied = deepcopy(value)
+
+    def rewrite(node: Any) -> None:
+        if isinstance(node, dict):
+            for key, child in node.items():
+                if isinstance(child, str) and child == V4_CONTRACT_VERSION:
+                    node[key] = CONTRACT_VERSION
+                else:
+                    rewrite(child)
+        elif isinstance(node, list):
+            for child in node:
+                rewrite(child)
+
+    rewrite(copied)
+    return copied
+
+
+def intake_draft_generation_schema(case_input: dict[str, Any]) -> dict[str, Any]:
+    """Return the v5 model-facing intake schema with frozen v4 semantics."""
+
+    validate_case_input(case_input)
+    schema = v4_intake_draft_generation_schema(_as_frozen_v4_copy(case_input))
+    return _rewrite_schema_version_literals(schema)
+
+
+def normalize_intake_draft(
+    case_input: dict[str, Any],
+    draft: dict[str, Any],
+) -> dict[str, Any]:
+    """Apply the existing bounded intake normalization under v5 identity.
+
+    #279 preserved intake semantics.  The v4 normalizer is therefore applied
+    only to defensive version-rewritten copies, then version declarations are
+    restored.  No v5 research object enters this compatibility boundary.
+    """
+
+    validate_case_input(case_input)
+    normalized = normalize_v4_intake_draft(
+        _as_frozen_v4_copy(case_input),
+        _as_frozen_v4_copy(draft),
+    )
+    copied = deepcopy(normalized)
+
+    def restore(node: Any) -> None:
+        if isinstance(node, dict):
+            for key, child in node.items():
+                if (
+                    key in {"contract_version", "schema_version"}
+                    and child == V4_CONTRACT_VERSION
+                ):
+                    node[key] = CONTRACT_VERSION
+                else:
+                    restore(child)
+        elif isinstance(node, list):
+            for child in node:
+                restore(child)
+
+    restore(copied)
+    return copied
 
 
 def _reject_new_v5_model_ref_injection(draft: dict[str, Any]) -> None:
