@@ -24,6 +24,7 @@ Before changing behavior that touches shared legal-data concepts, read the relev
 - [`architecture/data-lifecycle.md`](architecture/data-lifecycle.md) — immutable evidence versus rebuildable derived state and stage-by-stage reprocessing behavior.
 - [`architecture/glossary.md`](architecture/glossary.md) — shared terminology.
 - [`architecture/identifier-semantics.md`](architecture/identifier-semantics.md) — identifier derivation/stability expectations.
+- [`architecture/code-documentation.md`](architecture/code-documentation.md) — durable implementation-point rationale/docstring standard and incremental enforcement policy.
 - [`architecture/adr/`](architecture/adr/) — established architectural decisions and trade-offs.
 
 These documents are required context when an issue depends on those concepts; they do not replace the selected issue/spec or its acceptance criteria.
@@ -51,6 +52,7 @@ specs/
 │   ├── data-lifecycle.md
 │   ├── glossary.md
 │   ├── identifier-semantics.md
+│   ├── code-documentation.md
 │   └── adr/
 │       └── ADR-NNNN-*.md
 ├── application/
