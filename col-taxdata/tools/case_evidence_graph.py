@@ -524,6 +524,22 @@ def materialize_selected_relationship_support(
 
     con = _readonly(db_path)
     try:
+        # Research authorities arrive from complete canonical classification,
+        # whose aggregate relationship/evidence refs intentionally include all
+        # validated relationships touching the document.  Project those
+        # starting authorities onto the already-selected subgraph before
+        # support closure so evidence that belongs only to an excluded edge
+        # cannot pull its owner back into the case graph.
+        for authority_ref in sorted(initial_authority_refs):
+            authority_registry[authority_ref] = (
+                _project_relationship_endpoint_authority(
+                    con,
+                    authority=authority_registry[authority_ref],
+                    classified_relationships=relationship_registry.values(),
+                    included_relationships=relationship_registry,
+                )
+            )
+
         _close_relationship_endpoints(
             con=con,
             db_path=db_path,
