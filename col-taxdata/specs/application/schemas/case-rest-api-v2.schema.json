@@ -1,0 +1,200 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/balamacab/RustIDEAM/blob/main/col-taxdata/specs/application/schemas/case-rest-api-v2.schema.json",
+  "title": "col-taxdata CASE REST API v2 transport schemas",
+  "description": "Public transport-only schemas. CASE domain objects are referenced from the authoritative v5 application schema.",
+  "$defs": {
+    "CaseSubmissionRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "problem_text"
+      ],
+      "properties": {
+        "problem_text": {
+          "type": "string",
+          "minLength": 1
+        },
+        "as_of_date": {
+          "type": "string",
+          "format": "date"
+        },
+        "client_reference": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "caller_metadata": {
+          "type": "object",
+          "maxProperties": 32,
+          "propertyNames": {
+            "allOf": [
+              {
+                "pattern": "^[A-Za-z][A-Za-z0-9_.-]{0,63}$"
+              },
+              {
+                "not": {
+                  "enum": [
+                    "kind",
+                    "contract_version",
+                    "case_id",
+                    "case_ref",
+                    "bundle_ref",
+                    "intake_ref",
+                    "plan_ref",
+                    "result_ref",
+                    "aspect_ref",
+                    "task_ref",
+                    "selection_ref",
+                    "coverage_ref",
+                    "omission_ref",
+                    "authority_ref",
+                    "document_ref",
+                    "provision_ref",
+                    "evidence_ref",
+                    "span_ref",
+                    "relationship_ref",
+                    "rule_ref",
+                    "evaluation_ref",
+                    "calculation_ref",
+                    "unresolved_ref",
+                    "provenance_ref",
+                    "source_ref",
+                    "provider",
+                    "model",
+                    "backend",
+                    "adapter",
+                    "base_url",
+                    "api_key",
+                    "canonical_ids",
+                    "evidence_bindings",
+                    "source_hints",
+                    "expected_conclusions",
+                    "attachments",
+                    "file_path",
+                    "filesystem_path",
+                    "document_url",
+                    "document_urls",
+                    "ocr_payload"
+                  ]
+                }
+              }
+            ]
+          },
+          "additionalProperties": {
+            "type": [
+              "string",
+              "number",
+              "boolean",
+              "null"
+            ]
+          }
+        }
+      }
+    },
+    "SuccessRequestFingerprints": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "raw_request_sha256",
+        "case_input_sha256"
+      ],
+      "properties": {
+        "raw_request_sha256": {
+          "type": "string",
+          "pattern": "^[A-Fa-f0-9]{64}$"
+        },
+        "case_input_sha256": {
+          "type": "string",
+          "pattern": "^[A-Fa-f0-9]{64}$"
+        }
+      }
+    },
+    "ErrorRequestFingerprints": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "raw_request_sha256": {
+          "type": "string",
+          "pattern": "^[A-Fa-f0-9]{64}$"
+        },
+        "case_input_sha256": {
+          "type": "string",
+          "pattern": "^[A-Fa-f0-9]{64}$"
+        }
+      }
+    },
+    "CaseResearchResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "api_version",
+        "request_fingerprints",
+        "bundle"
+      ],
+      "properties": {
+        "api_version": {
+          "const": "2.0.0"
+        },
+        "request_fingerprints": {
+          "$ref": "#/$defs/SuccessRequestFingerprints"
+        },
+        "bundle": {
+          "$ref": "case-contracts-v5.schema.json#/$defs/LegalResearchBundle"
+        }
+      }
+    },
+    "PublicError": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "code",
+        "message",
+        "retryable"
+      ],
+      "properties": {
+        "code": {
+          "enum": [
+            "CASE_API_INVALID_REQUEST",
+            "CASE_API_NOT_FOUND",
+            "CASE_API_METHOD_NOT_ALLOWED",
+            "CASE_API_LENGTH_REQUIRED",
+            "CASE_API_REQUEST_TOO_LARGE",
+            "CASE_API_UNSUPPORTED_MEDIA_TYPE",
+            "CASE_API_SERVICE_UNAVAILABLE",
+            "CASE_API_TIMEOUT",
+            "CASE_API_INTEGRITY_FAILURE",
+            "CASE_API_INTERNAL_ERROR"
+          ]
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1
+        },
+        "retryable": {
+          "type": "boolean"
+        }
+      }
+    },
+    "ErrorResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "api_version",
+        "error"
+      ],
+      "properties": {
+        "api_version": {
+          "const": "2.0.0"
+        },
+        "error": {
+          "$ref": "#/$defs/PublicError"
+        },
+        "request_fingerprints": {
+          "$ref": "#/$defs/ErrorRequestFingerprints"
+        }
+      }
+    }
+  }
+}

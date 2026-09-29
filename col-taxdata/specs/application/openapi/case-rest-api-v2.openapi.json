@@ -1,0 +1,165 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "col-taxdata CASE Public REST API",
+    "version": "2.0.0",
+    "description": "Versioned CASE v5 research contract preserving aspects, evidence selections and coverage."
+  },
+  "paths": {
+    "/v2/cases": {
+      "post": {
+        "operationId": "researchCaseV2",
+        "summary": "Research a self-contained legal/tax case under CASE v5",
+        "description": "Accepts caller-owned scalar case input and returns a validated CASE v5 LegalResearchBundle. No files, provider controls, canonical IDs, consumer conclusions or pagination semantics are accepted.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "../schemas/case-rest-api-v2.schema.json#/$defs/CaseSubmissionRequest"
+              },
+              "examples": {
+                "standard": {
+                  "$ref": "../examples/case-rest-v2/request.json"
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Valid CASE v5 bundle; inspect bundle.status and per-aspect coverage.",
+            "headers": {
+              "X-Col-Taxdata-API-Version": {
+                "required": true,
+                "schema": {
+                  "type": "string",
+                  "const": "2.0.0"
+                }
+              },
+              "Cache-Control": {
+                "required": true,
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "../schemas/case-rest-api-v2.schema.json#/$defs/CaseResearchResponse"
+                },
+                "examples": {
+                  "complete": {
+                    "$ref": "../examples/case-rest-v2/complete-response.json"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed or contract-invalid caller input.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "../schemas/case-rest-api-v2.schema.json#/$defs/ErrorResponse"
+                },
+                "examples": {
+                  "invalid_request": {
+                    "$ref": "../examples/case-rest-v2/invalid-request-error.json"
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown public REST path.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "../schemas/case-rest-api-v2.schema.json#/$defs/ErrorResponse"
+                }
+              }
+            }
+          },
+          "405": {
+            "description": "HTTP method not supported.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "../schemas/case-rest-api-v2.schema.json#/$defs/ErrorResponse"
+                }
+              }
+            }
+          },
+          "411": {
+            "description": "Content-Length required.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "../schemas/case-rest-api-v2.schema.json#/$defs/ErrorResponse"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Request too large.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "../schemas/case-rest-api-v2.schema.json#/$defs/ErrorResponse"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Content-Type must be application/json.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "../schemas/case-rest-api-v2.schema.json#/$defs/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Integrity or internal failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "../schemas/case-rest-api-v2.schema.json#/$defs/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "CASE research temporarily unavailable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "../schemas/case-rest-api-v2.schema.json#/$defs/ErrorResponse"
+                },
+                "examples": {
+                  "unavailable": {
+                    "$ref": "../examples/case-rest-v2/service-unavailable-error.json"
+                  }
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "CASE research timed out.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "../schemas/case-rest-api-v2.schema.json#/$defs/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
