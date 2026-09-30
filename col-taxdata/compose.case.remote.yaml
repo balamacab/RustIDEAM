@@ -1,0 +1,15 @@
+services:
+  case-rest:
+    build:
+      context: "https://github.com/balamacab/RustIDEAM.git#${COL_TAXDATA_REVISION:?Set COL_TAXDATA_REVISION to the exact protected-main commit SHA}:col-taxdata"
+    image: "col-taxdata-case-rest:${COL_TAXDATA_REVISION:?Set COL_TAXDATA_REVISION to the exact protected-main commit SHA}"
+
+  case-web:
+    build:
+      context: "https://github.com/balamacab/RustIDEAM.git#${COL_TAXDATA_REVISION:?Set COL_TAXDATA_REVISION to the exact protected-main commit SHA}:col-taxdata/web/case-console"
+    image: "col-taxdata-web-console:${COL_TAXDATA_REVISION:?Set COL_TAXDATA_REVISION to the exact protected-main commit SHA}"
+
+  case-mcp:
+    build:
+      context: "https://github.com/balamacab/RustIDEAM.git#${COL_TAXDATA_REVISION:?Set COL_TAXDATA_REVISION to the exact protected-main commit SHA}:col-taxdata/mcp_gateway"
+    image: "col-taxdata-mcp:${COL_TAXDATA_REVISION:?Set COL_TAXDATA_REVISION to the exact protected-main commit SHA}"
