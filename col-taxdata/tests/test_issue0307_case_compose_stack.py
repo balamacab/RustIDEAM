@@ -191,7 +191,7 @@ class Issue0307CaseComposeStackTests(unittest.TestCase):
             )
 
         remote_text = REMOTE_COMPOSE.read_text(encoding="utf-8")
-        self.assertEqual(remote_text.count("COL_TAXDATA_REVISION"), 6)
+        self.assertEqual(remote_text.count("${COL_TAXDATA_REVISION:?"), 6)
         self.assertNotIn("host.docker.internal", remote_text)
 
     def test_documentation_covers_standard_lifecycle_and_no_secret_default(self) -> None:
