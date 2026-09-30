@@ -643,12 +643,14 @@ class CaseStructuringService:
             )
             raise rejection
 
-        # Convert to a plain dict, then materialize caller-owned fields at the
-        # application boundary before adding application-owned model metadata.
-        # Concrete adapters may already do this for transport reasons; keeping
-        # the operation here as well makes the semantic port consistent for
-        # deterministic/local adapters without overwriting any emitted value.
-        draft = _materialize_client_owned_fields(case_input, dict(payload))
+        # Preserve the frozen v3 semantic boundary: historical v3 tests require
+        # missing/manufactured caller-owned fields from a direct semantic-port
+        # adapter to fail instead of being repaired here. v4/v5 generation
+        # schemas omit caller-owned root fields by design, so those versions
+        # materialize them non-destructively at the application boundary.
+        draft = deepcopy(dict(payload))
+        if profile.contract_version in {V4_CONTRACT_VERSION, V5_CONTRACT_VERSION}:
+            draft = _materialize_client_owned_fields(case_input, draft)
         draft["model_metadata"] = {
             "adapter": self.client.adapter_id,
             "provider": self.client.provider_id,
