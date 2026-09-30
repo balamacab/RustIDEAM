@@ -120,17 +120,16 @@ class Issue0307CaseComposeStackTests(unittest.TestCase):
                 "/run/col-taxdata/llm-profile.json",
             },
         )
-        self.assertFalse(
-            mounts["/runtime/corpus/taxdata.sqlite"]["bind"]["create_host_path"]
-        )
-        self.assertFalse(
-            mounts["/runtime/case-state"]["bind"]["create_host_path"]
-        )
-        self.assertFalse(
-            mounts["/run/col-taxdata/llm-profile.json"]["bind"][
-                "create_host_path"
-            ]
-        )
+        # Compose versions differ in whether the normalized JSON preserves
+        # bind.create_host_path. The committed source is the deployment
+        # contract, so require the fail-closed declaration on all three bind
+        # mounts and, when the renderer exposes it, require false there too.
+        compose_text = BASE_COMPOSE.read_text(encoding="utf-8")
+        self.assertEqual(compose_text.count("create_host_path: false"), 3)
+        for mount in mounts.values():
+            bind_options = mount.get("bind", {})
+            if "create_host_path" in bind_options:
+                self.assertFalse(bind_options["create_host_path"])
         self.assertTrue(
             mounts["/run/col-taxdata/llm-profile.json"]["read_only"]
         )
