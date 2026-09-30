@@ -17,6 +17,7 @@ from case_research import ResearchExecution
 from case_retrieval import (
     CitableContextHit,
     CitableContextResult,
+    RetrievalHit,
     exact_unambiguous_substring_offset,
 )
 from legal_authority_classification import (
@@ -859,6 +860,55 @@ def _candidate_span(
         "evidence_ref": evidence_ref,
         "provision": provision_meta,
     }
+
+
+def materialize_retrieval_hit_span(
+    con: sqlite3.Connection,
+    hit: RetrievalHit,
+    *,
+    provision_ref: str | None = None,
+) -> dict[str, Any] | None:
+    """Materialize one retrieved canonical segment through the normal verifier.
+
+    This public integration seam exists so CASE v5 orchestration can reuse the
+    exact #183/#282 provenance checks instead of reimplementing evidence-span
+    construction.  The returned object retains the historical shared-object
+    version declaration; callers introducing a new major application contract
+    may project only that declaration after validation.
+    """
+
+    candidate: dict[str, Any] = {
+        "extracted_segment_id": hit.extracted_segment_id,
+        "extraction_id": hit.extraction_id,
+        "sequence_no": hit.sequence_no,
+        "text": hit.text,
+        "text_sha256": hit.text_sha256,
+        "manifestation_id": hit.manifestation_id,
+        "manifestation_sha256": hit.manifestation_sha256,
+        "source_ref": f"source:{hit.source_id}",
+        "source_url": hit.source_url,
+        "retrieved_at": hit.retrieved_at,
+    }
+    if hit.document_id is not None:
+        candidate["document_ref"] = f"document:{hit.document_id}"
+        candidate["authority_ref"] = f"authority:{hit.document_id}"
+    if provision_ref is not None:
+        candidate["provision_ref"] = provision_ref
+
+    span, _statement = _candidate_span(con, candidate)
+    return deepcopy(span) if span is not None else None
+
+
+def materialize_official_sources(
+    con: sqlite3.Connection,
+    source_refs: Iterable[str],
+) -> tuple[dict[str, Any], ...]:
+    """Materialize existing canonical source metadata without inventing sources."""
+
+    return tuple(
+        deepcopy(_official_source(con, source_ref))
+        for source_ref in sorted(set(source_refs))
+    )
 
 
 def _context_candidate(hit: CitableContextHit) -> dict[str, Any]:

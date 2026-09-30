@@ -764,9 +764,9 @@ def _structure_case(
     structurer: CaseStructuringService,
     request_fingerprints: dict[str, str] | None,
 ) -> Any:
-    """Normalize expected v4 intake failures before transport sees them.
+    """Normalize expected v4/v5 intake failures before transport sees them.
 
-    Historical v3 behavior is deliberately preserved.  For v4, contract/model
+    Historical v3 behavior is deliberately preserved. For v4/v5, contract/model
     output failures are integrity failures, provider/backend availability is a
     service condition, and provider timeouts remain timeouts.  The original
     exception stays chained for private diagnostics without crossing the public
@@ -778,11 +778,11 @@ def _structure_case(
             request_fingerprints=request_fingerprints,
         )
     except CaseContractError as exc:
-        if contract_version != V4_CONTRACT_VERSION:
+        if contract_version not in {V4_CONTRACT_VERSION, V5_CONTRACT_VERSION}:
             raise
         raise CaseStructuringIntegrityError(exc.code) from exc
     except LLMClientError as exc:
-        if contract_version != V4_CONTRACT_VERSION:
+        if contract_version not in {V4_CONTRACT_VERSION, V5_CONTRACT_VERSION}:
             raise
         if exc.code == CASE_PROVIDER_TIMEOUT:
             raise CaseStructuringTimeoutError(exc.code) from exc

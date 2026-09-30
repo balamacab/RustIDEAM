@@ -18,3 +18,20 @@ services:
     volumes:
       - ./data:/app/data
     restart: "no"
+
+  case-rest-v2:
+    build:
+      context: .
+      target: runtime
+    image: col-taxdata:local
+    working_dir: /app
+    command:
+      - python3
+      - tools/case_rest_runtime_v2.py
+      - --host
+      - 0.0.0.0
+    volumes:
+      - ./data:/app/data
+    ports:
+      - "${COL_TAXDATA_REST_V2_PORT:-8766}:8766"
+    restart: "no"

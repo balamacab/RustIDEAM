@@ -28,6 +28,7 @@ from case_intake_inference import IntakeInferencePort
 from case_contract_dispatch import (
     V3_CONTRACT_VERSION,
     V4_CONTRACT_VERSION,
+    V5_CONTRACT_VERSION,
     validate_case_input as validate_dispatched_case_input,
     validate_structured_intake,
 )
@@ -40,7 +41,11 @@ from case_contract_validation import (
 from case_contract_validation_v4 import (
     INVALID_INTAKE_DRAFT,
     SCHEMA_PATH as V4_SCHEMA_PATH,
-    normalize_intake_draft,
+    normalize_intake_draft as normalize_v4_intake_draft,
+)
+from case_contract_validation_v5 import (
+    SCHEMA_PATH as V5_SCHEMA_PATH,
+    normalize_intake_draft as normalize_v5_intake_draft,
 )
 
 
@@ -293,6 +298,16 @@ def _structuring_contract_profile(
             prompt_template_version=V4_PROMPT_TEMPLATE_VERSION,
             system_prompt=V4_SYSTEM_PROMPT,
             response_schema_name="case_intake_v4_generation",
+            invalid_output_code=INVALID_INTAKE_DRAFT,
+            metadata_routing_role="intake_structuring",
+        )
+    if version == V5_CONTRACT_VERSION:
+        return StructuringContractProfile(
+            contract_version=version,
+            prompt_template_id="case-intake-v5",
+            prompt_template_version="1",
+            system_prompt=V4_SYSTEM_PROMPT,
+            response_schema_name="case_intake_v5_generation",
             invalid_output_code=INVALID_INTAKE_DRAFT,
             metadata_routing_role="intake_structuring",
         )
@@ -628,9 +643,14 @@ class CaseStructuringService:
             )
             raise rejection
 
-        # Convert to a plain dict before adding application-owned metadata. The
-        # non-canonical generation evidence must never enter a CaseDraft.
+        # Preserve the frozen v3 semantic boundary: historical v3 tests require
+        # missing/manufactured caller-owned fields from a direct semantic-port
+        # adapter to fail instead of being repaired here. v4/v5 generation
+        # schemas omit caller-owned root fields by design, so those versions
+        # materialize them non-destructively at the application boundary.
         draft = deepcopy(dict(payload))
+        if profile.contract_version in {V4_CONTRACT_VERSION, V5_CONTRACT_VERSION}:
+            draft = _materialize_client_owned_fields(case_input, draft)
         draft["model_metadata"] = {
             "adapter": self.client.adapter_id,
             "provider": self.client.provider_id,
@@ -644,7 +664,7 @@ class CaseStructuringService:
                 profile.metadata_routing_role or route.routing_role
             ),
         }
-        if profile.contract_version == V4_CONTRACT_VERSION:
+        if profile.contract_version in {V4_CONTRACT_VERSION, V5_CONTRACT_VERSION}:
             draft["model_metadata"]["structured_generation_mechanism"] = (
                 self.client.structured_generation_capability.mechanism
             )
@@ -658,19 +678,24 @@ class CaseStructuringService:
                 # masquerading behind the historical symbol.
                 validate_case_draft(case_input, draft)
             else:
-                # #210 is a narrow Controller-authorized preprocessing boundary,
-                # not a generic structured-output repair path.  The raw model
-                # object must first satisfy the authoritative serialized v4
-                # shape; only then may exact client-owned evidence upgrade one
-                # already-selected unresolved fact.  Full semantic validation
-                # remains mandatory after normalization.
+                # #210 remains a bounded exact-source preprocessing boundary,
+                # not a generic repair path. v5 deliberately preserves the same
+                # intake semantics while declaring its own closed wire version.
+                schema_path = (
+                    V4_SCHEMA_PATH
+                    if profile.contract_version == V4_CONTRACT_VERSION
+                    else V5_SCHEMA_PATH
+                )
                 validate_schema_object(
                     draft,
                     "IntakeDraft",
                     INVALID_INTAKE_DRAFT,
-                    schema_path=V4_SCHEMA_PATH,
+                    schema_path=schema_path,
                 )
-                draft = normalize_intake_draft(case_input, draft)
+                if profile.contract_version == V4_CONTRACT_VERSION:
+                    draft = normalize_v4_intake_draft(case_input, draft)
+                else:
+                    draft = normalize_v5_intake_draft(case_input, draft)
                 validate_structured_intake(case_input, draft)
         except CaseContractError as exc:
             failure_stage = FAILURE_SEMANTIC_VALIDATION
@@ -686,7 +711,11 @@ class CaseStructuringService:
                         draft,
                         "IntakeDraft",
                         INVALID_INTAKE_DRAFT,
-                        schema_path=V4_SCHEMA_PATH,
+                        schema_path=(
+                            V4_SCHEMA_PATH
+                            if profile.contract_version == V4_CONTRACT_VERSION
+                            else V5_SCHEMA_PATH
+                        ),
                     )
             except CaseContractError:
                 failure_stage = FAILURE_SCHEMA_VALIDATION
