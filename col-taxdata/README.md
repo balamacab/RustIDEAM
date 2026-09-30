@@ -100,6 +100,36 @@ still requires a writable configured database.
 
 REST v1 and CASE v4 keep their separate existing entrypoints and contracts.
 
+## CASE v5 application Compose stack
+
+The crawler-free manual-test/product topology is defined by
+[`compose.case.yaml`](compose.case.yaml). It contains exactly `case-rest`,
+`case-web` and `case-mcp`; Web and MCP use the same internal REST-v2 service
+and never mount the SQLite corpus or CASE state.
+
+Deployment inputs are explicit: an isolated writable corpus DB copy, isolated
+CASE state/output directory, operator-owned LLM profile and a provider base URL
+reachable from the CASE container. No production/shared corpus path, raw
+evidence path, provider credential or `host.docker.internal` assumption is
+committed.
+
+Validate the non-secret example topology with:
+
+```bash
+docker compose \
+  --env-file docs/case-compose.env.example \
+  -f compose.case.yaml \
+  config
+```
+
+For an operation that requests an exact protected-main commit, combine
+`compose.case.yaml` with `compose.case.remote.yaml` and set one
+`COL_TAXDATA_REVISION=<exact-sha>`; that revision drives every Git build
+context and image tag. See
+[`docs/case-compose-deployment.md`](docs/case-compose-deployment.md) for the
+environment, health/readiness, provider-network and detached lifecycle
+contracts.
+
 ## Independent MCP legal-research gateway
 
 Issue #145 provides an independently deployable `col-taxdata-mcp` adapter under [`mcp_gateway/`](mcp_gateway/README.md). It communicates with CASE only through the published REST v1 contract and exposes semantic research/evidence tools to external MCP-capable LLMs/agents.
