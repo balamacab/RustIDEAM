@@ -643,9 +643,12 @@ class CaseStructuringService:
             )
             raise rejection
 
-        # Convert to a plain dict before adding application-owned metadata. The
-        # non-canonical generation evidence must never enter a CaseDraft.
-        draft = deepcopy(dict(payload))
+        # Convert to a plain dict, then materialize caller-owned fields at the
+        # application boundary before adding application-owned model metadata.
+        # Concrete adapters may already do this for transport reasons; keeping
+        # the operation here as well makes the semantic port consistent for
+        # deterministic/local adapters without overwriting any emitted value.
+        draft = _materialize_client_owned_fields(case_input, dict(payload))
         draft["model_metadata"] = {
             "adapter": self.client.adapter_id,
             "provider": self.client.provider_id,
@@ -706,7 +709,11 @@ class CaseStructuringService:
                         draft,
                         "IntakeDraft",
                         INVALID_INTAKE_DRAFT,
-                        schema_path=V4_SCHEMA_PATH,
+                        schema_path=(
+                            V4_SCHEMA_PATH
+                            if profile.contract_version == V4_CONTRACT_VERSION
+                            else V5_SCHEMA_PATH
+                        ),
                     )
             except CaseContractError:
                 failure_stage = FAILURE_SCHEMA_VALIDATION
