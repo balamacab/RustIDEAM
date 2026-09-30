@@ -1,0 +1,124 @@
+name: ${COL_TAXDATA_COMPOSE_PROJECT_NAME:-col-taxdata-case}
+
+services:
+  case-rest:
+    build:
+      context: .
+      target: runtime
+    image: "col-taxdata-case-rest:${COL_TAXDATA_IMAGE_TAG:-local}"
+    working_dir: /app
+    command:
+      - python3
+      - tools/case_rest_runtime_v2.py
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8766"
+    environment:
+      COL_TAXDATA_DB: /runtime/corpus/taxdata.sqlite
+      COL_TAXDATA_CASE_ROOT: /runtime/case-state
+      COL_TAXDATA_LLM_CONFIG: /run/col-taxdata/llm-profile.json
+      COL_TAXDATA_LLM_BASE_URL: "${COL_TAXDATA_PROVIDER_BASE_URL:?Set COL_TAXDATA_PROVIDER_BASE_URL to a provider URL reachable from case-rest}"
+      COL_TAXDATA_LLM_API_KEY: "${COL_TAXDATA_LLM_API_KEY:-}"
+      COL_TAXDATA_SCHEMA_DIR: /app/schema
+      COL_TAXDATA_REST_V2_HOST: 0.0.0.0
+      COL_TAXDATA_REST_V2_PORT: "8766"
+      COL_TAXDATA_REST_V2_MAX_REQUEST_BYTES: "${COL_TAXDATA_REST_V2_MAX_REQUEST_BYTES:-1048576}"
+    volumes:
+      - type: bind
+        source: "${COL_TAXDATA_CORPUS_DB_PATH:?Set COL_TAXDATA_CORPUS_DB_PATH to the isolated writable corpus snapshot file}"
+        target: /runtime/corpus/taxdata.sqlite
+        bind:
+          create_host_path: false
+      - type: bind
+        source: "${COL_TAXDATA_CASE_STATE_PATH:?Set COL_TAXDATA_CASE_STATE_PATH to the isolated CASE state/output directory}"
+        target: /runtime/case-state
+        bind:
+          create_host_path: false
+      - type: bind
+        source: "${COL_TAXDATA_LLM_PROFILE_PATH:?Set COL_TAXDATA_LLM_PROFILE_PATH to the deployment LLM profile}"
+        target: /run/col-taxdata/llm-profile.json
+        read_only: true
+        bind:
+          create_host_path: false
+    ports:
+      - "${COL_TAXDATA_BIND_ADDRESS:-127.0.0.1}:${COL_TAXDATA_REST_HOST_PORT:-8766}:8766"
+    healthcheck:
+      test:
+        - CMD
+        - python3
+        - -c
+        - "import socket; s=socket.create_connection(('127.0.0.1',8766),2); s.close()"
+      interval: 10s
+      timeout: 3s
+      start_period: 10s
+      retries: 12
+    networks:
+      - case-app
+    restart: unless-stopped
+
+  case-web:
+    build:
+      context: ./web/case-console
+    image: "col-taxdata-web-console:${COL_TAXDATA_IMAGE_TAG:-local}"
+    environment:
+      CASE_API_UPSTREAM: http://case-rest:8766
+      CASE_API_READ_TIMEOUT_SECONDS: "${CASE_API_READ_TIMEOUT_SECONDS:-7260}"
+    ports:
+      - "${COL_TAXDATA_BIND_ADDRESS:-127.0.0.1}:${COL_TAXDATA_WEB_HOST_PORT:-8080}:8080"
+    healthcheck:
+      test:
+        - CMD
+        - /usr/local/bin/case-console-healthcheck
+      interval: 10s
+      timeout: 3s
+      start_period: 3s
+      retries: 3
+    depends_on:
+      case-rest:
+        condition: service_healthy
+    networks:
+      - case-app
+    restart: unless-stopped
+
+  case-mcp:
+    build:
+      context: ./mcp_gateway
+    image: "col-taxdata-mcp:${COL_TAXDATA_IMAGE_TAG:-local}"
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      CASE_REST_BASE_URL: http://case-rest:8766
+      MCP_HOST: 0.0.0.0
+      MCP_PORT: "8000"
+      MCP_PATH: "${MCP_PATH:-/mcp}"
+      MCP_TRANSPORT: streamable-http
+      CASE_REST_TIMEOUT_SECONDS: "${CASE_REST_TIMEOUT_SECONDS:-7260}"
+      MCP_MAX_REQUEST_BYTES: "${MCP_MAX_REQUEST_BYTES:-1048576}"
+      MCP_MAX_RESPONSE_BYTES: "${MCP_MAX_RESPONSE_BYTES:-8388608}"
+      MCP_BUNDLE_CACHE_ENTRIES: "${MCP_BUNDLE_CACHE_ENTRIES:-32}"
+    ports:
+      - "${COL_TAXDATA_BIND_ADDRESS:-127.0.0.1}:${COL_TAXDATA_MCP_HOST_PORT:-8000}:8000"
+    healthcheck:
+      test:
+        - CMD
+        - python3
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/readyz',timeout=2).read()"
+      interval: 10s
+      timeout: 3s
+      start_period: 5s
+      retries: 6
+    depends_on:
+      case-rest:
+        condition: service_healthy
+    networks:
+      - case-app
+    restart: unless-stopped
+
+networks:
+  case-app:
+    driver: bridge
