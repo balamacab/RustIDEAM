@@ -268,3 +268,30 @@ Developer workers do not:
 - force-push protected integration history.
 
 The selected issue, protected `main`, the current repository contracts, and GitHub live state remain authoritative.
+
+
+## Executable admission decision gate — issue #323 recovery
+
+For scheduled workers whose effective contract allows it, use
+[`developer-admission-reconciler.md`](developer-admission-reconciler.md)
+and the pure `col-taxdata/ci/developer_admission.py` helper before new claim
+allocation. The helper requires a COMPLETE GitHub connector snapshot,
+recognizes current `CONTROLLER_EXPLICIT_RECOVERY` handoffs, distinguishes
+terminal `DONE` from implementation, and prevents `ORPHAN_NOOP` retry storms.
+
+Its output is advisory and cannot grant GitHub permissions, authorize writing
+through a different client, supersede a denied security operation, or modify
+the effective scheduled prompt/pinned Library contract. In particular, only
+a successful authorized write in the **same worker execution context** counts
+as `write_channel=verified`; Controller success does not verify Developer
+permission. No work or branch may be created from incomplete snapshots.
+
+If a valid own claim exists, immediately resume the exact branch without
+creating another claim, regardless of write-channel status. If the subsequent
+implementation write is denied, preserve the claim and report the denial
+distinctly as `IMPLEMENTATION_WRITE_BLOCKED`, **not** `ADMISSION_BLOCKED`.
+The Controller may perform an explicitly attributed implementation fallback,
+but must never count those commits toward empirical autonomous worker recovery.
+
+This implementation does not update the scheduler and requires acceptance on
+actual DEV-1 and DEV-2 executions before issue #323 can be closed.
