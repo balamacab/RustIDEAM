@@ -4,7 +4,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 import hashlib
 from http import HTTPStatus
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import threading
 import json
 import re
 import sys
@@ -396,8 +397,15 @@ class CaseRESTApplication:
         return bundle
 
 
-class CaseRESTServer(HTTPServer):
-    """HTTP server carrying only public transport/application state."""
+class CaseRESTServer(ThreadingHTTPServer):
+    """Serve clients concurrently while admitting one CASE research at a time.
+
+    Idle HTTP/1.1 keep-alive clients must not monopolize routing. Handler
+    threads are daemons so abandoned connections do not block shutdown.
+    """
+
+    daemon_threads = True
+    block_on_close = False
 
     def __init__(
         self,
@@ -410,10 +418,14 @@ class CaseRESTServer(HTTPServer):
             raise ValueError("max_request_bytes must be positive")
         self.application = application
         self.max_request_bytes = max_request_bytes
+        # Provider/model state is not guaranteed safe for concurrent research.
+        self.research_gate = threading.BoundedSemaphore(value=1)
         super().__init__(server_address, CaseRESTRequestHandler)
 
 
 class CaseRESTRequestHandler(BaseHTTPRequestHandler):
+    """Serialize public JSON requests without exposing internal CASE state."""
+
     server: CaseRESTServer
     protocol_version = "HTTP/1.1"
 
@@ -510,6 +522,7 @@ class CaseRESTRequestHandler(BaseHTTPRequestHandler):
         return body
 
     def do_POST(self) -> None:
+        """Validate one request, admit bounded research, return v2 envelope."""
         if self.path != DEFAULT_ENDPOINT:
             self._send_registered_error(CASE_API_NOT_FOUND)
             return
@@ -532,10 +545,11 @@ class CaseRESTRequestHandler(BaseHTTPRequestHandler):
             return
 
         try:
-            bundle = self.server.application.research(
-                prepared.case_input,
-                request_fingerprints=prepared.fingerprints,
-            )
+            with self.server.research_gate:
+                bundle = self.server.application.research(
+                    prepared.case_input,
+                    request_fingerprints=prepared.fingerprints,
+                )
         except CaseStructuringTimeoutError as exc:
             self._send_registered_error(
                 CASE_API_TIMEOUT,
