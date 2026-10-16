@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from copy import deepcopy
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 import sqlite3
 import sys
 import unittest
@@ -210,6 +212,78 @@ class Issue0306CaseV5RuntimeTests(unittest.TestCase):
         )
         self.assertEqual(bundle["contract_version"], "5.0.0")
         self.assertEqual(bundle["case_input"], case_input)
+
+    def test_cross_authority_context_cannot_be_claimed_by_selected_authority(self) -> None:
+        """Regression for real M620 smoke #320: referenced context has another owner."""
+        case_input, intake = self._case_and_intake()
+        self.add_provision_document(
+            token="306-cross-authority",
+            document_id="DOC-306-cross",
+            document_type="LEY",
+            number="309",
+            year=2026,
+            filename="ley_0309_2026.htm",
+            text="textoomega regla tributaria especial con evidencia verificable.",
+            designation="Artículo 3",
+        )
+        # Reference expansion may contain text from an independently owned
+        # canonical authority, even though its retrieval was fully verified.
+        # Do not fabricate authority provenance or suppress the validator.
+        external_span = {
+            "evidence_ref": "evidence:foreign-verified-context",
+            "authority_ref": "authority:foreign-canonical-document",
+        }
+        context = SimpleNamespace(
+            context_status="expanded_verified",
+            budget_exhausted=False,
+            gaps=(),
+        )
+        with (
+            patch(
+                "case_research_runtime_v5.CorpusRetrievalService."
+                "reference_resolution_states_for_segment",
+                return_value=("reference",),
+            ),
+            patch(
+                "case_research_runtime_v5.CorpusRetrievalService."
+                "retrieve_citable_context",
+                return_value=context,
+            ),
+            patch(
+                "case_research_runtime_v5.materialize_citable_context_spans",
+                return_value=(external_span,),
+            ),
+        ):
+            outcome = analyze_case_v5(
+                case_input=case_input,
+                db_path=self.db,
+                case_root=Path(self.tmp.name) / "cross-authority",
+                structurer=self._structurer(intake),
+            )
+
+        validate_legal_research_bundle(outcome.bundle)
+        self.assertEqual(outcome.bundle["status"], "partial")
+        self.assertNotIn(
+            external_span["evidence_ref"],
+            {span["evidence_ref"] for span in outcome.bundle["evidence_spans"]},
+        )
+        self.assertTrue(any(
+            item["category"] == "context_incomplete"
+            for item in outcome.bundle["unresolved"]
+        ))
+        self.assertTrue(any(
+            item["context_status"] == "incomplete"
+            for item in outcome.bundle["research_result"]["evidence_selections"]
+        ))
+        spans = {
+            span["evidence_ref"]: span
+            for span in outcome.bundle["evidence_spans"]
+        }
+        for selection in outcome.bundle["research_result"]["evidence_selections"]:
+            for ref in selection["evidence_refs"]:
+                self.assertEqual(
+                    spans[ref]["authority_ref"], selection["authority_ref"]
+                )
 
     def test_runtime_bootstrap_requires_and_applies_existing_v5_migration(self) -> None:
         bootstrap_db = Path(self.tmp.name) / "bootstrap.sqlite"
