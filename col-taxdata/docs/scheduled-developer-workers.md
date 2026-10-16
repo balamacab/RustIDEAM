@@ -40,6 +40,8 @@ Selection order is:
 
 Tester case `blocking_issues` are evidence/context for defect creation and case lifecycle. They are **not** the Developer queue. Stale case state must therefore never force a Developer to select a closed issue.
 
+The initial backlog was seeded with ten low/low-medium candidate issues (#257). That initial seed count is not a permanent dispatch limit: Controller may add a small, explicitly bounded urgent candidate when live defects justify it (for example, a medium-complexity P0 REST transport defect). Repository tests must validate the new known priority/exception explicitly rather than mislabeling complexity or bypassing CI. The backlog still grants no Developer ownership; every claim requires live eligibility checks and atomic persistence.
+
 The backlog may include future items with explicit dependencies. Such an entry is not eligible until GitHub live proves those dependencies satisfied. Backlog metadata such as complexity or semantic domains is a scheduling hint; issue/spec/live GitHub state remains authoritative.
 
 Closed issues #5, #8 and #221 are historical completed work and must not re-enter the active backlog unless GitHub contains an explicit regression/reopen.
