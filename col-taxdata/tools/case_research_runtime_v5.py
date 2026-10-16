@@ -466,12 +466,24 @@ def _execute_research(
                         _project_shared_object_to_v5(item)
                         for item in materialize_citable_context_spans(con, context)
                     ]
-                    selection_spans.extend(context_spans)
+                    # Verified context may resolve a reference into a *different*
+                    # canonical document. Its span has its own authority owner:
+                    # placing that ref in this selection would assert a false
+                    # authority/evidence relationship (and correctly fail v5
+                    # integrity validation). It requires independent research.
+                    external_context = [
+                        span for span in context_spans
+                        if span["authority_ref"] != authority_ref
+                    ]
+                    selection_spans.extend(
+                        span for span in context_spans
+                        if span["authority_ref"] == authority_ref
+                    )
                     context_expansions_by_aspect[aspect_ref] = (
                         context_used + len(context_spans)
                     )
                     context_status = context.context_status
-                    if context_status != "expanded_verified":
+                    if context_status != "expanded_verified" or external_context:
                         context_status = "incomplete"
                         category = (
                             "budget_exhausted"
@@ -481,8 +493,16 @@ def _execute_research(
                         item = _unresolved(
                             category=category,
                             description=(
-                                "Selected evidence requires context that could not be "
-                                "completed from verified bounded corpus structure."
+                                "Verified reference context belongs to another "
+                                "canonical authority and requires independent "
+                                "authority-scoped research before supporting "
+                                "this selection."
+                                if external_context
+                                else (
+                                    "Selected evidence requires context that could "
+                                    "not be completed from verified bounded "
+                                    "corpus structure."
+                                )
                             ),
                             task=task,
                             authority_ref=authority_ref,
@@ -492,6 +512,10 @@ def _execute_research(
                                 task["task_ref"],
                                 base_span["evidence_ref"],
                                 tuple(gap.reason for gap in context.gaps),
+                                tuple(sorted(
+                                    (span["authority_ref"], span["evidence_ref"])
+                                    for span in external_context
+                                )),
                                 context.budget_exhausted,
                             ),
                         )
