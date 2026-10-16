@@ -73,6 +73,41 @@ Workers competing for the same issue/attempt/main SHA must construct the same br
 
 After winning branch creation, the worker must immediately publish the machine-readable Developer claim comment before product edits. Failure to persist that metadata prevents implementation and leaves the branch as non-owning/orphan evidence.
 
+## Controller-authorized emergency claim handoff
+
+Normal workers acquire claims themselves through unique atomic branch creation
+followed by the machine-readable `CLAIMED` issue comment. This remains the
+default and cannot be replaced by an informal issue assignment.
+
+When repeated attempts have demonstrably failed **after creating the branch but
+before persisting the claim comment**, Controller may explicitly recover the
+coordination deadlock on behalf of one named worker **only** when:
+
+1. Live GitHub verifies the issue is OPEN, dependencies are satisfied, and no
+   conflicting active claims or implementation PRs exist. Each historical
+   no-op branch consumes its attempt number; no prior branch is adopted.
+2. Controller creates exactly the next issue/attempt/main12 branch **atomically**
+   from the exact current protected-main SHA; a lost race cannot be reclaimed.
+3. Controller immediately writes the normal
+   `col-taxdata-developer-claim` record to the **same issue** with exact
+   `worker_id`, issue, attempt, base SHA, branch and state `CLAIMED`,
+   plus `claim_origin=CONTROLLER_EXPLICIT_RECOVERY`. The prose explicitly
+   identifies Controller as the assigning actor, not the implementing worker.
+4. The worker, on its next activation, recognizes this as **its own active,
+   nonterminal assigned claim** and resumes only that exact issue/branch.
+   It **must not** create another attempt, adopt another worker's assignment,
+   or assert it personally created the already-persisted claim.
+5. Before product edits, it revalidates the branch, issue, claim, main drift,
+   parallel safety, issue scope and selected tests/CI. It then does the
+   implementation and produces its own commits/PR and completion evidence.
+   If handoff metadata or any GitHub read/write is unavailable, it reports
+   the precise blocker and does not invent a completed implementation.
+
+The recovery comment and branch prove exclusive handoff, **not** that the
+worker has executed code or that CI, merge, convergence or acceptance passed.
+Controller verifies actual progress through implementation commits and
+normal lifecycle evidence; it cannot declare delivery merely from the handoff.
+
 ## One issue through the complete lifecycle
 
 Once a Developer claims issue `N`, that issue remains the sole task through:
