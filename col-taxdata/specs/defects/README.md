@@ -13,7 +13,9 @@ The machine-readable ordering/dependency graph is maintained in [`specs/manifest
 | [DEF-0005](DEF-0005-retrieval-duplicate-segments.md) | P2 | Repeated equivalent segments bias FTS/RAG retrieval | [#5](https://github.com/balamacab/RustIDEAM/issues/5) | verified |
 | [DEF-0006](DEF-0006-container-file-ownership.md) | P2 | Docker writes runtime evidence as root with raw files mode 0600 | [#6](https://github.com/balamacab/RustIDEAM/issues/6) | specified |
 | [DEF-0007](DEF-0007-legal-body-false-short.md) | P2 | Valid Sentencia C-096/2001 is rejected as an unexpectedly short legal body | [#7](https://github.com/balamacab/RustIDEAM/issues/7) | verified |
+| [DEF-0008](DEF-0008-case-materialization-freshness.md) | — | Case report and source-manifest materializations can drift from canonical case state | [#18](https://github.com/balamacab/RustIDEAM/issues/18) | verified |
 | [DEF-0009](DEF-0009-unreferenced-document-lifecycle.md) | — | Source-less canonical Documents lack an explicit retention/cleanup lifecycle | [#19](https://github.com/balamacab/RustIDEAM/issues/19) | verified |
+| [DEF-0010](DEF-0010-crawler-page-classification.md) | — | Crawler index reclassification can conceal unresolved legal extraction failures | [#20](https://github.com/balamacab/RustIDEAM/issues/20) | verified |
 | [DEF-0011](DEF-0011-rejected-llm-output-evidence.md) | P1 | Rejected CASE LLM outputs lose auditable failure evidence | [#90](https://github.com/balamacab/RustIDEAM/issues/90) | verified |
 | [DEF-0012](DEF-0012-user-provided-source-quote-fidelity.md) | P1 | Generated user-provided source quotes can drift from literal client text | [#91](https://github.com/balamacab/RustIDEAM/issues/91) | verified |
 | [DEF-0013](DEF-0013-issue67-runtime-envelope-drift.md) | P2 | Issue #67 canonical runtime envelope drift | [#92](https://github.com/balamacab/RustIDEAM/issues/92) | verified |

@@ -86,12 +86,28 @@ items:
     github_issue: 7
     depends_on: []
 
+  - id: DEF-0008
+    type: defect
+    status: verified
+    area: case-materialization
+    spec: specs/defects/DEF-0008-case-materialization-freshness.md
+    github_issue: 18
+    depends_on: []
+
   - id: DEF-0009
     type: defect
     status: verified
     area: document-lifecycle
     spec: specs/defects/DEF-0009-unreferenced-document-lifecycle.md
     github_issue: 19
+    depends_on: []
+
+  - id: DEF-0010
+    type: defect
+    status: verified
+    area: crawl-page-classification
+    spec: specs/defects/DEF-0010-crawler-page-classification.md
+    github_issue: 20
     depends_on: []
 
   - id: DEF-0013
