@@ -132,10 +132,24 @@ class DeveloperAdmissionTests(unittest.TestCase):
         with self.assertRaisesRegex(SnapshotError, "unclaimed branch with implementation"):
             reconcile(snapshot(i, channel="verified"))
 
-    def test_unknown_channel_cannot_create_claim(self):
+    def test_unknown_channel_allows_only_first_provisional_claim(self):
         r = reconcile(snapshot(issue(268), channel="unknown"))
+        self.assertEqual(r["decision"], "CREATE_CLAIM")
+        self.assertEqual(r["attempt"], 1)
+        self.assertEqual(r["write_channel"], "unknown")
+        self.assertEqual(
+            r["precondition"], "atomic_branch_create_then_verified_CLAIMED_comment"
+        )
+
+    def test_unknown_channel_with_orphan_does_not_retry(self):
+        i = issue(268)
+        i["branches"].append({
+            "name": "agent/issue-268-claim-a1-" + MAIN[:12], "head_sha": MAIN
+        })
+        r = reconcile(snapshot(i, channel="unknown"))
         self.assertEqual(r["decision"], "BLOCKED")
-        self.assertEqual(r["reason"], "write_channel_unverified")
+        self.assertEqual(r["reason"], "unconfirmed_claim_write_after_orphan")
+        self.assertEqual(r["next_attempt"], 2)
 
     def test_two_claimed_workers_on_same_issue_is_corruption(self):
         i = issue(259)
