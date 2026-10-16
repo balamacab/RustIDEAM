@@ -172,10 +172,17 @@ def reconcile(snapshot: dict[str, Any]) -> dict[str, Any]:
     if not candidate:
         return {"decision": "NO_OP", "reason": "no_eligible_issue"}
     _, number, issue, maximum, orphans = min(candidate, key=lambda t: (t[0], t[1]))
-    if channel != "verified":
+    # An UNKNOWN channel is normal for an initial stateless activation.
+    # Allow one provisional atomic claim attempt, but NEVER create another
+    # branch after an unclaimed no-op when the write channel remains unknown.
+    # Only successful same-context authorized writes may mark it verified.
+    if channel == "denied" or (channel == "unknown" and orphans):
         return {
             "decision": "BLOCKED", "issue": number,
-            "reason": "external_write_denied" if channel == "denied" else "write_channel_unverified",
+            "reason": (
+                "external_write_denied" if channel == "denied"
+                else "unconfirmed_claim_write_after_orphan"
+            ),
             "orphan_noop": orphans, "next_attempt": maximum + 1,
         }
     return {
@@ -183,6 +190,7 @@ def reconcile(snapshot: dict[str, Any]) -> dict[str, Any]:
         "attempt": maximum + 1,
         "branch": f"agent/issue-{number}-claim-a{maximum + 1}-{main[:12]}",
         "base_sha": main, "orphan_noop": orphans,
+        "write_channel": channel,
         "precondition": "atomic_branch_create_then_verified_CLAIMED_comment",
     }
 
