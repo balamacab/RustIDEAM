@@ -47,6 +47,12 @@ class ConfigFingerprintTests(unittest.TestCase):
         self.assertNotEqual(fingerprint_json(lhs), fingerprint_json({**rhs, "x": 1}))
         self.assertNotEqual(fingerprint_json([1, 2]), fingerprint_json([2, 1]))
 
+    def test_json_rejects_ambiguous_object_keys(self):
+        with self.assertRaisesRegex(ValueError, "cannot be serialized"):
+            fingerprint_json({1: "one"})
+        with self.assertRaisesRegex(ValueError, "cannot be serialized"):
+            fingerprint_json({"nested": [{None: "null"}]})
+
     def test_missing_is_never_the_empty_sha(self):
         with tempfile.TemporaryDirectory() as tmp:
             absent = fingerprint_file(Path(tmp) / "missing")
