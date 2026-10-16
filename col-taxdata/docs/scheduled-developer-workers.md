@@ -108,6 +108,69 @@ worker has executed code or that CI, merge, convergence or acceptance passed.
 Controller verifies actual progress through implementation commits and
 normal lifecycle evidence; it cannot declare delivery merely from the handoff.
 
+## Admission resilience and recovery for scheduled DEV-1 / DEV-2
+
+The human-facing labels Desarrollo A / Desarrollo B map **only** to durable
+worker IDs `DEV-1` / `DEV-2`. Neither `DEV-A` nor `DEV-B` may appear as
+a `worker_id` in a machine-readable claim. These rules apply independently
+of the scheduler and are part of each worker's required protected-main
+preflight. They supersede older Library contract text that infers work solely
+from cached Tester blockers or computes attempts from comment counts only.
+An effective scheduled prompt may additionally pin a Library-file hash;
+modifying repository documentation does **not** silently update that pin.
+
+### Recovery-first decision table
+
+Every activation must reconstruct **GitHub live** (not last chat output)
+before allocating a claim:
+
+| Observation | Mandatory next action |
+| --- | --- |
+| One verified nonterminal `CLAIMED` by own durable worker ID (including `claim_origin=CONTROLLER_EXPLICIT_RECOVERY`) and matching branch / OPEN issue | Resume that issue and branch; verify current head, dependencies, PR/checks, and semantic overlap; do **not** create another attempt |
+| Own prior claim has true terminal `DONE` / `WITHDRAWN` evidence, or the issue has documented merge + convergence + any required post-merge acceptance and is CLOSED | Release that claim for selection purposes without changing historical comments; never reopen automatically |
+| A branch matching claim naming has no durable claim comment, no implementation PR/log, and HEAD equals its observed base | Classify `ORPHAN_NOOP`; consume attempt number; do not reuse, adopt or erase the branch |
+| An unclaimed candidate has open issue + converged dependencies + no competing claim + parallel-safe scope | Compute next attempt from **both** branch and comment histories: `attempt = 1 + max(K observed in either source)`; perform the one atomic branch-create attempt |
+| Branch creation returns a provable already-exists conflict (e.g. GitHub 422) | Lost race; do not write to winner's branch; revalidate once and consider the next safe candidate |
+| Branch created, but `CLAIMED` comment outcome is unknown (timeout/connection loss) | Read the target issue's comments and exact branch HEAD first. If the exact comment exists, resume it; if absent, one bounded same-branch comment retry is allowed **only** for a demonstrably transient transport / 429 / 5xx failure |
+| Branch created, but GitHub rejects the comment because of explicit security/policy denial, missing write permission, or repeated verified failure | Do not bypass or reformat to evade a safety refusal; no product edits and no other GitHub writer. Mark the local outcome `ADMISSION_BLOCKED` with operation + denial class, preserve `ORPHAN_NOOP`, and request Controller's exceptional documented recovery |
+| One or more consecutive `ORPHAN_NOOP` attempts exist for a candidate on unchanged main with persistent comment-write denial | Do not create yet another no-op branch on each scheduled activation. Revalidate the live state; prioritize a valid own Controller handoff or a different independently safe candidate if its write path is verified. Otherwise report the precise external admission blocker |
+| Own claimed issue encounters stale HEAD / rebase conflict / failed CI / pending convergence | Keep the same issue/claim, use existing bounded GitHub-native recovery; do not confuse these recoverable lifecycle states with `ADMISSION_BLOCKED` |
+| Contradictory claims, differing durable identities, or an issue with unresolved ownership | Stop only conflicting work, preserve evidence, and report coordination corruption; never steal another worker's claim |
+
+The first successful branch creation is **provisional**, not full admission.
+Admission is the exact branch **plus** the machine-readable `CLAIMED` issue
+comment. The comment may be short: the full validated
+`col-taxdata-developer-claim` JSON marker suffices; do not add unrelated
+requests or raw sensitive data. Read-after-write confirmation must match
+`worker_id`, issue, attempt, base SHA, branch and state exactly. Once admitted,
+resume normal implementation rather than repeatedly diagnosing GitHub.
+
+The retry ceiling is about attempts **on the same provisional branch**, not
+permission to create newer branch numbers after each scheduled failure. For
+unknown writes, inspect live comments **before** retrying, so delayed success
+does not create duplicate claims. A persistent safety denial cannot be repaired
+by a repository documentation change, and must not be bypassed by changing
+tools or writing GitHub through Morichal.
+
+### External contract drift and progress evidence
+
+At bootstrap read this file from exact protected main. If a pinned worker
+Library file or scheduler-facing prompt conflicts (for example, DEV-2's old
+`attempt=1+number_of_CLAIMED` or cached Tester blockers as primary queue),
+report `CONTRACT_DRIFT` and use the newer authoritative repository rule only
+when the effective worker contract permits that precedence. Never claim that
+the external prompt or pinned hash was changed by a repository commit.
+
+A successful Controller handoff is a **recovery of admission**, not an
+implementation. Only actual code commits authored/executed by the worker,
+its issue-specific regression tests, PR, CI, merge, and acceptance demonstrate
+Developer progress. Controller-written code is attributed to Controller,
+even when carried on a branch historically owned by DEV-1 or DEV-2.
+
+No part of this recovery procedure changes scheduling, scheduled tasks,
+worker identities, Tester admission, the requirement for GitHub connector
+writes, protected-main CI rules, or permission to operate on production.
+
 ## One issue through the complete lifecycle
 
 Once a Developer claims issue `N`, that issue remains the sole task through:
