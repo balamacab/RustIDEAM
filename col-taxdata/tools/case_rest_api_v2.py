@@ -424,6 +424,8 @@ class CaseRESTServer(ThreadingHTTPServer):
 
 
 class CaseRESTRequestHandler(BaseHTTPRequestHandler):
+    """Serialize public JSON requests without exposing internal CASE state."""
+
     server: CaseRESTServer
     protocol_version = "HTTP/1.1"
 
@@ -520,6 +522,7 @@ class CaseRESTRequestHandler(BaseHTTPRequestHandler):
         return body
 
     def do_POST(self) -> None:
+        """Validate one request, admit bounded research, return v2 envelope."""
         if self.path != DEFAULT_ENDPOINT:
             self._send_registered_error(CASE_API_NOT_FOUND)
             return
