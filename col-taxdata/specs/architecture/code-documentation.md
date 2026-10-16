@@ -100,6 +100,28 @@ The mechanical check requires a non-empty docstring for:
 
 Private/internal definitions are not mechanically scored. Their required rationale is enforced through the completion/static-review contract because a simplistic complexity score would encourage boilerplate and false confidence.
 
+### Reasoned trivial-function suppression
+
+A newly introduced or AST-modified **public function or method** may omit a
+docstring only for a mechanically trivial one-statement getter, constant return
+or unchanged argument-forwarding delegate. Immediately above the `def` (or its
+first decorator), at the same indentation, write:
+
+```python
+# doc-policy: trivial - delegates the unchanged request to the versioned adapter
+def compatibility_wrapper(request):
+    return versioned_adapter(request)
+```
+
+The text after ` - ` must be a nonempty reason. The exact, case-sensitive
+`# doc-policy: trivial - <reason>` marker is reviewable source intent, not a
+global allowlist. A missing reason, malformed marker, misplaced indentation,
+substantial body, transformation or nested call is rejected. This suppresses
+only the individual function/method's incremental docstring check. It never
+suppresses module or class documentation, untouched legacy transition rules
+or other static-review responsibilities. Prefer a normal docstring for any
+non-obvious behavior, even if the mechanical shape is short.
+
 ### New module documentation
 
 A newly introduced production module also requires a module docstring when it is structurally substantial: it introduces either a public class or at least two public top-level callables.
