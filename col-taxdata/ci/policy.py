@@ -347,6 +347,63 @@ def _has_docstring(node: ast.AST) -> bool:
     return bool(value and value.strip())
 
 
+def _trivial_function_body(node: ast.AST) -> bool:
+    """Recognize only a one-statement getter, constant or unchanged delegate."""
+    if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+        return False
+    if len(node.body) != 1:
+        return False
+    statement = node.body[0]
+    if not isinstance(statement, (ast.Return, ast.Expr)):
+        return False
+    value = statement.value
+    if isinstance(statement, ast.Expr) and not isinstance(value, ast.Call):
+        return False
+    if isinstance(value, (ast.Constant, ast.Name, ast.Attribute)):
+        return isinstance(statement, ast.Return)
+    if not isinstance(value, ast.Call) or not isinstance(value.func, (ast.Name, ast.Attribute)):
+        return False
+    # Only forwarding existing arguments is trivial. Computation, extra calls,
+    # literals and transformed keywords require the ordinary docstring.
+    return (
+        all(
+            isinstance(argument, ast.Name)
+            or (isinstance(argument, ast.Starred) and isinstance(argument.value, ast.Name))
+            for argument in value.args
+        )
+        and all(isinstance(keyword.value, ast.Name) for keyword in value.keywords)
+    )
+
+
+def _trivial_suppression(
+    node: ast.AST, source_lines: list[str]
+) -> tuple[bool, str | None]:
+    """Validate a same-indent marker directly above a public definition.
+
+    The marker is reviewable source documentation, never an allowlist by name.
+    Decorated functions place it before the first decorator.
+    """
+    if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+        return False, None
+    start = min([node.lineno] + [part.lineno for part in getattr(node, "decorator_list", [])])
+    if start <= 1:
+        return False, None
+    line = source_lines[start - 2]
+    stripped = line.lstrip()
+    if not stripped.startswith("# doc-policy:"):
+        return False, None
+    if len(line) - len(stripped) != node.col_offset:
+        return False, "trivial suppression indentation must match definition"
+    match = re.fullmatch(r"# doc-policy: trivial - (\S(?:.*\S)?)", stripped)
+    if not match:
+        return False, "trivial suppression needs a non-empty reason"
+    if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+        return False, "trivial suppression cannot exempt a class"
+    if not _trivial_function_body(node):
+        return False, "trivial suppression cannot exempt non-trivial implementation"
+    return True, None
+
+
 def _module_requires_docstring(tree: ast.Module) -> bool:
     """Classify a new module as substantial using stable structure, not line counts."""
     public_classes = 0
@@ -444,14 +501,18 @@ def documentation_policy_violations(
                 f"{path}: missing module docstring for new substantial production module"
             )
 
+        source_lines = current_path.read_text(encoding="utf-8").splitlines()
         for qualified_name, (node, kind) in _public_definitions(current_tree).items():
+            suppressed, suppression_error = _trivial_suppression(node, source_lines)
+            if suppression_error:
+                violations.append(f"{path}:{qualified_name}: {suppression_error}")
             previous = previous_definitions.get(qualified_name)
             materially_modified = (
                 new_production_module
                 or previous is None
                 or _definition_fingerprint(node) != _definition_fingerprint(previous[0])
             )
-            if materially_modified and not _has_docstring(node):
+            if materially_modified and not _has_docstring(node) and not suppressed:
                 violations.append(
                     f"{path}:{qualified_name}: missing docstring for "
                     f"new/modified public {kind}"
