@@ -60,7 +60,10 @@ The sample SHAs are placeholders, **never use them as facts**. For a real run:
 - `write_channel=verified` requires a **successful authorized write in the
   same effective worker execution context**, not the repository `push`
   permission, another agent's success or a healthcheck. `denied` records an
-  explicit refusal; `unknown` does not authorize creating a new orphan.
+  explicit refusal. `unknown` allows exactly ONE provisional atomic branch
+  attempt when the chosen issue has no prior orphan. Its immediately following
+  `CLAIMED` comment must succeed and be read back; a failure leaves
+  `ORPHAN_NOOP`, and another unverified attempt is forbidden.
 - For a closed claimed issue, a `DONE` marker with convergence SHA must
   exist before the claim can be discarded as terminal. `WITHDRAWN` must
   be a real machine-readable terminal claim record.
@@ -103,3 +106,8 @@ A GitHub docs or tool commit does not update a scheduler prompt, pinned hash or
 external Library worker contract. Proven worker recovery requires a worker's
 own source changes, PR, CI and convergence. Keep #323 open until that evidence
 exists. Do not modify scheduled tasks to test this helper.
+
+The Controller subsequently published an explicit DEV-1 handoff for
+#268/a2 on `agent/issue-268-claim-a2-c5767b9d3f53`, leaving a1 as a
+historical `ORPHAN_NOOP`. Neither worker's implementation is proved by those
+handoffs; all main drift must be reconciled on the original claim branch.
