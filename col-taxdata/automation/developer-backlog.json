@@ -18,6 +18,35 @@
   },
   "items": [
     {
+      "issue": 310,
+      "priority": 0,
+      "complexity": "medium",
+      "depends_on": [],
+      "readiness": "ready_if_live_eligible",
+      "semantic_domains": [
+        "case-rest-v2",
+        "http-concurrency",
+        "runtime"
+      ],
+      "runtime_mutation": false,
+      "rationale": "P0: verified persistent HTTP/1.1 keep-alive blocks Web/REST; fix product code, bounded CASE concurrency and regressions before operator smoke."
+    },
+    {
+      "issue": 304,
+      "priority": 5,
+      "complexity": "low-medium",
+      "depends_on": [
+        58
+      ],
+      "readiness": "ready_if_live_eligible",
+      "semantic_domains": [
+        "documentation-policy",
+        "ci-policy"
+      ],
+      "runtime_mutation": false,
+      "rationale": "P1: bounded reasoned-trivial exemption to prevent documentation policy from delaying credible CASE fixes; independent of REST runtime."
+    },
+    {
       "issue": 53,
       "priority": 10,
       "complexity": "low",

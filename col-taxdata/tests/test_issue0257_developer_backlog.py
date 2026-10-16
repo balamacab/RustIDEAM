@@ -14,13 +14,29 @@ class DeveloperBacklogContractTests(unittest.TestCase):
         self.data = json.loads(BACKLOG.read_text(encoding="utf-8"))
         self.items = self.data["items"]
 
-    def test_seed_backlog_is_bounded_unique_and_low_complexity(self):
+    def test_live_backlog_is_bounded_unique_and_prioritizes_p0(self):
+        # The original ten low-complexity seed candidates are not a permanent
+        # queue limit: #310 is a measured REST outage requiring a bounded,
+        # explicit medium-complexity exception rather than a false low label.
         self.assertEqual(self.data["schema_version"], 1)
         self.assertEqual(self.data["kind"], "developer_backlog")
-        self.assertEqual(len(self.items), 10)
+        self.assertGreaterEqual(len(self.items), 10)
+        self.assertLessEqual(len(self.items), 12)
         issues = [item["issue"] for item in self.items]
         self.assertEqual(len(issues), len(set(issues)))
-        self.assertTrue(all(item["complexity"] in {"low", "low-medium"} for item in self.items))
+        self.assertEqual(issues[:2], [310, 304])
+        self.assertEqual([item["priority"] for item in self.items[:2]], [0, 5])
+        self.assertEqual(
+            {item["issue"] for item in self.items if item["complexity"] == "medium"},
+            {310},
+        )
+        self.assertTrue(
+            all(item["complexity"] in {"low", "low-medium", "medium"}
+                for item in self.items)
+        )
+        self.assertEqual(self.items[0]["depends_on"], [])
+        self.assertEqual(self.items[0]["readiness"], "ready_if_live_eligible")
+        self.assertEqual(self.items[1]["depends_on"], [58])
         priorities = [item["priority"] for item in self.items]
         self.assertEqual(priorities, sorted(priorities))
 
