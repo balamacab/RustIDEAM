@@ -61,6 +61,38 @@ class DeveloperBacklogContractTests(unittest.TestCase):
         self.assertGreaterEqual(text.count("ORPHAN_NOOP"), 2)
         self.assertIn("continue to the next safe backlog item", text)
 
+    def test_recovery_first_admission_contract_prevents_orphan_retry_storm(self):
+        text = WORKERS.read_text(encoding="utf-8")
+        for invariant in (
+            "CONTROLLER_EXPLICIT_RECOVERY",
+            "DEV-1",
+            "DEV-2",
+            "DEV-A",
+            "DEV-B",
+            "Read-after-write confirmation",
+            "attempt = 1 + max(K observed in either source)",
+            "ORPHAN_NOOP",
+            "persistent comment-write denial",
+            "ADMISSION_BLOCKED",
+            "CONTRACT_DRIFT",
+            "429 / 5xx",
+            "no product edits",
+            "Do not create yet another no-op branch",
+            "GitHub through Morichal",
+        ):
+            self.assertIn(invariant, text)
+        # The contract must distinguish a verified Controller handoff from
+        # Controller-authored implementation and from a no-op branch.
+        self.assertIn(
+            "Controller-written code is attributed to Controller", text
+        )
+        self.assertIn(
+            "The first successful branch creation is **provisional**", text
+        )
+        self.assertIn(
+            "same-branch comment retry", text
+        )
+
     def test_swarm_contract_does_not_use_case_blockers_as_dispatch_queue(self):
         text = SWARM.read_text(encoding="utf-8")
         self.assertIn("automation/developer-backlog.json", text)
