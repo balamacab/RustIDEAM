@@ -41,7 +41,7 @@ def clean(obj, depth=0):
     if isinstance(obj, str):
         if len(obj) > 6000:
             fail("detail field too long")
-        return BEARER.sub("Bearer [REDACTED]", CREDENTIAL.sub(r"\1[REDACTED]", obj))
+        return CREDENTIAL.sub(r"\1[REDACTED]", BEARER.sub("Bearer [REDACTED]", obj))
     if isinstance(obj, (int, float, bool)) or obj is None:
         return obj
     if isinstance(obj, list):
