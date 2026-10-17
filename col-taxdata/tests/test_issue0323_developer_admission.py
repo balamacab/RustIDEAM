@@ -168,5 +168,81 @@ class DeveloperAdmissionTests(unittest.TestCase):
             reconcile(snapshot(issue(268), worker="DEV-A", channel="verified"))
 
 
+
+    def test_historical_wrong_identity_withdrawn_and_done_record_frees_worker(self):
+        """Replays #53's actual a4 WITHDRAWN, a5 DONE, and live #268."""
+        old = issue(53, state="closed")
+        legacy = claimed(53, "DEV-A", 4)
+        add_claim(old, legacy)
+        old["comments"].append({"body":
+            "<!-- col-taxdata-developer-claim: " +
+            json.dumps({**legacy, "state": "WITHDRAWN"}) + " -->"})
+        latest = claimed(53, "DEV-1", 5)
+        add_claim(old, latest)
+        convergence = "c" * 40
+        old["comments"].append({"body":
+            '<!-- col-taxdata-agent-state: {"state":"DONE","convergence_sha":"' +
+            convergence + '"} -->'})
+        old["comments"].append({"body":
+            "<!-- col-taxdata-developer-claim: " +
+            json.dumps({k: v for k, v in {
+                **latest, "state": "DONE", "convergence_sha": convergence
+            }.items() if k != "base_sha"}) + " -->"})
+        current = issue(268)
+        add_claim(current, claimed(268, "DEV-1", 2))
+        outcome = reconcile(snapshot(old, current, worker="DEV-1", channel="denied"))
+        self.assertEqual((outcome["decision"], outcome["issue"], outcome["attempt"]),
+                         ("RESUME", 268, 2))
+
+    def test_withdrawal_must_match_exact_prior_claim(self):
+        i = issue(53)
+        old = claimed(53, "DEV-A", 4)
+        add_claim(i, old)
+        i["comments"].append({"body":
+            "<!-- col-taxdata-developer-claim: " +
+            json.dumps({**old, "worker_id": "DEV-1", "state": "WITHDRAWN"}) + " -->"})
+        with self.assertRaisesRegex(SnapshotError, "terminal claim identity mismatch"):
+            reconcile(snapshot(i))
+
+    def test_legacy_wrong_identity_must_be_withdrawn(self):
+        i = issue(53)
+        add_claim(i, claimed(53, "DEV-A", 4))
+        with self.assertRaisesRegex(SnapshotError, "unwithdrawn legacy worker identity"):
+            reconcile(snapshot(i))
+
+    def test_unpaired_done_does_not_terminate_another_claim(self):
+        i = issue(53, state="closed")
+        done = claimed(53, "DEV-1", 5)
+        i["comments"].append({"body":
+            "<!-- col-taxdata-developer-claim: " +
+            json.dumps({**done, "state": "DONE", "convergence_sha": "c" * 40}) + " -->"})
+        with self.assertRaisesRegex(SnapshotError, "terminal claim without prior admission"):
+            reconcile(snapshot(i))
+
+    def test_done_requires_matching_repository_convergence(self):
+        i = issue(53, state="closed")
+        record = claimed(53, "DEV-1", 5)
+        add_claim(i, record)
+        i["comments"].append({"body":
+            '<!-- col-taxdata-agent-state: {"state":"DONE","convergence_sha":"' +
+            "d" * 40 + '"} -->'})
+        i["comments"].append({"body":
+            "<!-- col-taxdata-developer-claim: " +
+            json.dumps({**record, "state": "DONE", "convergence_sha": "c" * 40}) + " -->"})
+        with self.assertRaisesRegex(SnapshotError, "DONE claim lacks matching convergence evidence"):
+            reconcile(snapshot(i))
+
+    def test_historical_withdrawal_does_not_block_unrelated_open_issue(self):
+        i = issue(53)
+        record = claimed(53, "DEV-A", 4)
+        add_claim(i, record)
+        i["comments"].append({"body":
+            "<!-- col-taxdata-developer-claim: " +
+            json.dumps({**record, "state": "WITHDRAWN"}) + " -->"})
+        outcome = reconcile(snapshot(i, worker="DEV-1", channel="verified"))
+        self.assertEqual(outcome["decision"], "CREATE_CLAIM")
+        self.assertEqual(outcome["attempt"], 5)
+
+
 if __name__ == "__main__":
     unittest.main()
