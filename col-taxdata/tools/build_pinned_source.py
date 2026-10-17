@@ -94,6 +94,7 @@ def build_pinned_image(sha: str, *, compose_path: str | Path | None = None) -> d
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Validate a chosen commit, optionally verify Git and build explicitly."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--commit", required=True, help="Exact 40-hex Git commit SHA")
     parser.add_argument("--verify-local", metavar="REPO",
