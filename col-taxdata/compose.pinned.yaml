@@ -1,0 +1,17 @@
+# Immutable source build for issue #268.
+# COL_TAXDATA_SOURCE_SHA is mandatory, full 40-hex SHA enforced by
+# tools/build_pinned_source.py before invoking this definition.
+# This path does not alter the moving-main compose.remote.yaml workflow.
+services:
+  taxdata:
+    build:
+      context: "https://github.com/balamacab/RustIDEAM.git#${COL_TAXDATA_SOURCE_SHA:?exact_commit_sha_required}:col-taxdata"
+    image: "col-taxdata:${COL_TAXDATA_SOURCE_SHA:?exact_commit_sha_required}"
+    working_dir: /app
+    environment:
+      COL_TAXDATA_SOURCE_SHA: "${COL_TAXDATA_SOURCE_SHA:?exact_commit_sha_required}"
+    labels:
+      org.opencontainers.image.revision: "${COL_TAXDATA_SOURCE_SHA:?exact_commit_sha_required}"
+    volumes:
+      - ./data:/app/data
+    restart: "no"
