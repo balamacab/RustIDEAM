@@ -59,30 +59,76 @@ def _check_issue(issue: dict[str, Any]) -> None:
 
 
 def _claims(issue: dict[str, Any]) -> list[dict[str, Any]]:
-    result = []
-    for c in issue["comments"]:
-        mark = _marker(c["body"], CLAIM_MARKER)
+    """Reconcile ordered claim events, retaining terminal historical attempts.
+
+    A legacy human-facing DEV-A/DEV-B identity is acceptable only as a
+    *withdrawn historical record*. It never acquires current ownership.
+    """
+    by_branch: dict[str, dict[str, Any]] = {}
+    for comment in issue["comments"]:
+        mark = _marker(comment["body"], CLAIM_MARKER)
         if mark is None:
             continue
-        if mark.get("state") not in ("CLAIMED", "WITHDRAWN"):
+        state = mark.get("state")
+        if state not in ("CLAIMED", "WITHDRAWN", "DONE"):
             raise SnapshotError("unsupported claim state")
-        if mark.get("worker_id") not in WORKERS or mark.get("issue") != issue["number"]:
+        worker_id = mark.get("worker_id")
+        if worker_id not in WORKERS | {"DEV-A", "DEV-B"} or mark.get("issue") != issue["number"]:
             raise SnapshotError("claim identity does not match issue")
-        if not isinstance(mark.get("attempt"), int) or mark["attempt"] <= 0:
+        attempt = mark.get("attempt")
+        if type(attempt) is not int or attempt <= 0:
             raise SnapshotError("invalid claim attempt")
-        if not SHA_RE.fullmatch(str(mark.get("base_sha", ""))):
-            raise SnapshotError("invalid claim base SHA")
         branch = mark.get("branch")
         match = BRANCH_RE.fullmatch(str(branch))
-        if not match or int(match.group(1)) != issue["number"] or int(match.group(2)) != mark["attempt"] or match.group(3) != mark["base_sha"][:12]:
+        if not match or int(match.group(1)) != issue["number"] or int(match.group(2)) != attempt:
             raise SnapshotError("claim branch identity mismatch")
-        result.append(mark)
-    return result
+        if state == "CLAIMED":
+            base_sha = mark.get("base_sha")
+            if not SHA_RE.fullmatch(str(base_sha)):
+                raise SnapshotError("invalid claim base SHA")
+            if match.group(3) != base_sha[:12]:
+                raise SnapshotError("claim branch identity mismatch")
+            if branch in by_branch:
+                raise SnapshotError("duplicate claim admission")
+            by_branch[branch] = dict(mark)
+            continue
+
+        # Terminal markers update an exact prior admission. Historical DONE
+        # markers need not repeat the original base_sha.
+        prior = by_branch.get(branch)
+        if prior is None:
+            raise SnapshotError("terminal claim without prior admission")
+        if prior["state"] != "CLAIMED":
+            raise SnapshotError("duplicate terminal claim event")
+        if worker_id != prior["worker_id"] or attempt != prior["attempt"]:
+            raise SnapshotError("terminal claim identity mismatch")
+        if mark.get("base_sha") is not None and mark["base_sha"] != prior["base_sha"]:
+            raise SnapshotError("terminal claim base SHA mismatch")
+        if state == "DONE":
+            convergence = mark.get("convergence_sha")
+            if issue["state"] != "closed" or not SHA_RE.fullmatch(str(convergence)):
+                raise SnapshotError("unverified terminal DONE claim")
+            if not any(
+                (event := _marker(c["body"], STATE_MARKER))
+                and event.get("state") == "DONE"
+                and event.get("convergence_sha") == convergence
+                for c in issue["comments"]
+            ):
+                raise SnapshotError("DONE claim lacks matching convergence evidence")
+        prior["state"] = state
+        if state == "DONE":
+            prior["convergence_sha"] = mark["convergence_sha"]
+    for claim in by_branch.values():
+        if claim["worker_id"] not in WORKERS and claim["state"] != "WITHDRAWN":
+            raise SnapshotError("unwithdrawn legacy worker identity")
+    return list(by_branch.values())
 
 
 def _terminal(issue: dict[str, Any], claim: dict[str, Any]) -> bool:
     if claim["state"] == "WITHDRAWN":
         return True
+    if claim["state"] == "DONE":
+        return issue["state"] == "closed"
     if issue["state"] != "closed":
         return False
     for comment in issue["comments"]:
@@ -90,7 +136,6 @@ def _terminal(issue: dict[str, Any], claim: dict[str, Any]) -> bool:
         if mark and mark.get("state") == "DONE" and SHA_RE.fullmatch(str(mark.get("convergence_sha", ""))):
             return True
     return False
-
 
 def _branch_attempts(issue: dict[str, Any], claims: list[dict[str, Any]]) -> tuple[int, list[str]]:
     max_attempt = max((c["attempt"] for c in claims), default=0)
